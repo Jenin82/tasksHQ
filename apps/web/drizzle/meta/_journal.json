@@ -1,0 +1,111 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1793870703880,
+      "tag": "0000_sharp_exiles",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1793871775703,
+      "tag": "0001_loud_prima",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1793872774419,
+      "tag": "0002_heavy_blink",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1793961106810,
+      "tag": "0003_status_colors",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1793964743116,
+      "tag": "0004_remove_status_category",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1794199363723,
+      "tag": "0005_task_due_date_and_priority",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1794219061361,
+      "tag": "0006_project_access_and_reporting",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1794223016859,
+      "tag": "0007_project_task_types",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1794291743331,
+      "tag": "0008_mail_outbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1794297740338,
+      "tag": "0009_project_slack",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1794385114021,
+      "tag": "0010_task_project_alias",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1794386442480,
+      "tag": "0011_task_share",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1794387493536,
+      "tag": "0012_comment_mentions",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1794390836654,
+      "tag": "0013_canonical_task_preview",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1794396379757,
+      "tag": "0014_project_task_edit_restriction",
+      "breakpoints": true
+    }
+  ]
+}

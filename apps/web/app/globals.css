@@ -1,0 +1,172 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* PLAN §7.4 — shadcn's token names and structure; values from design.md.
+   Light is derived: the same steps as dark's surface stack, inverted. */
+:root {
+  color-scheme: light;
+  --background: #fff;
+  --foreground: #0a0a0a;
+  --card: #fafafa;
+  --card-foreground: #0a0a0a;
+  --task-dialog: #f4f4f5;
+  --popover: #e4e4e7;
+  --popover-foreground: #0a0a0a;
+  --primary: #0063e1; /* §7.5: the one chromatic voice */
+  --primary-foreground: #fff;
+  --secondary: #ececee;
+  --secondary-foreground: #0a0a0a;
+  --muted: #f4f4f5;
+  --muted-foreground: #6b6b6b;
+  --accent: #ececee; /* hover surface, NOT the brand */
+  --accent-foreground: #0a0a0a;
+  /* Darker than dark's #d9474c, a recorded deviation (§7.4): that red is
+     4.24:1 on #fff and 4.06:1 on the card — under AA as text and under a
+     white label. This one is 5.48:1 / 5.25:1, and white on it 5.48:1. */
+  --destructive: #c0363b;
+  /* Fill behind white button text: AA needs a darker red than dark mode's
+     text red, so the button fill is its own token in both themes. */
+  --destructive-fill: #c0363b;
+  --border: rgba(0, 0, 0, 0.1);
+  --input: #f4f4f5;
+  --ring: #0063e1;
+  /* §7.2: elevation is an inset hairline, never a drop shadow. */
+  --shadow-subtle: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+  --shadow-subtle-2: 0 0 1px 0 rgba(0, 0, 0, 0.15);
+}
+
+/* §7.6: the sign-in block's entrance — a fade and an 8px rise, once. */
+@theme {
+  --animate-rise: rise 140ms cubic-bezier(0.2, 0, 0, 1) both;
+  --animate-shimmer: shimmer 1.3s linear infinite;
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+  }
+  @keyframes shimmer {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(100%); }
+  }
+}
+
+@theme inline {
+  --font-heading: var(--font-sans);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  /* §7.6: fast at the start, settles. Nothing eases in slowly. */
+  --default-transition-duration: 140ms;
+  --default-transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  --ease-settle: cubic-bezier(0.2, 0, 0, 1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-destructive-fill: var(--destructive-fill);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-menu-surface: var(--menu-surface, var(--background));
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-task-dialog: var(--task-dialog);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --shadow-subtle: var(--shadow-subtle);
+  --shadow-subtle-2: var(--shadow-subtle-2);
+  /* §7.4: explicit steps, not one --radius scaled. sm is nav and tabs, lg
+     inputs and menus, xl board cards, 2xl cards; buttons are rounded-full. */
+  --radius-sm: 2px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --radius-3xl: 24px;
+  --radius-4xl: 30px;
+  /* §7.3: tracking tightens with size; headings are 20-24px and no larger. */
+  --text-base--letter-spacing: -0.007em;
+  --text-lg--letter-spacing: -0.015em;
+  --text-xl--letter-spacing: -0.027em;
+  --text-2xl--letter-spacing: -0.027em;
+}
+
+.dark {
+  color-scheme: dark;
+  --background: #000; /* Obsidian */
+  --foreground: #fff;
+  --card: #0d0d0d; /* Graphite */
+  --card-foreground: #fff;
+  --task-dialog: #0f0f10; /* Keep destructive field errors at AA contrast. */
+  --popover: #2b2c2e; /* Steel */
+  --popover-foreground: #fff;
+  --primary: #0063e1;
+  --primary-foreground: #fff;
+  --secondary: #1f1f1f;
+  --secondary-foreground: #fff;
+  --muted: #1f1f1f;
+  --menu-surface: #171717;
+  /* Lighter than design.md's Ash #858585, a recorded deviation (§7.4): Ash
+     is 4.47:1 on Iron, the input and select fill. This is 5.10:1 there and
+     6.01:1 on the card. Still never on Steel (4.32:1). */
+  --muted-foreground: #8f8f8f;
+  --accent: #2b2c2e;
+  --accent-foreground: #fff;
+  --destructive: #d9474c; /* light has its own, darker red */
+  --destructive-fill: #c0363b; /* white on #d9474c is 4.24:1; on this, 5.48:1 */
+  --border: rgba(255, 255, 255, 0.12);
+  --input: #1f1f1f; /* Iron */
+  --ring: #0063e1;
+  --shadow-subtle: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+  --shadow-subtle-2: 0 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    /* §7.3's dense default: 14px. Prose steps up to text-base (16px). */
+    font-size: 14px;
+    line-height: 1.5;
+    letter-spacing: -0.007em;
+  }
+  html {
+    font-feature-settings: "case", "cv11";
+  }
+}
+
+/* §7.3's stutter register. The only other voice in the system. */
+@utility stutter {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 12px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.035em;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+}
+
+/* §7.1: numerals are tabular and never crowded. */
+@utility numeral {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+
+  /* A stutter numeral keeps the register's 0.035em: `numeral`'s own tracking
+     is for numbers set in the calm voice, and utility order in the generated
+     CSS — not class order in the markup — would otherwise let it win. */
+  &.stutter {
+    letter-spacing: 0.035em;
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "name": "mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.25.0",
+  "scripts": {
+    "dev": "cf dev",
+    "test": "vitest run",
+    "typecheck": "cf workers types && tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@cloudflare/workers-oauth-provider": "^1.2.4",
+    "@modelcontextprotocol/server": "^2.4.0",
+    "@tasks/core": "workspace:*",
+    "drizzle-orm": "^0.45.4",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "2.0.0-beta.v.11",
+    "@cloudflare/vitest-plugin": "^1.5.1",
+    "@vitest/runner": "4.1.12",
+    "@vitest/snapshot": "4.1.12",
+    "cf": "1.0.0-beta.27",
+    "typescript": "^7.0.2",
+    "vite": "8.3.0",
+    "vitest": "4.1.12"
+  }
+}

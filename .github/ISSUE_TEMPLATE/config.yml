@@ -1,0 +1,7 @@
+# Maintainers: the security link needs private vulnerability reporting enabled
+# (Settings > Code security > Private vulnerability reporting).
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/Jenin82/tasksHQ/security/advisories/new
+    about: Report vulnerabilities privately. Do not open a public issue.

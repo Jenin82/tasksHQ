@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Reads the pnpm version from packageManager in package.json.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Worker Env types are generated into .cloudflare/types (gitignored).
+      # Generation reads cloudflare.config.ts and needs no Cloudflare login.
+      - name: Typecheck packages/core
+        working-directory: packages/core
+        run: pnpm exec tsc --noEmit -p .
+
+      - name: Typecheck apps/web
+        working-directory: apps/web
+        run: pnpm exec cf workers types && pnpm exec tsc --noEmit -p .
+
+      - name: Typecheck apps/mcp
+        working-directory: apps/mcp
+        run: pnpm exec cf workers types && pnpm exec tsc --noEmit -p .
+
+      - name: Test web
+        run: pnpm --filter web test
+
+      - name: Test mcp
+        run: pnpm --filter mcp test
+
+      - name: Build web
+        run: pnpm --filter web build

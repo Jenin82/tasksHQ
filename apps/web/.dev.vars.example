@@ -1,0 +1,36 @@
+# Required settings are declared in cloudflare.config.ts. Vite loads the
+# optional email settings below when they are present for local development.
+
+# Random 32+ char value. Generate one with:
+#   openssl rand -base64 32
+BETTER_AUTH_SECRET=
+
+# Origin Better Auth builds callback URLs from. Must be explicit or the Google
+# callback defaults to localhost and the provider answers redirect_uri_mismatch.
+# Local dev: http://localhost:5173
+# Deployed:  your TASKSHQ_WEB_URL, e.g. https://taskshq.example.com
+BETTER_AUTH_URL=http://localhost:5173
+
+# REAL VALUES REQUIRED — from the Google Cloud console, APIs & Services >
+# Credentials > OAuth 2.0 Client ID (type "Web application"). Add
+# <BETTER_AUTH_URL>/api/auth/callback/google as an authorized redirect URI.
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+
+# Separate random values of at least 32 characters. INTROSPECT_SECRET must
+# match the MCP Worker's value. CONSENT_SECRET signs remembered consent.
+CONSENT_SECRET=
+INTROSPECT_SECRET=
+
+# Optional. All SMTP settings except the port are needed to enable email.
+# SMTP_TLS=tls (port 465) or starttls (port 587).
+SMTP_HOST=
+SMTP_PORT=
+SMTP_TLS=starttls
+SMTP_USERNAME=
+SMTP_PASSWORD=
+SMTP_FROM=
+
+# Optional new-account policy. Valid pending invites bypass it.
+# Example: *@domain.com,test@gmail.com
+SIGNUP_EMAIL_ALLOWLIST=

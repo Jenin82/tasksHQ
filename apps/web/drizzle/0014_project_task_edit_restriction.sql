@@ -1,0 +1,1 @@
+ALTER TABLE `project` ADD `restrict_task_edits` integer DEFAULT false NOT NULL;

@@ -1,0 +1,1 @@
+ALTER TABLE `task_share` ADD `canonical_preview` integer DEFAULT false NOT NULL;

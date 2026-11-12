@@ -1,0 +1,23 @@
+{
+  "name": "taskshq",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.25.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "build": "pnpm --filter web build",
+    "db:migrate:remote": "node scripts/check-deploy.mjs && set -a && . ./deploy.env && set +a && pnpm --filter web exec cf d1 migrations apply \"$TASKSHQ_D1_ID\" --dir ./drizzle",
+    "deploy:web": "node scripts/check-deploy.mjs && pnpm --filter web build && pnpm --filter web exec cf deploy --prebuilt --secrets-file ../../secrets.env",
+    "deploy:mcp": "node scripts/check-deploy.mjs && pnpm --filter mcp exec cf deploy --secrets-file ../../secrets.env",
+    "deploy": "pnpm run deploy:web && pnpm run deploy:mcp"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "workerd"
+    ]
+  }
+}
