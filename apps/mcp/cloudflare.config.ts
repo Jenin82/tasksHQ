@@ -2,9 +2,9 @@ import { resolve } from "node:path";
 import { bindings, defineConfig, defineWorker } from "cf/config";
 
 // Deployment settings live in gitignored files at the repo root (see
-// deploy.env.example and secrets.env.example); secrets.env is read only by
-// `cf deploy --secrets-file`. Tests and type generation work
-// without them. Local D1 needs TASKSHQ_D1_ID (any UUID works locally).
+// deploy.env.example and secrets.env.example); scripts/deploy-mcp.mjs
+// passes only INTROSPECT_SECRET from secrets.env to `cf deploy`. Tests and
+// type generation work without them. Local D1 needs TASKSHQ_D1_ID (any UUID works locally).
 try {
   process.loadEnvFile(resolve(import.meta.dirname, "../../deploy.env"));
 } catch {}

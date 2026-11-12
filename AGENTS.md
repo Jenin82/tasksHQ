@@ -129,7 +129,7 @@ Before the first deploy, build the web Worker and check its bindings without upl
 pnpm --filter web build
 ```
 
-Read `apps/web/.cloudflare/output/v0/workers/default/worker.config.json`. Check `name`, `domains` (present only for custom domains), the D1 `name` and `id`, the R2 bucket name, and that `MCP_RESOURCE` is `<TASKSHQ_MCP_URL>/mcp`. The `secret` entries list the keys the deploy will upload; do not print `secrets.env`.
+Read `apps/web/.cloudflare/output/v0/workers/default/worker.config.json`. Check `name`, `domains` (present only for custom domains), the D1 `name` and `id`, the R2 bucket name, and that `MCP_RESOURCE` is `<TASKSHQ_MCP_URL>/mcp`. The `secret` entries list the keys the Worker requires; the web deploy uploads every key in `secrets.env`. Do not print `secrets.env`.
 
 ```sh
 pnpm run deploy
@@ -137,7 +137,7 @@ pnpm run deploy
 
 This deploys the web Worker, then the MCP Worker (the MCP Worker has a service binding to the web Worker, so the order matters). The first deploy creates the R2 bucket and the KV namespace if missing. Use `pnpm run deploy`, never `pnpm deploy` (a built-in pnpm command).
 
-Each deploy uploads every key listed in `secrets.env`, overwriting the deployed value. Keys left out keep their current value on an existing Worker, but a new Worker needs every required key; if cf reports missing required secrets, add them and rerun. If `deploy:mcp` fails after `deploy:web` succeeded, fix the cause and rerun only `pnpm run deploy:mcp`.
+The web deploy uploads every key listed in `secrets.env`, overwriting the deployed value. The MCP deploy (`scripts/deploy-mcp.mjs`) uploads only `INTROSPECT_SECRET`, because `cf deploy --secrets-file` uploads every key in the file it is given. Keys left out keep their current value on an existing Worker, but a new Worker needs every required key; if cf reports missing required secrets, add them and rerun. If `deploy:mcp` fails after `deploy:web` succeeded, fix the cause and rerun only `pnpm run deploy:mcp`.
 
 After the first deploy, record the OAuth KV namespace cf created so later deploys reuse it. List the namespaces with `pnpm --filter web exec cf kv namespaces list`, find the one created for `OAUTH_KV` by the web Worker, and set its `id` as `TASKSHQ_KV_ID` in `deploy.env`.
 

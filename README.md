@@ -142,7 +142,7 @@ Run from the repository root unless noted.
 
    Values are literal. Quote a value that contains `#`. The secrets file expands `$NAME`, so write a literal `$` as `\$`.
 
-   Each deploy uploads every key listed in `secrets.env`, overwriting the deployed value. Keys you leave out keep their current value on an existing Worker, but a new Worker needs every required key. Fill in each line or delete it: an empty `KEY=` would be uploaded as an empty secret, so the deploy scripts refuse it.
+   The web deploy uploads every key listed in `secrets.env`, overwriting the deployed value. The MCP deploy uploads only `INTROSPECT_SECRET`. Keys you leave out keep their current value on an existing Worker, but a new Worker needs every required key. Fill in each line or delete it: an empty `KEY=` would be uploaded as an empty secret, so the deploy scripts refuse it.
 
    `pnpm run deploy:web`, `deploy:mcp` and `db:migrate:remote` first run `node scripts/check-deploy.mjs`. It stops when either file is missing, `deploy.env` has CRLF line endings, `TASKSHQ_WEB_URL` or `TASKSHQ_MCP_URL` is not an `https://` origin without a path, a domain variable differs from its URL's hostname, `TASKSHQ_D1_ID` is empty, a key in `secrets.env` is empty or only names an unset `$VARIABLE`, or `BETTER_AUTH_URL` differs from `TASKSHQ_WEB_URL`.
 

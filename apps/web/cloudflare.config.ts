@@ -16,8 +16,8 @@ const secrets = existsSync(secretsFile) ? parseEnv(readFileSync(secretsFile, "ut
 
 const env = process.env;
 const origin = (url: string | undefined, fallback: string) => (url || fallback).replace(/\/+$/, "");
-// Optional secrets are declared only when set, so `cf deploy --secrets-file`
-// uploads them without requiring them on every deployment. Keep this list in
+// Optional secrets are declared only when set, so a deployment without email
+// is not required to provide them. Keep this list in
 // sync with optionalEmailBindings in vite.config.ts.
 const optionalSecret = (key: string) => (secrets[key]?.trim() ? bindings.secret() : undefined);
 

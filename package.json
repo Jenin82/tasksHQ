@@ -11,7 +11,7 @@
     "build": "pnpm --filter web build",
     "db:migrate:remote": "node scripts/check-deploy.mjs && set -a && . ./deploy.env && set +a && pnpm --filter web exec cf d1 migrations apply \"$TASKSHQ_D1_ID\" --dir ./drizzle",
     "deploy:web": "node scripts/check-deploy.mjs && pnpm --filter web build && pnpm --filter web exec cf deploy --prebuilt --secrets-file ../../secrets.env",
-    "deploy:mcp": "node scripts/check-deploy.mjs && pnpm --filter mcp exec cf deploy --secrets-file ../../secrets.env",
+    "deploy:mcp": "node scripts/check-deploy.mjs && node scripts/deploy-mcp.mjs",
     "deploy": "pnpm run deploy:web && pnpm run deploy:mcp"
   },
   "pnpm": {
