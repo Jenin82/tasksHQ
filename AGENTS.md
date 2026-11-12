@@ -176,6 +176,45 @@ Always apply migrations before deploying either Worker. Then repeat step 9.
 
 Deployments created before the TasksHQ rename used `tasks-web`, `tasks-mcp`, `tasks-db` and `tasks-images`. If the user has one, set `TASKSHQ_WEB_WORKER`, `TASKSHQ_MCP_WORKER`, `TASKSHQ_D1_NAME`, `TASKSHQ_R2_BUCKET`, `TASKSHQ_D1_ID` and `TASKSHQ_KV_ID` to the existing names and IDs, so the deploy reuses their data instead of creating new resources. Ask the user for these values; do not guess.
 
+### Optional: deploy with GitHub Actions
+
+Only when the user asks for it. `.github/workflows/deploy.yml` (manual `workflow_dispatch`) writes `deploy.env` and `secrets.env` on the runner with `scripts/write-deploy-env.mjs`, then runs `pnpm run db:migrate:remote` and `pnpm run deploy`. Follow "Deploy with GitHub Actions" in README.md for the prerequisites, the API token permissions, the `production` environment (restricted to `main`) and the full list of names. For an organization, suggest a private copy of the repository for production settings (GitHub does not allow private forks of public repositories).
+
+In CI, `cf` replaces an existing Custom Domain or DNS record for `TASKSHQ_WEB_DOMAIN` and `TASKSHQ_MCP_DOMAIN` without asking. Confirm both hostnames with the user before the first run.
+
+Set values with the `gh` CLI after the user has created the `production` environment. Variables are not secret:
+
+```sh
+gh variable set --env production CLOUDFLARE_ACCOUNT_ID --body <account id>
+gh variable set --env production TASKSHQ_WEB_URL --body https://<web host>
+gh variable set --env production TASKSHQ_D1_ID --body <database id>
+```
+
+Never put a secret in a command line or echo it. Pipe generated values:
+
+```sh
+openssl rand -base64 32 | tr -d '\n' | gh secret set --env production BETTER_AUTH_SECRET
+openssl rand -base64 32 | tr -d '\n' | gh secret set --env production CONSENT_SECRET
+openssl rand -base64 32 | tr -d '\n' | gh secret set --env production INTROSPECT_SECRET
+```
+
+`gh secret set` only shows a hidden prompt in a real terminal; without one it reads standard input. Do not run it yourself without piped input. Ask the user to run these in their own terminal (in Claude Code, prefix the command with `!`) and type each value at the prompt:
+
+```sh
+gh secret set --env production CLOUDFLARE_API_TOKEN
+gh secret set --env production GOOGLE_CLIENT_ID
+gh secret set --env production GOOGLE_CLIENT_SECRET
+```
+
+Do the same for any SMTP values. Do not set `BETTER_AUTH_URL`; the workflow derives it from `TASKSHQ_WEB_URL`. Leave a secret unset to keep its deployed value. Start the run with `gh workflow run deploy.yml --ref main`, then follow it:
+
+```sh
+id=$(gh run list --workflow deploy.yml --limit 1 --json databaseId -q '.[0].databaseId')
+gh run watch "$id" --exit-status
+```
+
+Then verify as in step 9 and set `TASKSHQ_KV_ID` after the first deploy.
+
 ## Working on the code
 
 Read [CLAUDE.md](CLAUDE.md) for repository conventions and [CONTRIBUTING.md](CONTRIBUTING.md) for setup, checks and the pull request process. In short: every mutation goes through a `packages/core/src/domain` function, schema changes ship as new Drizzle migrations, and typecheck, tests and build must pass before a change is done.

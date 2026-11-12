@@ -10,7 +10,11 @@ export function SiteFooter() {
           <p className="text-[36px] leading-none tracking-[-0.03em]">TasksHQ</p>
         </div>
         <p className="mt-3 text-sm text-muted-foreground">
-          © <span className="numeral">{new Date().getFullYear()}</span> Jenin Joseph and TasksHQ contributors
+          © <span className="numeral">{new Date().getFullYear()}</span>{" "}
+          <a href="https://jenin.dev" rel="author" className="rounded-sm underline underline-offset-4 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+            Jenin
+          </a>{" "}
+          and TasksHQ contributors
         </p>
         <div className="mt-8">
           <BlockWordmark />

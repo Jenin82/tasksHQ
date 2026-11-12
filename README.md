@@ -190,6 +190,35 @@ Always apply new migrations before deploying either Worker; new code may depend 
 
 Deployments created before the TasksHQ rename used the resource names `tasks-web`, `tasks-mcp`, `tasks-db` and `tasks-images`. To keep using them, set `TASKSHQ_WEB_WORKER`, `TASKSHQ_MCP_WORKER`, `TASKSHQ_D1_NAME` and `TASKSHQ_R2_BUCKET` to the old names, `TASKSHQ_D1_ID` to the existing database ID, and `TASKSHQ_KV_ID` to the existing OAuth KV namespace ID, so existing data and MCP grants carry over.
 
+### Deploy with GitHub Actions
+
+`.github/workflows/deploy.yml` runs the same migration and deploy from GitHub. It runs only when started by hand and writes `deploy.env` and `secrets.env` on the runner from the `production` environment's Variables and Secrets. For an organization, keep production settings in a private copy of the repository rather than a public one (GitHub does not allow private forks of public repositories).
+
+Do these once by hand first; the workflow cannot:
+
+- Sign in locally (Deploy step 1) and create the D1 database (step 2, using your `TASKSHQ_D1_NAME` if you changed it). Keep its ID for `TASKSHQ_D1_ID`.
+- Enable R2 on the account (see Prerequisites).
+- Without custom domains, make sure the account has a workers.dev subdomain (**Workers & Pages** in the dashboard). CI cannot register one.
+- Add `<TASKSHQ_WEB_URL>/api/auth/callback/google` as an authorized redirect URI on the Google OAuth client.
+
+Then set up GitHub:
+
+1. Create a Cloudflare API token. The simplest known-good choice is the **Edit Cloudflare Workers** template plus **Account › D1 › Edit**. A narrower custom token needs at least **Account › Workers Scripts › Edit** and **Account › D1 › Edit**, plus **Zone › Workers Routes › Edit** for the zones of your custom domains (not yet verified against a live custom-domain deploy). For a first deploy, which creates the KV namespace and R2 bucket, also add **Account › Workers KV Storage › Edit** and **Account › Workers R2 Storage › Edit**; you can remove them afterwards.
+2. In the repository, **Settings › Environments › New environment**, create `production`. Under **Deployment branches and tags**, choose **Selected branches and tags** and add `main`.
+3. Add these to the `production` environment:
+
+   | Kind | Name | Value |
+   | --- | --- | --- |
+   | Variable | `CLOUDFLARE_ACCOUNT_ID` | Your Cloudflare account ID |
+   | Variable | `TASKSHQ_WEB_URL`, `TASKSHQ_MCP_URL`, `TASKSHQ_WEB_DOMAIN`, `TASKSHQ_MCP_DOMAIN`, `TASKSHQ_D1_ID`, `TASKSHQ_KV_ID`, `TASKSHQ_WEB_WORKER`, `TASKSHQ_MCP_WORKER`, `TASKSHQ_D1_NAME`, `TASKSHQ_R2_BUCKET` | As in `deploy.env.example`. Leave optional ones unset. |
+   | Secret | `CLOUDFLARE_API_TOKEN` | The token from step 1 |
+   | Secret | `BETTER_AUTH_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `CONSENT_SECRET`, `INTROSPECT_SECRET` | As in `secrets.env.example` |
+   | Secret | `SMTP_HOST`, `SMTP_PORT`, `SMTP_TLS`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, `SIGNUP_EMAIL_ALLOWLIST` | Optional |
+
+   `BETTER_AUTH_URL` is set from `TASKSHQ_WEB_URL`. Variables may only contain letters, digits and `. _ : / -`. Secret values are written literally (`$` included) and must be one line; a value cannot contain both `'` and a backtick, or end with `\`. A secret you leave unset keeps its deployed value; a first deploy needs every required secret.
+4. Run **Actions › Deploy › Run workflow** on `main`, or `gh workflow run deploy.yml --ref main`. Create the `production` environment first, and make sure CI on `main` is green. In CI, `cf` replaces an existing Custom Domain or DNS record for `TASKSHQ_WEB_DOMAIN` and `TASKSHQ_MCP_DOMAIN` without asking, so double-check both before the first run.
+5. After the first deploy, set the `TASKSHQ_KV_ID` variable to the ID of the OAuth KV namespace it created (see step 7 above), so later deploys reuse it.
+
 ### Troubleshooting
 
 - **Google answers `redirect_uri_mismatch`.** `BETTER_AUTH_URL` must equal the origin users open, and `<BETTER_AUTH_URL>/api/auth/callback/google` must be registered on the Google OAuth client exactly, including scheme and no trailing slash. Fix `secrets.env` and run `pnpm run deploy:web`.

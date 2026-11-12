@@ -11,7 +11,8 @@ it("renders the mark, the current year and the block wordmark", () => {
   const text = html.replace(/<[^>]+>/g, "");
 
   expect(text).toContain("TasksHQ");
-  expect(text).toContain(`© ${new Date().getFullYear()} Jenin Joseph and TasksHQ contributors`);
+  expect(text).toContain(`© ${new Date().getFullYear()} Jenin and TasksHQ contributors`);
+  expect(html).toContain('href="https://jenin.dev"');
   expect(html.match(/<use /g)).toHaveLength(PIXELS * DEPTH);
   expect(html).toContain('aria-hidden="true"');
   expect(html).toContain("max-w-[1200px]");

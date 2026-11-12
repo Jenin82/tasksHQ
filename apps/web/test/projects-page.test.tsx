@@ -150,7 +150,7 @@ it("tells an owner of an empty org to create the first project", async () => {
 it("renders the shared site footer even when there are no projects", async () => {
   const html = await render("pp-owner", "pp-empty");
 
-  expect(html).toMatch(/No projects yet[\s\S]*<footer[\s\S]*©[\s\S]*Jenin Joseph and TasksHQ contributors/);
+  expect(html).toMatch(/No projects yet[\s\S]*<footer[\s\S]*©[\s\S]*Jenin<\/a> and TasksHQ contributors/);
 });
 
 it("has no org tab row", async () => {

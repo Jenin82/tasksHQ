@@ -1,0 +1,89 @@
+name: Deploy
+
+# Applies remote D1 migrations, then deploys the web and MCP Workers.
+# Settings come from the `production` environment's Variables and Secrets;
+# see "Deploy with GitHub Actions" in README.md.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # The production environment should also be restricted to main.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: production
+      url: ${{ vars.TASKSHQ_WEB_URL }}
+    steps:
+      - name: Check Cloudflare credentials
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error::Set the CLOUDFLARE_API_TOKEN secret and the CLOUDFLARE_ACCOUNT_ID variable on the production environment."
+            exit 1
+          fi
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Reads the pnpm version from packageManager in package.json.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Worker secrets stay on this step only: cf lets process env override
+      # values from the secrets file. An unset secret is left out of
+      # secrets.env, so the deployed Worker keeps its current value.
+      - name: Write deploy settings
+        run: node scripts/write-deploy-env.mjs
+        env:
+          TASKSHQ_WEB_URL: ${{ vars.TASKSHQ_WEB_URL }}
+          TASKSHQ_MCP_URL: ${{ vars.TASKSHQ_MCP_URL }}
+          TASKSHQ_WEB_DOMAIN: ${{ vars.TASKSHQ_WEB_DOMAIN }}
+          TASKSHQ_MCP_DOMAIN: ${{ vars.TASKSHQ_MCP_DOMAIN }}
+          TASKSHQ_D1_ID: ${{ vars.TASKSHQ_D1_ID }}
+          TASKSHQ_KV_ID: ${{ vars.TASKSHQ_KV_ID }}
+          TASKSHQ_WEB_WORKER: ${{ vars.TASKSHQ_WEB_WORKER }}
+          TASKSHQ_MCP_WORKER: ${{ vars.TASKSHQ_MCP_WORKER }}
+          TASKSHQ_D1_NAME: ${{ vars.TASKSHQ_D1_NAME }}
+          TASKSHQ_R2_BUCKET: ${{ vars.TASKSHQ_R2_BUCKET }}
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          CONSENT_SECRET: ${{ secrets.CONSENT_SECRET }}
+          INTROSPECT_SECRET: ${{ secrets.INTROSPECT_SECRET }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_TLS: ${{ secrets.SMTP_TLS }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
+          SIGNUP_EMAIL_ALLOWLIST: ${{ secrets.SIGNUP_EMAIL_ALLOWLIST }}
+
+      - name: Apply migrations
+        run: pnpm run db:migrate:remote
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Deploy
+        run: pnpm run deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
