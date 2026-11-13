@@ -34,7 +34,7 @@ export const sections: GuideSection[] = [
         <li>Choose <strong>Filters</strong> and select a project from <strong>All projects</strong>. On <strong>All My Tasks</strong>, project names include their organization so you can tell similarly named projects apart.</li>
         <li>Combine the project with other filters as needed. Choose <strong>Clear filters</strong> to start over.</li>
       </Steps>
-      <Screenshot name="task-filters" alt="Task list Filters menu with the project selector" caption="Use the project selector to narrow an assignment view to one project." />
+      <Screenshot name="task-filters" alt="Task list Filters menu with the project, assignee, creator, and reporter selectors" caption="Use the project selector to narrow an assignment view to one project." />
       <p>TasksHQ remembers filters in the current browser, so the same selection is available when you return to that view.</p>
     </>,
   },
