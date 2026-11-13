@@ -209,6 +209,7 @@ describe("list_tasks", () => {
       type: "Task",
       status: "Todo",
       assignee: null,
+      reporter: { email: "mc-owner@Example.test", displayName: "MC-OWNER" },
       updatedAt: expect.any(String),
     });
     expect(first.data.cursor).toEqual(expect.any(String));
@@ -456,7 +457,7 @@ it("lets MCP members create and comment while restricting edits to task particip
   });
   await setProjectTaskEditRestriction(ctx(ADMIN), { projectId: project.id, restricted: true });
   const task = created.key;
-  const forbidden = { isError: true, data: "Only the creator, current assignee, or an admin can edit this task." };
+  const forbidden = { isError: true, data: "Only the creator, reporter, current assignee, or an admin can edit this task." };
   expect(await call(ADMIN, "update_task", { task, title: "Workspace admin edit" })).toMatchObject({
     isError: false, data: { title: "Workspace admin edit" },
   });
@@ -478,4 +479,36 @@ it("lets MCP members create and comment while restricting edits to task particip
   expect(await call(BYSTANDER, "update_task", { task, title: "Project admin edit" })).toMatchObject({
     isError: false, data: { title: "Project admin edit" },
   });
+});
+
+it("sets the reporter by email on create and update, and returns it from every task view", async () => {
+  const created = await call(MEMBER, "create_task", { project: "OPS", title: "Default reporter" });
+  expect(created).toMatchObject({
+    isError: false, data: { reporter: { email: "mc-member@Example.test", displayName: "MC-MEMBER" } },
+  });
+
+  const reported = await call(MEMBER, "create_task", {
+    project: "OPS", title: "Reported by someone else", reporter: "MC-BYSTANDER@example.test",
+  });
+  expect(reported).toMatchObject({
+    isError: false, data: { reporter: { email: "mc-bystander@Example.test", displayName: "MC-BYSTANDER" } },
+  });
+  const outside = await call(MEMBER, "create_task", {
+    project: "OPS", title: "x", reporter: `${OUTSIDER}@example.test`,
+  });
+  expect(outside).toEqual({ isError: true, data: "That user must be a member of this organization." });
+
+  const key = reported.data.key;
+  // Another member edits, so the creator's setup window does not hide the activity row.
+  expect(await call(BYSTANDER, "update_task", { task: key, reporter: `${ADMIN}@example.test` })).toMatchObject({
+    isError: false, data: { reporter: { displayName: "MC-ADMIN" } },
+  });
+  const detail = await call(MEMBER, "get_task", { task: key });
+  expect(detail.data.reporter).toEqual({ email: "mc-admin@Example.test", displayName: "MC-ADMIN" });
+  expect(detail.data.activity.at(-1)).toMatchObject({ type: "task.updated", source: "mcp", actor: { displayName: "MC-BYSTANDER" } });
+  const listed = await call(MEMBER, "list_tasks", { project: "OPS" });
+  expect(listed.data.tasks.find((t: any) => t.key === key).reporter)
+    .toEqual({ email: "mc-admin@Example.test", displayName: "MC-ADMIN" });
+  expect(await call(MEMBER, "update_task", { task: key, reporter: `${OUTSIDER}@example.test` }))
+    .toEqual({ isError: true, data: "That user must be a member of this organization." });
 });

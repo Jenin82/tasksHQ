@@ -210,7 +210,7 @@ export async function resolveStatus(
 }
 
 /**
- * `assignee` is an email. An address with no account gets core's own
+ * `assignee` or `reporter` is an email. An address with no account gets core's own
  * not-a-member message, so the tool cannot be used to probe which addresses
  * have signed up; membership itself is checked by the domain function.
  *
@@ -227,7 +227,7 @@ export async function resolveAssignee(
     .where(eq(sql`lower(${user.email})`, email.trim().toLowerCase()));
   if (!row) {
     throw new DomainError(
-      "That user must be a member of this organization before they can be assigned.",
+      "That user must be a member of this organization.",
     );
   }
   return row.id;

@@ -16,11 +16,13 @@ export const sections: GuideSection[] = [
   {
     id: "edit",
     title: "Edit details and attach images",
+    searchTerms: ["reporter", "requester", "reported by"],
     content: <>
-      <p>Select a work item to open its details. Choose <strong>Open full page</strong> in the dialog when you want more room. Edit the title or description, or use the properties panel to change the <strong>Status</strong>, <strong>Assignee</strong>, <strong>Due date</strong>, <strong>Type</strong>, or <strong>Priority</strong>.</p>
+      <p>Select a work item to open its details. Choose <strong>Open full page</strong> in the dialog when you want more room. Edit the title or description, or use the properties panel to change the <strong>Status</strong>, <strong>Assignee</strong>, <strong>Reporter</strong>, <strong>Due date</strong>, <strong>Type</strong>, or <strong>Priority</strong>.</p>
+      <p>The <strong>Reporter</strong> is the person who asked for the work. It starts as the person who created the task, and you can change it to any organization member. <strong>Created by</strong> always shows who created the task.</p>
       <Screenshot name="task-detail" alt="A work item with a description, task properties, and comments" caption="Edit task details in the properties panel and keep discussion in Comments." />
       <p>Use the description toolbar for headings, bold text, lists, or inline code. Descriptions are stored as Markdown. To add a screenshot or other image, paste it into the editor or choose <strong>Add image</strong> in the toolbar. Images can be up to 5 MB and require project access to view.</p>
-      <Note>When a project restricts task editing, the creator, current assignee, and admins of the project or organization can edit. Other members can still view the task and comment. See <DocLink topic="project-settings" section="task-editing">Project settings</DocLink> for the toggle.</Note>
+      <Note>When a project restricts task editing, the creator, reporter, current assignee, and admins of the project or organization can edit. Other members can still view the task and comment. See <DocLink topic="project-settings" section="task-editing">Project settings</DocLink> for the toggle.</Note>
     </>,
   },
   {

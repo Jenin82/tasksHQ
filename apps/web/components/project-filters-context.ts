@@ -10,10 +10,11 @@ export type ProjectFilters = {
   projectId: string;
   assignees: PeopleSelection;
   creators: PeopleSelection;
+  reporters: PeopleSelection;
 };
 
 export function emptyProjectFilters(): ProjectFilters {
-  return { query: "", status: "", type: "", organization: "", projectId: "", assignees: new Set(), creators: new Set() };
+  return { query: "", status: "", type: "", organization: "", projectId: "", assignees: new Set(), creators: new Set(), reporters: new Set() };
 }
 
 export const ProjectFiltersContext = createContext<{

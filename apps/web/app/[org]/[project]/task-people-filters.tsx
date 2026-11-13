@@ -7,21 +7,23 @@ import { Button } from "@/components/ui/button";
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import { useSavedTaskFilters } from "@/components/use-saved-task-filters";
 import { emptyProjectFilters, ProjectFiltersContext, type ProjectFilters } from "@/components/project-filters-context";
 
 type Person = { id: string; displayName: string };
 
-export type TaskPeople = { assignee: Person | null; createdBy: Person };
+export type TaskPeople = { assignee: Person | null; createdBy: Person; reportedBy: Person };
 
 type Option = { id: string | null; displayName: string };
 type Selection = ReadonlySet<Option["id"]>;
 
-export function filterTasksByPeople<T extends TaskPeople>(tasks: T[], assignees: Selection, creators: Selection) {
-  if (assignees.size === 0 && creators.size === 0) return tasks;
+export function filterTasksByPeople<T extends TaskPeople>(tasks: T[], assignees: Selection, creators: Selection, reporters: Selection) {
+  if (assignees.size === 0 && creators.size === 0 && reporters.size === 0) return tasks;
   return tasks.filter((task) => (
     (assignees.size === 0 || assignees.has(task.assignee?.id ?? null)) &&
-    (creators.size === 0 || creators.has(task.createdBy.id))
+    (creators.size === 0 || creators.has(task.createdBy.id)) &&
+    (reporters.size === 0 || reporters.has(task.reportedBy.id))
   ));
 }
 
@@ -39,18 +41,20 @@ export function useTaskPeopleFilters<T extends TaskPeople & {
   const state = shared?.filters ?? local;
   const setState = shared?.setFilters ?? setLocal;
   const currentUser = shared?.currentUser;
-  const { assignees, creators, status, type, query, organization, projectId } = state;
-  const peopleActive = assignees.size > 0 || creators.size > 0;
-  const activeCount = assignees.size + creators.size + [status, type, organization, projectId, query.trim()].filter(Boolean).length;
+  const { assignees, creators, reporters, status, type, query, organization, projectId } = state;
+  const peopleActive = assignees.size > 0 || creators.size > 0 || reporters.size > 0;
+  const activeCount = assignees.size + creators.size + reporters.size + [status, type, organization, projectId, query.trim()].filter(Boolean).length;
 
   const options = useMemo(() => {
     const assigned = new Map<string, Person>();
     if (currentUser) assigned.set(currentUser.id, currentUser);
     const created = new Map<string, Person>();
+    const reported = new Map<string, Person>();
     const types = new Map<string, string>();
     for (const task of tasks) {
       if (task.assignee) assigned.set(task.assignee.id, task.assignee);
       created.set(task.createdBy.id, task.createdBy);
+      reported.set(task.reportedBy.id, task.reportedBy);
       types.set(task.typeFilterId ?? task.type.id, task.type.name);
     }
     const sorted = (people: Map<string, Person>) => [...people.values()]
@@ -58,30 +62,32 @@ export function useTaskPeopleFilters<T extends TaskPeople & {
     return {
       assignees: [{ id: null, displayName: "Unassigned" }, ...sorted(assigned)],
       creators: sorted(created),
+      reporters: sorted(reported),
       types: [...types.entries()].sort((a, b) => a[1].localeCompare(b[1])),
     };
   }, [tasks, currentUser]);
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    return filterTasksByPeople(tasks, assignees, creators).filter((task) =>
+    return filterTasksByPeople(tasks, assignees, creators, reporters).filter((task) =>
       (!status || task.statusId === status) &&
       (!type || (task.typeFilterId ?? task.type.id) === type) &&
       (!organization || task.orgSlug === organization) &&
       (!projectId || task.projectId === projectId) &&
       (!needle || task.title.toLowerCase().includes(needle) || task.key.toLowerCase().includes(needle)),
     );
-  }, [tasks, assignees, creators, query, status, type, organization, projectId]);
+  }, [tasks, assignees, creators, reporters, query, status, type, organization, projectId]);
 
-  function setPeople(field: "assignees" | "creators", value: SetStateAction<Selection>) {
+  function setPeople(field: "assignees" | "creators" | "reporters", value: SetStateAction<Selection>) {
     setState((current) => ({ ...current, [field]: typeof value === "function" ? value(current[field]) : value }));
   }
   function setFilter(field: "query" | "status" | "type" | "organization" | "projectId", value: string) {
     setState((current: ProjectFilters) => ({ ...current, [field]: value }));
   }
-  return { active: activeCount > 0, activeCount, peopleActive, visible, options, assignees, creators, query, status, type, organization, projectId, setFilter,
+  return { active: activeCount > 0, activeCount, peopleActive, visible, options, assignees, creators, reporters, query, status, type, organization, projectId, setFilter,
     setAssignees: (value: SetStateAction<Selection>) => setPeople("assignees", value),
     setCreators: (value: SetStateAction<Selection>) => setPeople("creators", value),
+    setReporters: (value: SetStateAction<Selection>) => setPeople("reporters", value),
     clear: () => setState(emptyProjectFilters()),
   };
 }
@@ -153,6 +159,7 @@ export function TaskPeopleFilters({ filters, statuses, organizations, projects, 
       </select>
       <PeopleFilter
         label="Assignee"
+        className="col-span-2"
         options={filters.options.assignees}
         selected={filters.assignees}
         onChange={filters.setAssignees}
@@ -165,6 +172,13 @@ export function TaskPeopleFilters({ filters, statuses, organizations, projects, 
         onChange={filters.setCreators}
         disabled={disabled}
       />
+      <PeopleFilter
+        label="Reported by"
+        options={filters.options.reporters}
+        selected={filters.reporters}
+        onChange={filters.setReporters}
+        disabled={disabled}
+      />
       {filters.active && (
         <Button type="button" variant="ghost" size="sm" className="col-span-2 justify-self-end rounded-md" onClick={filters.clear} disabled={disabled}>
           Clear filters
@@ -174,8 +188,9 @@ export function TaskPeopleFilters({ filters, statuses, organizations, projects, 
   );
 }
 
-function PeopleFilter({ label, options, selected, onChange, disabled }: {
+function PeopleFilter({ label, options, selected, onChange, disabled, className }: {
   label: string;
+  className?: string;
   options: Option[];
   selected: Selection;
   onChange: Dispatch<SetStateAction<Selection>>;
@@ -197,7 +212,7 @@ function PeopleFilter({ label, options, selected, onChange, disabled }: {
         <Button
           type="button"
           variant="outline"
-          className="h-9 w-full min-w-0 justify-between rounded-md border-border bg-background px-2.5 text-foreground shadow-none hover:bg-muted"
+          className={cn("h-9 w-full min-w-0 justify-between rounded-md border-border bg-background px-2.5 text-foreground shadow-none hover:bg-muted", className)}
           disabled={disabled}
           aria-label={`Filter by ${label.toLowerCase()}${selected.size ? `, ${selected.size} selected` : ""}`}
         >

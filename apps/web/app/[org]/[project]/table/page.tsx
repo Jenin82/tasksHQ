@@ -39,7 +39,7 @@ export default async function TablePage({
   const base = `/${org.slug}/${project.slug}`;
   const canEditAny = canEditAnyTask({ project, member, projectRole });
   const rows = toRows(tasks, statuses, base, (task) =>
-    canEditTask(canEditAny, user.id, task.createdBy.id, task.assignee?.id),
+    canEditTask(canEditAny, user.id, task.createdBy.id, task.assignee?.id, task.reportedBy.id),
   );
   return (
     <TaskTable canBulkEdit={canProject(member.role, projectRole, "project:manage_members")} statuses={statuses} people={people} rows={rows} boardHref={base} />

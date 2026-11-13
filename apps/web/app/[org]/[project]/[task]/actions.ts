@@ -143,6 +143,23 @@ export async function assignTaskAction(
   return NO_ERROR;
 }
 
+export async function setReporterAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const { ctx, target, revalidate } = await detail(formData);
+  const reporterUserId = String(formData.get("reporterUserId") ?? "");
+
+  try {
+    await updateTask(ctx, { ...target, reporterUserId });
+  } catch (error) {
+    return toActionState(error, { reporterUserId });
+  }
+
+  revalidate();
+  return NO_ERROR;
+}
+
 /**
  * Both directions, because they are one control whose label flips.
  * `unarchiveTask` is web-only by design — §5.7 gives MCP no unarchive tool.

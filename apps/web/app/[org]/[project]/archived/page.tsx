@@ -44,7 +44,7 @@ export default async function ArchivedPage({
           <ul className="mt-8 divide-y divide-border border-y border-border">
             {tasks.map((task) => {
               const ids = { orgSlug: org.slug, projectSlug: project.slug, taskId: task.id };
-              const canEdit = canEditTask(canEditAny, user.id, task.createdBy.id, task.assignee?.id);
+              const canEdit = canEditTask(canEditAny, user.id, task.createdBy.id, task.assignee?.id, task.reportedBy.id);
               return (
               <li key={task.id} className="grid items-center gap-x-6 gap-y-3 py-4 lg:grid-cols-[minmax(0,1fr)_10rem_auto]">
                 <TaskPreviewLink

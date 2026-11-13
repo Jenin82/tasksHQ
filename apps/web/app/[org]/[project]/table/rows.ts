@@ -30,6 +30,7 @@ export function toRows(
     statusOrder: order.get(t.status.id) ?? statuses.length,
     assignee: t.assignee,
     createdBy: t.createdBy,
+    reportedBy: t.reportedBy,
     canEdit: canEdit(t),
     dueDate: t.dueDate,
     priority: t.priority,

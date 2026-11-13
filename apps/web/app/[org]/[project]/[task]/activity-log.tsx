@@ -40,7 +40,7 @@ function Status({ name }: { name: string }) {
   return <span className="stutter">{name}</span>;
 }
 
-/** §3: `task.updated` carries scalars, plus the one assignee exception. */
+/** §3: `task.updated` carries scalars, plus the assignee and reporter exceptions. */
 function updatedLines(fields: UpdatedFields): React.ReactNode[] {
   const lines: React.ReactNode[] = [];
 
@@ -76,6 +76,10 @@ function updatedLines(fields: UpdatedFields): React.ReactNode[] {
         </>
       ),
     );
+  }
+
+  if (fields.reporter) {
+    lines.push(<>set the reporter to <span className="text-foreground">{fields.reporter.to.displayName}</span></>);
   }
 
   if (fields.dueDate) {

@@ -73,6 +73,7 @@ export type TaskSummary = {
   status: Pick<Status, "id" | "name" | "color">;
   assignee: (NonNullable<UserRef> & { image?: string }) | null;
   createdBy: NonNullable<UserRef>;
+  reportedBy: NonNullable<UserRef> & { image?: string };
   position: string;
   archivedAt: Date | null;
   createdAt: Date;
@@ -91,8 +92,9 @@ type TaskTarget = { taskId: string; projectId?: string; number?: number };
 export type ScalarChange = { from: string | null; to: string | null };
 
 /**
- * §3: assignee is the one non-scalar field `task.updated` carries, spelled out
- * because `null` on both sides is meaningful.
+ * §3: assignee and reporter are the non-scalar fields `task.updated` carries,
+ * spelled out because `null` on both sides of an assignee change is meaningful.
+ * A reporter is never cleared.
  */
 export type UpdatedFields = {
   title?: ScalarChange;
@@ -101,6 +103,7 @@ export type UpdatedFields = {
   priority?: { from: TaskPriority; to: TaskPriority };
   type?: { from: string; to: string };
   assignee?: { from: UserRef; to: UserRef };
+  reporter?: { from: NonNullable<UserRef>; to: NonNullable<UserRef> };
 };
 
 export type TaskComment = {
@@ -165,6 +168,7 @@ const EXCERPT_LENGTH = 140;
 // ---------------------------------------------------------------------------
 
 const creator = alias(user, "task_creator");
+const reporter = alias(user, "task_reporter");
 
 const taskTypeJoin = and(
   eq(projectTaskType.projectId, task.projectId),
@@ -192,6 +196,9 @@ const DETAIL_COLUMNS = {
   assigneeImage: user.image,
   creatorId: creator.id,
   creatorName: creator.name,
+  reporterId: reporter.id,
+  reporterName: reporter.name,
+  reporterImage: reporter.image,
 };
 
 type DetailRow = Awaited<ReturnType<typeof detailQuery>>[number];
@@ -221,6 +228,11 @@ function toDetail(row: DetailRow, projectKey: string): TaskDetail {
           }
         : null,
     createdBy: { id: row.creatorId, displayName: row.creatorName },
+    reportedBy: {
+      id: row.reporterId,
+      displayName: row.reporterName,
+      ...(row.reporterImage ? { image: row.reporterImage } : {}),
+    },
     position: row.position,
     archivedAt: row.archivedAt,
     createdAt: row.createdAt,
@@ -235,6 +247,7 @@ function detailQuery(db: DrizzleD1Database) {
     .innerJoin(status, eq(status.id, task.statusId))
     .innerJoin(projectTaskType, taskTypeJoin)
     .innerJoin(creator, eq(creator.id, task.createdByUserId))
+    .innerJoin(reporter, eq(reporter.id, task.reporterUserId))
     .leftJoin(user, eq(user.id, task.assigneeUserId));
 }
 
@@ -315,6 +328,7 @@ export async function listWorkspaceAssignments(
       status: { id: status.id, name: status.name, color: status.color },
       assignee: { id: user.id, displayName: user.name },
       createdBy: { id: creator.id, displayName: creator.name },
+      reportedBy: { id: reporter.id, displayName: reporter.name },
     })
     .from(task)
     .innerJoin(project, eq(project.id, task.projectId))
@@ -322,6 +336,7 @@ export async function listWorkspaceAssignments(
     .innerJoin(projectTaskType, taskTypeJoin)
     .innerJoin(user, eq(user.id, task.assigneeUserId))
     .innerJoin(creator, eq(creator.id, task.createdByUserId))
+    .innerJoin(reporter, eq(reporter.id, task.reporterUserId))
     .$dynamic();
   if (rankedAssignments) {
     query.leftJoin(rankedAssignments, and(
@@ -601,7 +616,7 @@ async function loadTask(
 async function loadEditableTask(ctx: DomainContext, input: TaskTarget) {
   const access = await loadTask(ctx, input);
   const { row } = access;
-  if (!canEditTask(canEditAnyTask(access), ctx.actorUserId, row.createdByUserId, row.assigneeUserId)) {
+  if (!canEditTask(canEditAnyTask(access), ctx.actorUserId, row.createdByUserId, row.assigneeUserId, row.reporterUserId)) {
     throw new TaskEditForbidden();
   }
   const scope = and(currentTaskScope(row), hasTaskEditPermission(ctx.db, row.projectId, ctx.actorUserId))!;
@@ -639,7 +654,7 @@ async function requireStatusInProject(
   return row;
 }
 
-/** An assignee must belong to the task's organization. */
+/** An assignee or reporter must belong to the task's organization. */
 async function requireAssignableUser(
   db: DrizzleD1Database,
   orgId: string,
@@ -648,7 +663,7 @@ async function requireAssignableUser(
   const [ref] = await db.select({ id: user.id, displayName: user.name })
     .from(orgMember).innerJoin(user, eq(user.id, orgMember.userId))
     .where(and(eq(orgMember.orgId, orgId), eq(orgMember.userId, userId)));
-  if (!ref) throw new DomainError("That user must be a member of this organization before they can be assigned.");
+  if (!ref) throw new DomainError("That user must be a member of this organization.");
   return ref;
 }
 
@@ -848,6 +863,7 @@ export async function createTask(
     typeId?: string;
     statusId?: string;
     assigneeUserId?: string | null;
+    reporterUserId?: string;
   },
 ): Promise<TaskDetail> {
   // Project reach is the whole rule: §3's matrix gives tasks no capability, so
@@ -871,6 +887,9 @@ export async function createTask(
 
   if (input.assigneeUserId) {
     await requireAssignableUser(ctx.db, p.orgId, input.assigneeUserId);
+  }
+  if (input.reporterUserId) {
+    await requireAssignableUser(ctx.db, p.orgId, input.reporterUserId);
   }
 
   // Appending never re-keys. Concurrent creates can all read the same last
@@ -904,6 +923,7 @@ export async function createTask(
         typeId: input.typeId,
         statusId: target.id,
         assigneeUserId: input.assigneeUserId ?? null,
+        reporterUserId: input.reporterUserId ?? ctx.actorUserId,
         position,
         archivedAt: null,
         createdByUserId: ctx.actorUserId,
@@ -1022,6 +1042,7 @@ export async function updateTask(
     typeId?: string;
     statusId?: string;
     assigneeUserId?: string | null;
+    reporterUserId?: string;
   },
 ): Promise<TaskDetail> {
   const { row, project: p, scope } = await loadEditableTask(ctx, input);
@@ -1082,6 +1103,14 @@ export async function updateTask(
     };
   }
 
+  if (input.reporterUserId !== undefined && input.reporterUserId !== row.reporterUserId) {
+    const to = await requireAssignableUser(ctx.db, p.orgId, input.reporterUserId);
+    // Backfill and the insert trigger guarantee a reporter.
+    const from = (await displayUser(ctx.db, row.reporterUserId!))!;
+    columns.reporterUserId = input.reporterUserId;
+    fields.reporter = { from, to };
+  }
+
   // Appends to the end of the destination column: a caller that cares where
   // the card lands uses `moveTask`.
   const plan =
@@ -1126,6 +1155,7 @@ export async function updateTask(
     if (changed) {
       writes.unshift(queueTaskEditMail(ctx, row.id, p.orgId,
         columns.assigneeUserId === undefined ? sql`${task.assigneeUserId}` : columns.assigneeUserId,
+        columns.reporterUserId ?? sql`${task.reporterUserId}`,
         and(scope, changed)!, now));
     }
   }
@@ -1169,7 +1199,7 @@ export async function moveTask(
   if (plan.to.id !== plan.from.id) {
     writes.push(logMove(ctx, row, plan, now, scope));
     if (ctx.emailNotifications) {
-      writes.unshift(queueTaskEditMail(ctx, row.id, p.orgId, sql`${task.assigneeUserId}`,
+      writes.unshift(queueTaskEditMail(ctx, row.id, p.orgId, sql`${task.assigneeUserId}`, sql`${task.reporterUserId}`,
         and(scope, sql`${task.statusId} is not ${plan.to.id}`)!, now));
     }
   }
@@ -1269,7 +1299,7 @@ export async function transferTask(
       scope: targetScope,
     }));
     if (ctx.emailNotifications) {
-      notifications.push(queueTaskEditMail(ctx, row.id, target.orgId, sql`${task.assigneeUserId}`, targetScope, new Date()));
+      notifications.push(queueTaskEditMail(ctx, row.id, target.orgId, sql`${task.assigneeUserId}`, sql`${task.reporterUserId}`, targetScope, new Date()));
     }
   }
   const [updated] = await db.batch([...writes, ...notifications]);

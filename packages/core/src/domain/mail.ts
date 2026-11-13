@@ -54,6 +54,7 @@ export function queueTaskEditMail(
   taskId: string,
   orgId: string,
   assignee: SQL | string | null,
+  reporter: SQL | string,
   changed: SQL,
   now: Date,
 ) {
@@ -62,9 +63,9 @@ export function queueTaskEditMail(
     select 'edit:' || ${taskId} || ':' || recipient || ':' || ${windowEnd},
       'task_update', ${taskId}, recipient, null, ${windowEnd}, 0, null
     from (
-      select ${task.createdByUserId} as recipient
+      select ${reporter} as recipient
       from ${task}
-      where ${task.id} = ${taskId} and ${changed} and ${task.createdByUserId} is not ${assignee}
+      where ${task.id} = ${taskId} and ${changed} and ${reporter} is not ${assignee}
       union
       select ${orgReportingLine.leadUserId} as recipient
       from ${task}

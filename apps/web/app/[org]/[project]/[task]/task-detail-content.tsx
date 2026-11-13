@@ -18,6 +18,7 @@ import {
   DueDateField,
   MoveTaskButton,
   PriorityField,
+  ReporterField,
   StatusField,
   TitleField,
   TypeField,
@@ -115,14 +116,14 @@ function Comments({ comments }: { comments: TaskWithHistory["comments"] }) {
 }
 
 export function TaskDetailContent({
-  data: { detail, canEdit, statuses, taskTypes, assignable, detached, ids, moveTargets },
+  data: { detail, canEdit, statuses, taskTypes, assignable, detached, detachedReporter, ids, moveTargets },
   inDialog = false,
 }: {
   data: TaskDetailData;
   inDialog?: boolean;
 }) {
   const activity = groupDescriptionActivity(detail.activity);
-  const { assignee, description, dueDate, priority, status, type } = detail;
+  const { assignee, description, dueDate, priority, reportedBy, status, type } = detail;
   const readOnlyValue = "flex min-h-8 items-center gap-2 text-sm";
   const heading = (
     <>
@@ -158,7 +159,7 @@ export function TaskDetailContent({
           {inDialog ? <p className="mt-3 text-2xl">{detail.title}</p> : (
             <h2 className="mt-3 text-2xl"><span className="sr-only">{detail.key} </span>{detail.title}</h2>
           )}
-          <p className="mt-2 text-sm text-muted-foreground">Only the creator, current assignee, or an admin can edit this task.</p>
+          <p className="mt-2 text-sm text-muted-foreground">Only the creator, reporter, current assignee, or an admin can edit this task.</p>
         </>
       )}
 
@@ -244,13 +245,21 @@ export function TaskDetailContent({
                 </span>
               )}
             </Property>
+            <Property label="Reporter">
+              {canEdit ? <ReporterField ids={ids} people={assignable} detached={detachedReporter} reporterUserId={reportedBy.id} /> : (
+                <span className={readOnlyValue}>
+                  <ProfileAvatar name={reportedBy.displayName} image={reportedBy.image} className="size-5" />
+                  {reportedBy.displayName}
+                </span>
+              )}
+            </Property>
+            <Property label="Created by">
+              <span className="text-sm wrap-anywhere">{detail.createdBy.displayName}</span>
+            </Property>
             <Property label="Created">
               <span className="stutter numeral">
                 {shortDateTime(detail.createdAt)}
               </span>
-            </Property>
-            <Property label="Created by">
-              <span className="text-sm wrap-anywhere">{detail.createdBy.displayName}</span>
             </Property>
             <Property label="Updated">
               <span className="stutter numeral">

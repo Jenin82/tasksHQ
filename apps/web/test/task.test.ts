@@ -679,6 +679,55 @@ it("assigns organization members without project role rows and rejects outsiders
   expect(assigned.assignee).toEqual({ id: admin.actorUserId, displayName: "TK-ADMIN" });
 });
 
+it("defaults the reporter to the creator, including for inserts that omit it", async () => {
+  const { project: p, todo } = await freshProject("tk-reporter-default", "RPD");
+  const t = await createTask(ctxFor("tk-member"), { projectId: p.id, title: "Reported" });
+  expect(t.reportedBy).toEqual({ id: "tk-member", displayName: "TK-MEMBER" });
+  expect((await getTask(ctxFor("tk-owner"), { taskId: t.id })).reportedBy.id).toBe("tk-member");
+
+  // Older Workers insert without the column; the trigger fills in the creator.
+  await env.DB.prepare(
+    `insert into task (id, project_id, number, title, status_id, position, created_by_user_id, created_at, updated_at)
+     values ('tk-legacy-insert', ?, 999, 'Legacy', ?, 'a0', 'tk-admin', ?, ?)`,
+  ).bind(p.id, todo.id, now.getTime(), now.getTime()).run();
+  const [legacy] = await db.select({ reporter: task.reporterUserId }).from(task).where(eq(task.id, "tk-legacy-insert"));
+  expect(legacy.reporter).toBe("tk-admin");
+});
+
+it("sets a reporter on create and update, logs the change, and rejects outsiders", async () => {
+  const { project: p } = await freshProject("tk-reporter", "RPT");
+  const owner = ctxFor("tk-owner");
+  const t = await createTask(owner, { projectId: p.id, title: "Reported", reporterUserId: "tk-member" });
+  expect(t.reportedBy).toEqual({ id: "tk-member", displayName: "TK-MEMBER" });
+  expect(t.createdBy.id).toBe("tk-owner");
+
+  await expect(createTask(owner, { projectId: p.id, title: "Outside", reporterUserId: "tk-outsider" }))
+    .rejects.toThrowError("That user must be a member of this organization.");
+  await expect(updateTask(owner, { taskId: t.id, reporterUserId: "tk-outsider" }))
+    .rejects.toThrowError("That user must be a member of this organization.");
+
+  await finishTaskSetup(t.id);
+  const before = (await taskActivity(t.id)).length;
+  const updated = await updateTask(owner, { taskId: t.id, reporterUserId: "tk-admin" });
+  expect(updated.reportedBy).toEqual({ id: "tk-admin", displayName: "TK-ADMIN" });
+  expect(updated.createdBy.id).toBe("tk-owner");
+  const rows = await taskActivity(t.id);
+  expect(rows).toHaveLength(before + 1);
+  expect(rows.at(-1)!.type).toBe("task.updated");
+  expect(JSON.parse(rows.at(-1)!.data)).toEqual({
+    fields: {
+      reporter: {
+        from: { id: "tk-member", displayName: "TK-MEMBER" },
+        to: { id: "tk-admin", displayName: "TK-ADMIN" },
+      },
+    },
+  });
+
+  // Re-applying the same reporter changes nothing and logs nothing.
+  await updateTask(owner, { taskId: t.id, reporterUserId: "tk-admin" });
+  expect(await taskActivity(t.id)).toHaveLength(before + 1);
+});
+
 it("orders per (projectId, statusId), writes one row per move, and breaks ties on id", async () => {
   const { project: p, todo, doing } = await freshProject("tk-order", "ORD");
 

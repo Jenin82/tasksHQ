@@ -42,7 +42,7 @@ import { TaskPeopleFilters, useTaskPeopleFilters } from "./task-people-filters";
 
 export type BoardStatus = Pick<Status, "id" | "name" | "color">;
 
-export type BoardCard = Pick<TaskSummary, "assignee" | "createdBy"> & {
+export type BoardCard = Pick<TaskSummary, "assignee" | "createdBy" | "reportedBy"> & {
   id: string;
   key: string;
   title: string;

@@ -6,6 +6,7 @@ import BoardLoading from "@/app/[org]/[project]/loading";
 import SettingsLoading from "@/app/[org]/[project]/settings/loading";
 import TableLoading from "@/app/[org]/[project]/table/loading";
 import { useTaskPeopleFilters } from "@/app/[org]/[project]/task-people-filters";
+import { readFilters } from "@/components/use-saved-task-filters";
 
 const route = vi.hoisted(() => ({ pathname: "" }));
 vi.mock("next/navigation", () => ({ usePathname: () => route.pathname }));
@@ -37,9 +38,9 @@ it.each(["/acme/web", "/acme/web/table"])("shows all work items by default on %s
 
   function TaskList() {
     const filters = useTaskPeopleFilters([
-      { key: "WEB-1", title: "My assignment", statusId: "todo", type, assignee: currentUser, createdBy: other },
-      { key: "WEB-2", title: "Other assignment", statusId: "todo", type, assignee: other, createdBy: currentUser },
-      { key: "WEB-3", title: "Unassigned task", statusId: "todo", type, assignee: null, createdBy: currentUser },
+      { key: "WEB-1", title: "My assignment", statusId: "todo", type, assignee: currentUser, createdBy: other, reportedBy: other },
+      { key: "WEB-2", title: "Other assignment", statusId: "todo", type, assignee: other, createdBy: currentUser, reportedBy: currentUser },
+      { key: "WEB-3", title: "Unassigned task", statusId: "todo", type, assignee: null, createdBy: currentUser, reportedBy: currentUser },
     ]);
     return <output>{filters.visible.map(({ key }) => key).join(", ")}</output>;
   }
@@ -48,6 +49,22 @@ it.each(["/acme/web", "/acme/web/table"])("shows all work items by default on %s
     <ProjectTabs base="/acme/web" currentUser={currentUser}><TaskList /></ProjectTabs>,
   );
   expect(html).toContain("<output>WEB-1, WEB-2, WEB-3</output>");
+});
+
+it("loads saved filters from before reporters existed, and saved reporters after", () => {
+  const stored = new Map<string, string>();
+  vi.stubGlobal("localStorage", { getItem: (key: string) => stored.get(key) ?? null });
+  try {
+    const old = { query: "bug", status: "", type: "", assignees: ["me"], creators: ["other"], assigneeDefaultsRemoved: true };
+    stored.set("old", JSON.stringify(old));
+    stored.set("new", JSON.stringify({ ...old, reporters: ["other", null] }));
+    expect(readFilters("old")).toMatchObject({
+      query: "bug", assignees: new Set(["me"]), creators: new Set(["other"]), reporters: new Set(),
+    });
+    expect(readFilters("new")?.reporters).toEqual(new Set(["other", null]));
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
 
 it.each([

@@ -15,6 +15,7 @@ export type TaskDetailData = {
   taskTypes: TaskTypeRef[];
   assignable: FieldPerson[];
   detached: FieldPerson | null;
+  detachedReporter: FieldPerson | null;
   ids: TaskFieldsIds;
   moveTargets: { id: string; name: string }[];
 };
@@ -56,7 +57,7 @@ export async function readTaskDetail(
     throw error;
   }
 
-  const canEdit = canEditTask(canEditAnyTask(access), user.id, detail.createdBy.id, detail.assignee?.id);
+  const canEdit = canEditTask(canEditAnyTask(access), user.id, detail.createdBy.id, detail.assignee?.id, detail.reportedBy.id);
   // Keep the organization roster available for comment mentions.
   const [statuses, assignable, taskTypes, moveTargets] = await Promise.all([
     canEdit ? db
@@ -76,6 +77,10 @@ export async function readTaskDetail(
     assignee && !assignable.some((p) => p.userId === assignee.id)
       ? { userId: assignee.id, name: assignee.displayName, image: assignee.image }
       : null;
+  const reporter = detail.reportedBy;
+  const detachedReporter: FieldPerson | null = assignable.some((p) => p.userId === reporter.id)
+    ? null
+    : { userId: reporter.id, name: reporter.displayName, image: reporter.image };
 
   const ids = {
     orgSlug: org.slug,
@@ -83,5 +88,5 @@ export async function readTaskDetail(
     taskId: detail.id,
   };
 
-  return { detail, canEdit, statuses, taskTypes, assignable, detached, ids, moveTargets };
+  return { detail, canEdit, statuses, taskTypes, assignable, detached, detachedReporter, ids, moveTargets };
 }

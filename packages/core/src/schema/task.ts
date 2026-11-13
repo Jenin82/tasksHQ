@@ -25,6 +25,8 @@ export const task = sqliteTable(
       .notNull()
       .references(() => status.id),
     assigneeUserId: text("assignee_user_id").references(() => user.id),
+    // Nullable for older Workers during rollout. The insert trigger supplies the creator.
+    reporterUserId: text("reporter_user_id").references(() => user.id),
     // Fractional index, scoped to (projectId, statusId).
     position: text("position").notNull(),
     archivedAt: integer("archived_at", { mode: "timestamp_ms" }),

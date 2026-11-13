@@ -8,10 +8,10 @@ export const sections: GuideSection[] = [
       <p>Use the <strong>Board</strong> and <strong>Table</strong> tabs at the top of a project to switch between two views of the same tasks.</p>
       <ul className="list-disc space-y-2 pl-6 marker:text-muted-foreground">
         <li><strong>Board</strong> groups tasks by status. Drag a card you can edit into another column to change its status, or drag it within a column to reorder it.</li>
-        <li><strong>Table</strong> puts properties such as assignee, status, priority, and due date side by side. Select a column heading to sort or use the sorting controls inside <strong>Filters</strong>.</li>
+        <li><strong>Table</strong> puts properties such as assignee, reporter, status, priority, and due date side by side. Select a column heading to sort or use the sorting controls inside <strong>Filters</strong>.</li>
       </ul>
       <Screenshot name="board" alt="Project board showing work item cards grouped into status columns" caption="The Board groups cards by status. Use Table to scan task properties or sort the list." />
-      <p>Open <strong>Filters</strong> to narrow the project view by title or task key, status, type, assignee, or creator. Choose <strong>Clear filters</strong> to show the full view again.</p>
+      <p>Open <strong>Filters</strong> to narrow the project view by title or task key, status, type, assignee, creator, or reporter. Choose <strong>Clear filters</strong> to show the full view again.</p>
     </>,
   },
   {

@@ -20,6 +20,7 @@ import {
   archiveAction,
   assignTaskAction,
   editTaskAction,
+  setReporterAction,
   setStatusAction,
   transferTaskAction,
 } from "./actions";
@@ -236,6 +237,7 @@ export function DueDateField({ ids, dueDate }: { ids: TaskFieldsIds; dueDate: st
 const propertyActions = {
   statusId: { label: "Status", action: setStatusAction },
   assigneeUserId: { label: "Assignee", action: assignTaskAction },
+  reporterUserId: { label: "Reporter", action: setReporterAction },
   typeId: { label: "Type", action: editTaskAction },
   priority: { label: "Priority", action: editTaskAction },
 };
@@ -292,6 +294,12 @@ export function StatusField({ ids, statuses, statusId }: { ids: TaskFieldsIds; s
 
 export type FieldPerson = { userId: string; name: string; image?: string | null };
 
+const personOption = (person: FieldPerson) => ({
+  id: person.userId,
+  label: person.name,
+  icon: <ProfileAvatar name={person.name} image={person.image} className="size-5 bg-muted text-xs" />,
+});
+
 export function AssigneeField({
   ids,
   people,
@@ -303,17 +311,31 @@ export function AssigneeField({
   detached: FieldPerson | null;
   assigneeUserId: string | null;
 }) {
-  const personOption = (person: FieldPerson) => ({
-    id: person.userId,
-    label: person.name,
-    icon: <ProfileAvatar name={person.name} image={person.image} className="size-5 bg-muted text-xs" />,
-  });
   const options = [
     { id: "", label: "Unassigned", icon: <UserRound aria-hidden className="size-4 shrink-0 text-muted-foreground" /> },
     ...people.map(personOption),
     ...(detached ? [{ ...personOption(detached), unavailable: "No longer in this organization" }] : []),
   ];
   return <TaskPropertyPicker ids={ids} field="assigneeUserId" value={assigneeUserId ?? ""} options={options} />;
+}
+
+/** A reporter is never cleared, so there is no "Unassigned" option. */
+export function ReporterField({
+  ids,
+  people,
+  detached,
+  reporterUserId,
+}: {
+  ids: TaskFieldsIds;
+  people: FieldPerson[];
+  detached: FieldPerson | null;
+  reporterUserId: string;
+}) {
+  const options = [
+    ...people.map(personOption),
+    ...(detached ? [{ ...personOption(detached), unavailable: "No longer in this organization" }] : []),
+  ];
+  return <TaskPropertyPicker ids={ids} field="reporterUserId" value={reporterUserId} options={options} />;
 }
 
 export function MoveTaskButton({ ids, targets }: {

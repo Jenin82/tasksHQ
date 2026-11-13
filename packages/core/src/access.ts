@@ -24,7 +24,7 @@ export class AccessError extends DomainError {
 
 export class TaskEditForbidden extends AccessError {
   constructor() {
-    super("forbidden", "Only the creator, current assignee, or an admin can edit this task.");
+    super("forbidden", "Only the creator, reporter, current assignee, or an admin can edit this task.");
   }
 }
 
@@ -126,8 +126,14 @@ export function canEditAnyTask({ project, member, projectRole }: {
   return !project.restrictTaskEdits || canProject(member.role, projectRole, "project:manage_task_editing");
 }
 
-export function canEditTask(canEditAny: boolean, actorUserId: string, creatorId: string, assigneeId?: string | null) {
-  return canEditAny || actorUserId === creatorId || actorUserId === assigneeId;
+export function canEditTask(
+  canEditAny: boolean,
+  actorUserId: string,
+  creatorId: string,
+  assigneeId?: string | null,
+  reporterId?: string | null,
+) {
+  return canEditAny || actorUserId === creatorId || actorUserId === assigneeId || actorUserId === reporterId;
 }
 
 const taskEditingOrgRoles = orgMember.role.enumValues.filter((role) => can(role, "project:manage_task_editing"));
@@ -148,5 +154,6 @@ export function hasTaskEditPermission(db: DrizzleD1Database, projectId: string, 
       inArray(projectMember.role, taskEditingProjectRoles),
       eq(task.createdByUserId, actorUserId),
       eq(task.assigneeUserId, actorUserId),
+      eq(task.reporterUserId, actorUserId),
     ))));
 }

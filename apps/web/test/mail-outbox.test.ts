@@ -100,6 +100,19 @@ it("groups edits for creator and direct lead and skips card ordering and non-con
   }
 });
 
+it("sends task update mail to the reporter instead of the creator, and to a reporter set in the same edit", async () => {
+  const { project } = await freshProject("outbox-reporter");
+  const created = await createTask(context(ownerId, false), { projectId: project.id, title: "Reported", reporterUserId: reportId });
+  const editor = context(editorId);
+
+  await updateTask(editor, { taskId: created.id, title: "Reporter hears about this" });
+  expect(await recipientsFor(created.id)).toEqual([`task_update:${reportId}`]);
+
+  await db.delete(mailOutbox).where(eq(mailOutbox.targetId, created.id));
+  await updateTask(editor, { taskId: created.id, title: "New reporter hears about this", reporterUserId: leadId });
+  expect(await recipientsFor(created.id)).toEqual([`task_update:${leadId}`]);
+});
+
 it("retries failed SMTP submissions and gives overlapping dispatches a single lease", async () => {
   const { org } = await freshProject("outbox-retry");
   const email = "retry@outbox.test";

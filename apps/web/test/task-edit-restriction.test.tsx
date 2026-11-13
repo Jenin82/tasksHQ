@@ -61,7 +61,7 @@ const makeProject = (slug: string, key: string) => createProject(owner, {
   key,
   name: slug,
 });
-const forbidEdit = { reason: "forbidden", message: "Only the creator, current assignee, or an admin can edit this task." };
+const forbidEdit = { reason: "forbidden", message: "Only the creator, reporter, current assignee, or an admin can edit this task." };
 const restrict = (projectId: string) => setProjectTaskEditRestriction(owner, { projectId, restricted: true });
 
 it("lets admins edit unrelated tasks with the setting on, scoped to the projects they administer", async () => {
@@ -179,6 +179,27 @@ it("keeps read and comment access while checking current assignment for task mut
   await archiveTask(owner, target);
   await deleteArchivedTask(ctx(adminId), deletion);
   await expect(getTaskDetail(reader, target)).rejects.toMatchObject({ reason: "not_a_member" });
+});
+
+it("lets the reporter edit a restricted task that a plain member cannot", async () => {
+  const project = await makeProject("reporter-policy", "EDP");
+  const reported = await createTask(owner, { projectId: project.id, title: "Reported", reporterUserId: readerId });
+  await restrict(project.id);
+
+  actor.id = readerId;
+  await expect(readTaskDetail(workspace.slug, project.slug, reported.key)).resolves.toMatchObject({ canEdit: true });
+  await expect(updateTask(ctx(readerId), { taskId: reported.id, title: "Reporter edit" }))
+    .resolves.toMatchObject({ title: "Reporter edit" });
+  actor.id = assigneeId;
+  await expect(readTaskDetail(workspace.slug, project.slug, reported.key)).resolves.toMatchObject({ canEdit: false });
+  await expect(updateTask(ctx(assigneeId), { taskId: reported.id, title: "Member edit" })).rejects.toMatchObject(forbidEdit);
+
+  // Handing the reporter role on moves the edit right with it.
+  await updateTask(ctx(readerId), { taskId: reported.id, reporterUserId: assigneeId });
+  await expect(updateTask(ctx(assigneeId), { taskId: reported.id, title: "New reporter edit" }))
+    .resolves.toMatchObject({ title: "New reporter edit" });
+  await expect(updateTask(ctx(readerId), { taskId: reported.id, title: "Former reporter edit" }))
+    .rejects.toMatchObject(forbidEdit);
 });
 
 it("rejects a transfer if the setting changes during preparation", async () => {

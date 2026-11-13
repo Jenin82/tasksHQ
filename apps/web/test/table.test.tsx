@@ -133,22 +133,28 @@ const renderedKeys = (html: string) =>
   [...html.matchAll(/<tr\b[^>]*><td\b[^>]*><span\b[^>]*>([A-Z0-9]+-\d+)<\/span>/g)]
     .map((match) => match[1]);
 
-it("matches any selected person within a filter and requires both filters to match", () => {
+it("matches any selected person within a filter and requires every filter to match", () => {
   const alex = { id: "alex", displayName: "Alex" };
   const sam = { id: "sam", displayName: "Sam" };
   const jamie = { id: "jamie", displayName: "Jamie" };
-  const matchingAssignee = { assignee: alex, createdBy: sam };
-  const matchingUnassigned = { assignee: null, createdBy: jamie };
-  const wrongCreator = { assignee: alex, createdBy: alex };
-  const wrongAssignee = { assignee: sam, createdBy: jamie };
+  const matchingAssignee = { assignee: alex, createdBy: sam, reportedBy: sam };
+  const matchingUnassigned = { assignee: null, createdBy: jamie, reportedBy: alex };
+  const wrongCreator = { assignee: alex, createdBy: alex, reportedBy: alex };
+  const wrongAssignee = { assignee: sam, createdBy: jamie, reportedBy: jamie };
   const rows = [matchingAssignee, matchingUnassigned, wrongCreator, wrongAssignee];
+  const none = new Set<string | null>();
 
-  expect(filterTasksByPeople(rows, new Set(), new Set())).toEqual(rows);
-  expect(filterTasksByPeople(rows, new Set([alex.id, null]), new Set([sam.id, jamie.id])))
+  expect(filterTasksByPeople(rows, none, none, none)).toEqual(rows);
+  expect(filterTasksByPeople(rows, new Set([alex.id, null]), new Set([sam.id, jamie.id]), none))
     .toEqual([matchingAssignee, matchingUnassigned]);
-  expect(filterTasksByPeople(rows, new Set([null]), new Set())).toEqual([matchingUnassigned]);
-  expect(filterTasksByPeople(rows, new Set(), new Set([jamie.id])))
+  expect(filterTasksByPeople(rows, new Set([null]), none, none)).toEqual([matchingUnassigned]);
+  expect(filterTasksByPeople(rows, none, new Set([jamie.id]), none))
     .toEqual([matchingUnassigned, wrongAssignee]);
+  // Reporter filters on the reporter, independently of the creator.
+  expect(filterTasksByPeople(rows, none, none, new Set([alex.id])))
+    .toEqual([matchingUnassigned, wrongCreator]);
+  expect(filterTasksByPeople(rows, none, new Set([jamie.id]), new Set([alex.id])))
+    .toEqual([matchingUnassigned]);
 });
 
 it("the table's data path is a 404 for a non-member and for an unknown project", async () => {

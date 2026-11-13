@@ -31,7 +31,7 @@ export async function WorkspaceAssignmentPage({ orgSlug, view, allOrganizations 
           ...task,
           orgSlug: workspace.slug,
           orgName: workspace.name,
-          canEdit: canEditTask(editors[task.projectId].canEditAnyTask, user.id, task.createdBy.id, task.assignee.id),
+          canEdit: canEditTask(editors[task.projectId].canEditAnyTask, user.id, task.createdBy.id, task.assignee.id, task.reportedBy.id),
         })),
         editors,
       };

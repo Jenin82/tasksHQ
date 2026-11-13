@@ -24,7 +24,7 @@ export function TaskEditingSettings({ orgSlug, projectSlug, restricted }: {
           <div>
             <p id={labelId} className="text-sm font-medium">Restrict task editing</p>
             <p id={descriptionId} className="mt-1 text-sm text-muted-foreground">
-              Admins, the task’s creator, and its current assignee can edit. Other members can still create tasks and comment.
+              Admins, the task’s creator, its reporter, and its current assignee can edit. Other members can still create tasks and comment.
             </p>
           </div>
           <button

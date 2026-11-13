@@ -69,8 +69,9 @@ export const sections: GuideSection[] = [
     content: (
       <p>
         Under <strong>Task editing</strong>, turn on <strong>Restrict task editing</strong> to limit edits to the
-        creator, current assignee, project admins, and organization owners and admins.
+        creator, reporter, current assignee, project admins, and organization owners and admins.
         Other organization members can still view tasks, create new ones, and comment.
+        Anyone who can edit a task can change its reporter, which also gives the new reporter edit access.
         The rule applies in TasksHQ and through <DocLink topic="mcp">MCP</DocLink>.
       </p>
     ),

@@ -46,6 +46,7 @@ const TASK = z
   .describe('Task key, e.g. "ENG-42". Prefix "org/" if ambiguous.');
 const STATUS = z.string().min(1).describe("Status name, as list_projects returns it.");
 const ASSIGNEE = z.string().min(1).describe("Assignee email address.");
+const REPORTER = z.string().min(1).describe("Reporter email address. Defaults to the task creator.");
 const DUE_DATE = z.iso.date().describe("Due date as YYYY-MM-DD, with no time or timezone.");
 const PRIORITY = z.enum(TASK_PRIORITIES);
 const TASK_TYPE = z.string().min(1).describe("Task type name, as list_projects returns it.");
@@ -102,7 +103,7 @@ function decodeImage(encoded: string) {
 }
 
 async function taskView(db: DrizzleD1Database, t: TaskDetail) {
-  const emails = await emailsFor(db, [t.assignee?.id]);
+  const emails = await emailsFor(db, [t.assignee?.id, t.reportedBy.id]);
   return {
     key: t.key,
     title: t.title,
@@ -112,6 +113,7 @@ async function taskView(db: DrizzleD1Database, t: TaskDetail) {
     type: t.type.name,
     status: t.status.name,
     assignee: person(t.assignee, emails),
+    reporter: person(t.reportedBy, emails),
     updatedAt: t.updatedAt,
   };
 }
@@ -212,7 +214,7 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
         const page = all.slice(offset, offset + args.limit);
         const emails = await emailsFor(
           db,
-          page.map((t) => t.assignee?.id),
+          page.flatMap((t) => [t.assignee?.id, t.reportedBy.id]),
         );
         const next = offset + page.length;
         return {
@@ -224,6 +226,7 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
             type: t.type.name,
             status: t.status.name,
             assignee: person(t.assignee, emails),
+            reporter: person(t.reportedBy, emails),
             updatedAt: t.updatedAt,
           })),
           ...(next < all.length ? { cursor: encodeCursor(next) } : {}),
@@ -244,6 +247,7 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
         const t = await getTaskDetail(ctx, { taskId, projectId: project.id, number });
         const emails = await emailsFor(db, [
           t.assignee?.id,
+          t.reportedBy.id,
           ...t.comments.map((c) => c.author.id),
           ...t.activity.map((a) => a.actor.id),
         ]);
@@ -256,6 +260,7 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
           type: t.type.name,
           status: t.status.name,
           assignee: person(t.assignee, emails),
+          reporter: person(t.reportedBy, emails),
           archivedAt: t.archivedAt,
           updatedAt: t.updatedAt,
           comments: t.comments.map((c) => ({
@@ -281,7 +286,7 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
     "create_task",
     {
       description:
-        "Create a task with an optional Markdown description and due date. Omit type to use the project's default. Priority defaults to medium. Without a status it lands in the project's first board column.",
+        "Create a task with an optional Markdown description and due date. Omit type to use the project's default. Priority defaults to medium. Without a status it lands in the project's first board column. The reporter defaults to you.",
       inputSchema: z.object({
         project: PROJECT,
         title: z.string().min(1),
@@ -291,6 +296,7 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
         type: TASK_TYPE.optional(),
         status: STATUS.optional(),
         assignee: ASSIGNEE.optional(),
+        reporter: REPORTER.optional(),
       }),
     },
     (args) =>
@@ -309,6 +315,9 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
           assigneeUserId: args.assignee
             ? await resolveAssignee(db, args.assignee)
             : undefined,
+          reporterUserId: args.reporter
+            ? await resolveAssignee(db, args.reporter)
+            : undefined,
         });
         return taskView(db, t);
       }),
@@ -318,7 +327,7 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
     "update_task",
     {
       description:
-        "Change a task's type, title, Markdown description, due date, priority, status or assignee. Omit fields to keep them. Null clears the description, due date or assignee and resets priority to medium.",
+        "Change a task's type, title, Markdown description, due date, priority, status, assignee or reporter. Omit fields to keep them. Null clears the description, due date or assignee and resets priority to medium. The reporter cannot be cleared.",
       inputSchema: z.object({
         task: TASK,
         title: z.string().min(1).optional(),
@@ -328,6 +337,7 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
         type: TASK_TYPE.optional(),
         status: STATUS.optional(),
         assignee: ASSIGNEE.nullable().optional(),
+        reporter: REPORTER.optional(),
       }),
     },
     (args) =>
@@ -355,6 +365,9 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
               : args.assignee === null
                 ? null
                 : await resolveAssignee(db, args.assignee),
+          reporterUserId: args.reporter
+            ? await resolveAssignee(db, args.reporter)
+            : undefined,
         });
         return taskView(db, t);
       }),

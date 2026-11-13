@@ -28,6 +28,7 @@ import { TaskPeopleFilters, useTaskPeopleFilters, type TaskPeople } from "../tas
 
 export type TaskRow = TaskPeople & {
   assignee: (NonNullable<TaskPeople["assignee"]> & { image?: string }) | null;
+  reportedBy: TaskPeople["reportedBy"] & { image?: string };
   id: string;
   key: string;
   /** The key sorts on this. `WEB-10` as a string sorts before `WEB-2`. */
@@ -71,6 +72,7 @@ const SORT_OPTIONS = [
   { id: "type", label: "Type", desc: false },
   { id: "status", label: "Status", desc: false },
   { id: "assignee", label: "Assignee", desc: false },
+  { id: "reporter", label: "Reporter", desc: false },
   { id: "created", label: "Created on", desc: true },
   { id: "priority", label: "Priority", desc: true },
   { id: "dueDate", label: "Due date", desc: false },
@@ -169,6 +171,17 @@ export const columns = helper.columns([
           {row.original.assignee.displayName}
         </span> : <span className="text-muted-foreground">Unassigned</span>}
       </InlineTaskField>
+    ),
+  }),
+  helper.accessor((row) => row.reportedBy.displayName, {
+    id: "reporter",
+    header: "Reporter",
+    sortFn: sortFn_text,
+    cell: ({ row }) => (
+      <span className="flex items-center gap-2">
+        <ProfileAvatar name={row.original.reportedBy.displayName} image={row.original.reportedBy.image} className="size-5" />
+        {row.original.reportedBy.displayName}
+      </span>
     ),
   }),
   helper.accessor((row) => row.dueDate ?? undefined, {

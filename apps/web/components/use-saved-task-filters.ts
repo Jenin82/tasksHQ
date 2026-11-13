@@ -3,7 +3,7 @@
 import { useLayoutEffect, useMemo, useState } from "react";
 import { emptyProjectFilters, type ProjectFilters } from "./project-filters-context";
 
-function readFilters(key: string, previousDefaultAssignee?: string): ProjectFilters | null {
+export function readFilters(key: string, previousDefaultAssignee?: string): ProjectFilters | null {
   try {
     const raw = localStorage.getItem(key);
     if (!raw) return null;
@@ -30,6 +30,8 @@ function readFilters(key: string, previousDefaultAssignee?: string): ProjectFilt
       projectId: typeof saved.projectId === "string" ? saved.projectId : "",
       assignees,
       creators: people(saved.creators),
+      // Filters saved before reporters existed still load.
+      reporters: Array.isArray(saved.reporters) ? people(saved.reporters) : new Set(),
     };
   } catch {
     return null;
@@ -54,6 +56,7 @@ export function useSavedTaskFilters(scope?: string, previousDefaultAssignee?: st
         assigneeDefaultsRemoved: true,
         assignees: [...filters.assignees],
         creators: [...filters.creators],
+        reporters: [...filters.reporters],
       }));
     } catch {
       // Filters still work for this visit when browser storage is unavailable.

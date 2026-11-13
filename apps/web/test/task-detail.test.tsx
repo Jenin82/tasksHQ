@@ -30,7 +30,7 @@ vi.mock("@/lib/session", () => {
 const { ActivityLog, groupDescriptionActivity, SourceBadge } = await import(
   "@/app/[org]/[project]/[task]/activity-log"
 );
-const { addCommentAction, editTaskAction, setStatusAction, transferTaskAction } = await import(
+const { addCommentAction, editTaskAction, setReporterAction, setStatusAction, transferTaskAction } = await import(
   "@/app/[org]/[project]/[task]/actions"
 );
 const { GET: readDialogDetails } = await import(
@@ -299,6 +299,14 @@ it("saves task metadata from the detail forms and leaves omitted fields intact",
     dueDate: null,
     priority: "high",
   });
+
+  const reporter = fields();
+  reporter.set("reporterUserId", "td-member");
+  expect(await setReporterAction({}, reporter)).toEqual({});
+  expect(await getTaskDetail(ownerCtx, { taskId: task.id })).toMatchObject({
+    reportedBy: { id: "td-member" },
+    createdBy: { id: "td-owner" },
+  });
 });
 
 it("gives invalid keys, a different project and callers without reach the same dialog 404", async () => {
@@ -494,6 +502,10 @@ const EVERY_TYPE: TaskActivityEntry[] = [
         title: { from: "One", to: "Two" },
         description: { from: null, to: "A body" },
         assignee: { from: null, to: { id: "td-owner", displayName: "TD OWNER" } },
+        reporter: {
+          from: { id: "td-owner", displayName: "TD OWNER" },
+          to: { id: "td-member", displayName: "TD MEMBER" },
+        },
       },
     },
   },
@@ -521,6 +533,7 @@ it("renders every TaskActivityType, task.unarchived included", () => {
   expect(html).toContain("renamed this task to");
   expect(html).toContain("added a description");
   expect(html).toContain("assigned");
+  expect(html).toContain('set the reporter to <span class="text-foreground">TD MEMBER</span>');
   expect(html).toContain("moved this task");
   expect(html).toContain("moved this task to another project");
   expect(html).toContain("archived this task");
