@@ -123,7 +123,7 @@ export function CodeBlock({ children }: { children: string }) {
 
 const screenshotSizes = {
   board: [1280, 635],
-  "task-detail": [1280, 720],
+  "task-detail": [1280, 770],
   "task-filters": [1024, 650],
   "project-statuses": [720, 467],
   "organization-members": [1280, 720],
