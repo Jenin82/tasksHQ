@@ -1,4 +1,4 @@
-import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { type AnySQLiteColumn, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { user } from "./auth";
 import { project, projectTaskType, status } from "./project";
 
@@ -27,6 +27,9 @@ export const task = sqliteTable(
     assigneeUserId: text("assignee_user_id").references(() => user.id),
     // Nullable for older Workers during rollout. The insert trigger supplies the creator.
     reporterUserId: text("reporter_user_id").references(() => user.id),
+    // One level, same project. Triggers in 0016 enforce both; deleting the
+    // parent detaches its sub-tasks.
+    parentTaskId: text("parent_task_id").references((): AnySQLiteColumn => task.id, { onDelete: "set null" }),
     // Fractional index, scoped to (projectId, statusId).
     position: text("position").notNull(),
     archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
@@ -39,6 +42,7 @@ export const task = sqliteTable(
   (t) => [
     uniqueIndex("task_project_id_number_unique").on(t.projectId, t.number),
     index("task_type_id_idx").on(t.typeId),
+    index("task_parent_task_id_idx").on(t.parentTaskId),
   ],
 );
 

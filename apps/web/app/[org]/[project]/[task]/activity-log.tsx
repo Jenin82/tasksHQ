@@ -93,6 +93,17 @@ function updatedLines(fields: UpdatedFields): React.ReactNode[] {
     lines.push(<>changed the type to <span className="text-foreground">{fields.type.to}</span></>);
   }
 
+  if (fields.parent) {
+    const { from, to } = fields.parent;
+    lines.push(!to ? (
+      from?.key ? <>removed parent <span className="stutter">{from.key}</span></> : <>removed the parent</>
+    ) : !from ? (
+      <>set parent to <span className="stutter">{to.key}</span></>
+    ) : (
+      <>changed parent <span className="stutter">{from.key}</span> → <span className="stutter">{to.key}</span></>
+    ));
+  }
+
   if (fields.priority) {
     lines.push(<>changed priority to <span className="text-foreground">{taskPriorityLabel(fields.priority.to)}</span></>);
   }
@@ -118,6 +129,7 @@ function describe(entry: TaskActivityEntry): React.ReactNode[] {
       return [
         <>
           created this task in <Status name={entry.data.status.name} />
+          {entry.data.parent && <> as a sub-task of <span className="stutter">{entry.data.parent.key}</span></>}
         </>,
       ];
     case "task.updated":

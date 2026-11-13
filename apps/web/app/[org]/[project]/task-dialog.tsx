@@ -147,6 +147,10 @@ export function TaskDialogProvider({ children }: { children: React.ReactNode }) 
               if (event.target instanceof HTMLTextAreaElement && event.target.getAttribute("aria-activedescendant")) {
                 event.preventDefault();
               }
+              // Let Escape close the sub-task composer before this dialog.
+              if (event.target instanceof HTMLElement && event.target.hasAttribute("data-dialog-keep-escape")) {
+                event.preventDefault();
+              }
             }}
           >
             <div className="flex shrink-0 items-center justify-end gap-2 border-b border-border px-4 pb-1 pt-[max(0.25rem,env(safe-area-inset-top))] md:gap-3 md:px-6 md:py-2">
@@ -190,6 +194,12 @@ function decodeDetail(payload: TaskDetailPayload): TaskDetailData {
       createdAt: new Date(detail.createdAt),
       updatedAt: new Date(detail.updatedAt),
       archivedAt: detail.archivedAt ? new Date(detail.archivedAt) : null,
+      subtasks: detail.subtasks.map((entry) => ({
+        ...entry,
+        createdAt: new Date(entry.createdAt),
+        updatedAt: new Date(entry.updatedAt),
+        archivedAt: entry.archivedAt ? new Date(entry.archivedAt) : null,
+      })),
       comments: detail.comments.map((entry) => ({ ...entry, createdAt: new Date(entry.createdAt) })),
       activity: detail.activity.map((entry) => ({ ...entry, createdAt: new Date(entry.createdAt) })),
     },

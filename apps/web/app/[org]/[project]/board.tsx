@@ -1,7 +1,7 @@
 "use client";
 
 import { InlineTaskField, TaskTypeEditContext } from "./table/inline-task-field";
-import { useContext, useId, useOptimistic, useRef, useState, useTransition } from "react";
+import { useContext, useId, useMemo, useOptimistic, useRef, useState, useTransition } from "react";
 import {
   closestCorners,
   DndContext,
@@ -26,6 +26,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { ListTree } from "lucide-react";
 import type { TaskSummary, TaskTypeRef } from "@tasks/core/domain";
 import type { Status, TaskPriority } from "@tasks/core/schema";
 import { ProfileAvatar } from "@/components/profile-avatar";
@@ -43,6 +44,7 @@ import { TaskPeopleFilters, useTaskPeopleFilters } from "./task-people-filters";
 export type BoardStatus = Pick<Status, "id" | "name" | "color">;
 
 export type BoardCard = Pick<TaskSummary, "assignee" | "createdBy" | "reportedBy"> & {
+  parent: { id: string; key: string } | null;
   id: string;
   key: string;
   title: string;
@@ -141,6 +143,14 @@ export function Board({
   const [cards, applyMove] = useOptimistic(serverCards, placeCard);
   const filters = useTaskPeopleFilters(cards);
   const visible = filters.visible;
+  // Counted over every loaded card, so filtering never changes a parent's count.
+  const subtaskCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const card of cards) {
+      if (card.parent) counts.set(card.parent.id, (counts.get(card.parent.id) ?? 0) + 1);
+    }
+    return counts;
+  }, [cards]);
   const [dragging, setDragging] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
@@ -315,7 +325,7 @@ export function Board({
       }}
     >
       <ProjectTabFilters view="board" count={visible.length} activeCount={filters.activeCount}>
-        <TaskPeopleFilters filters={filters} statuses={statuses} disabled={dragging !== null} />
+        <TaskPeopleFilters filters={filters} statuses={statuses} disabled={dragging !== null} showSubtaskFilter />
       </ProjectTabFilters>
       <div
         role="region"
@@ -337,6 +347,7 @@ export function Board({
               status={status}
               cards={column(visible, status.id)}
               filtered={filters.active}
+              subtaskCounts={subtaskCounts}
               orgSlug={orgSlug}
               projectSlug={projectSlug}
             />
@@ -353,7 +364,7 @@ export function Board({
             statusColorClass(statuses.find((s) => s.id === active.statusId)?.color ?? null),
             "scale-[1.02] bg-popover text-popover-foreground [&_.stutter]:text-foreground/70",
           )}>
-            <CardFace card={active} status={statuses.find((status) => status.id === active.statusId)} />
+            <CardFace card={active} status={statuses.find((status) => status.id === active.statusId)} subtasks={subtaskCounts.get(active.id) ?? 0} />
           </div>
         ) : null}
       </DragOverlay>
@@ -365,12 +376,14 @@ function Column({
   status,
   cards,
   filtered,
+  subtaskCounts,
   orgSlug,
   projectSlug,
 }: {
   status: BoardStatus;
   cards: BoardCard[];
   filtered: boolean;
+  subtaskCounts: ReadonlyMap<string, number>;
   orgSlug: string;
   projectSlug: string;
 }) {
@@ -416,7 +429,7 @@ function Column({
             </p>
           ) : (
             cards.map((card) => (
-              <SortableCard key={card.id} card={card} status={status} base={base} />
+              <SortableCard key={card.id} card={card} status={status} base={base} subtasks={subtaskCounts.get(card.id) ?? 0} />
             ))
           )}
 
@@ -435,7 +448,7 @@ function Column({
   );
 }
 
-function SortableCard({ card, status, base }: { card: BoardCard; status: BoardStatus; base: string }) {
+function SortableCard({ card, status, base, subtasks }: { card: BoardCard; status: BoardStatus; base: string; subtasks: number }) {
   const canEdit = card.canEdit !== false;
   const typeEditor = useContext(TaskTypeEditContext);
   const canEditFields = canEdit && typeEditor !== null;
@@ -501,11 +514,13 @@ function SortableCard({ card, status, base }: { card: BoardCard; status: BoardSt
           type: card.type,
         }, event.currentTarget)}
       >
-        <CardFace card={card} status={status} inlineFields={canEditFields} />
+        <CardFace card={card} status={status} inlineFields={canEditFields} subtasks={subtasks} />
         <span id={metadataId} className="sr-only">
+          {card.parent && `Sub-task of ${card.parent.key}. `}
           Type {card.type.name}. {taskPriorityLabel(card.priority)} priority.
           {card.dueDate && ` Due ${formatTaskDueDate(card.dueDate)}.`}
           {card.assignee && ` Assigned to ${card.assignee.displayName}.`}
+          {subtasks > 0 && ` ${subtasks} ${subtasks === 1 ? "sub-task" : "sub-tasks"}.`}
         </span>
       </button>
       {canEditFields && (
@@ -537,11 +552,14 @@ function SortableCard({ card, status, base }: { card: BoardCard; status: BoardSt
  * §7.2: the card surface and its inset hairline, 12px — tighter than §7.4's
  * 16px card radius, which reads as a bubble at this size.
  */
-function CardFace({ card, status, inlineFields }: { card: BoardCard; status?: BoardStatus; inlineFields?: boolean }) {
+function CardFace({ card, status, inlineFields, subtasks = 0 }: { card: BoardCard; status?: BoardStatus; inlineFields?: boolean; subtasks?: number }) {
   return (
     <>
       <span className={cn("flex items-center justify-between gap-2", inlineFields && "min-h-8")}>
-        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{card.key}</span>
+        <span className="flex min-w-0 items-center gap-2 text-xs tabular-nums text-muted-foreground">
+          <span className="shrink-0">{card.key}</span>
+          {card.parent && <span aria-hidden className="truncate">↳ {card.parent.key}</span>}
+        </span>
         {!inlineFields && <TaskTypeBadge type={card.type} />}
       </span>
       <span className="mt-1.5 block font-medium leading-snug wrap-anywhere">{card.title}</span>
@@ -556,6 +574,12 @@ function CardFace({ card, status, inlineFields }: { card: BoardCard; status?: Bo
             <time dateTime={card.dueDate} className={cn("rounded-md border border-border px-1.5 py-0.5 tabular-nums", isPastTaskDueDate(card.dueDate) && "text-destructive")}>
               Due {formatTaskDueDate(card.dueDate)}
             </time>
+          )}
+          {subtasks > 0 && (
+            <span aria-hidden className="inline-flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 tabular-nums text-muted-foreground">
+              <ListTree className="size-3" />
+              {subtasks}
+            </span>
           )}
         </span>
         {card.assignee ? (

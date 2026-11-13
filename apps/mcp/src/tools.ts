@@ -9,6 +9,7 @@ import {
   type TaskDetail,
   type UserRef,
 } from "@tasks/core/domain";
+import { AccessError } from "@tasks/core/access";
 import { DomainError } from "@tasks/core/errors";
 import { TASK_PRIORITIES } from "@tasks/core/schema";
 import {
@@ -31,6 +32,7 @@ import {
   resolveStatus,
   resolveTask,
   resolveTaskType,
+  type ReachableProject,
 } from "./resolve";
 
 // TODO(core): export `DomainContext` (src/activity.ts is not in package exports).
@@ -50,6 +52,10 @@ const REPORTER = z.string().min(1).describe("Reporter email address. Defaults to
 const DUE_DATE = z.iso.date().describe("Due date as YYYY-MM-DD, with no time or timezone.");
 const PRIORITY = z.enum(TASK_PRIORITIES);
 const TASK_TYPE = z.string().min(1).describe("Task type name, as list_projects returns it.");
+const PARENT = z
+  .string()
+  .min(1)
+  .describe('Parent task key in the same project, e.g. "ENG-12". Sub-tasks are one level deep.');
 const DESCRIPTION = z.string().describe(
   "Markdown. To embed a project image, insert the Markdown from upload_project_image.",
 );
@@ -114,8 +120,25 @@ async function taskView(db: DrizzleD1Database, t: TaskDetail) {
     status: t.status.name,
     assignee: person(t.assignee, emails),
     reporter: person(t.reportedBy, emails),
+    parent: t.parent?.key ?? null,
     updatedAt: t.updatedAt,
   };
+}
+
+/** A parent key without an org prefix is read in the child's own org. */
+async function resolveParent(db: DrizzleD1Database, userId: string, p: ReachableProject, key: string) {
+  const qualified = key.includes("/") ? key : `${p.orgSlug}/${key}`;
+  let parent;
+  try {
+    parent = await resolveTask(db, userId, qualified);
+  } catch (error) {
+    if (error instanceof AccessError && error.reason === "not_a_member") {
+      throw new AccessError(error.reason, "No such parent task.");
+    }
+    throw error;
+  }
+  if (parent.project.id !== p.id) throw new DomainError("No such parent task in this project.");
+  return parent.taskId;
 }
 
 /** Opaque to agents; an offset into `listTasks`' `position, id` order. */
@@ -227,6 +250,7 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
             status: t.status.name,
             assignee: person(t.assignee, emails),
             reporter: person(t.reportedBy, emails),
+            parent: t.parent?.key ?? null,
             updatedAt: t.updatedAt,
           })),
           ...(next < all.length ? { cursor: encodeCursor(next) } : {}),
@@ -237,7 +261,7 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
   server.registerTool(
     "get_task",
     {
-      description: "One task with its type, Markdown description, due date, priority, comments and activity log.",
+      description: "One task with its type, Markdown description, due date, priority, parent, sub-tasks (including archived ones), comments and activity log.",
       inputSchema: z.object({ task: TASK }),
       annotations: { readOnlyHint: true },
     },
@@ -248,6 +272,7 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
         const emails = await emailsFor(db, [
           t.assignee?.id,
           t.reportedBy.id,
+          ...t.subtasks.map((s) => s.assignee?.id),
           ...t.comments.map((c) => c.author.id),
           ...t.activity.map((a) => a.actor.id),
         ]);
@@ -261,8 +286,16 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
           status: t.status.name,
           assignee: person(t.assignee, emails),
           reporter: person(t.reportedBy, emails),
+          parent: t.parent?.key ?? null,
           archivedAt: t.archivedAt,
           updatedAt: t.updatedAt,
+          subtasks: t.subtasks.map((s) => ({
+            key: s.key,
+            title: s.title,
+            status: s.status.name,
+            assignee: person(s.assignee, emails),
+            archived: s.archivedAt !== null,
+          })),
           comments: t.comments.map((c) => ({
             id: c.id,
             author: person(c.author, emails),
@@ -286,7 +319,7 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
     "create_task",
     {
       description:
-        "Create a task with an optional Markdown description and due date. Omit type to use the project's default. Priority defaults to medium. Without a status it lands in the project's first board column. The reporter defaults to you.",
+        "Create a task with an optional Markdown description and due date. Omit type to use the project's default. Priority defaults to medium. Without a status it lands in the project's first board column. The reporter defaults to you. Pass parent to make it a sub-task of a task in the same project; a sub-task cannot have its own sub-tasks. Restricted projects also require edit access to the parent.",
       inputSchema: z.object({
         project: PROJECT,
         title: z.string().min(1),
@@ -297,6 +330,7 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
         status: STATUS.optional(),
         assignee: ASSIGNEE.optional(),
         reporter: REPORTER.optional(),
+        parent: PARENT.optional(),
       }),
     },
     (args) =>
@@ -318,6 +352,9 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
           reporterUserId: args.reporter
             ? await resolveAssignee(db, args.reporter)
             : undefined,
+          parentTaskId: args.parent
+            ? await resolveParent(db, props.userId, p, args.parent)
+            : undefined,
         });
         return taskView(db, t);
       }),
@@ -327,7 +364,7 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
     "update_task",
     {
       description:
-        "Change a task's type, title, Markdown description, due date, priority, status, assignee or reporter. Omit fields to keep them. Null clears the description, due date or assignee and resets priority to medium. The reporter cannot be cleared.",
+        "Change a task's type, title, Markdown description, due date, priority, status, assignee, reporter or parent. Omit fields to keep them. Null clears the description, due date, assignee or parent and resets priority to medium. The reporter cannot be cleared. A parent must be in the same project and cannot itself be a sub-task, and a task with sub-tasks cannot get a parent. Restricted projects also require edit access to the parent.",
       inputSchema: z.object({
         task: TASK,
         title: z.string().min(1).optional(),
@@ -338,6 +375,7 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
         status: STATUS.optional(),
         assignee: ASSIGNEE.nullable().optional(),
         reporter: REPORTER.optional(),
+        parent: PARENT.nullable().optional(),
       }),
     },
     (args) =>
@@ -368,6 +406,12 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
           reporterUserId: args.reporter
             ? await resolveAssignee(db, args.reporter)
             : undefined,
+          parentTaskId:
+            args.parent === undefined
+              ? undefined
+              : args.parent === null
+                ? null
+                : await resolveParent(db, props.userId, p, args.parent),
         });
         return taskView(db, t);
       }),

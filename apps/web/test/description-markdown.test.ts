@@ -1,4 +1,5 @@
 import { Node } from "@tiptap/core";
+import { TaskItem, TaskList } from "@tiptap/extension-list";
 import { MarkdownManager } from "@tiptap/markdown";
 import StarterKit from "@tiptap/starter-kit";
 import { expect, it } from "vitest";
@@ -6,6 +7,17 @@ import { createDescriptionMarked } from "@/lib/description-markdown";
 
 function manager() {
   return new MarkdownManager({ marked: createDescriptionMarked(), extensions: [StarterKit] });
+}
+
+function checklistManager() {
+  return new MarkdownManager({
+    marked: createDescriptionMarked(),
+    extensions: [StarterKit, TaskList, TaskItem.configure({ nested: true })],
+  });
+}
+
+function taskItem(checked: boolean, text: string) {
+  return { type: "taskItem", attrs: { checked }, content: [{ type: "paragraph", content: [{ type: "text", text }] }] };
 }
 
 it("keeps old tables and checklist markers visible when editing a description", () => {
@@ -111,5 +123,52 @@ it("isolates tokenizers registered by different editor instances", () => {
       { type: "paragraph", tokens: [{ type: "text", text: source }] },
     ]);
     expect(other.parse(source).content?.[0]?.content).toEqual([{ type: "text", text: source }]);
+  }
+});
+
+it("round-trips checklists when the editor registers task lists", () => {
+  const markdown = checklistManager();
+  const doc = markdown.parse("- [ ] a\n- [x] b");
+  const list = { type: "taskList", content: [taskItem(false, "a"), taskItem(true, "b")] };
+
+  expect(doc.content).toEqual([list]);
+  expect(markdown.serialize(doc).trim()).toBe("- [ ] a\n- [x] b");
+  expect(markdown.parse(markdown.serialize(doc))).toEqual(doc);
+});
+
+it("round-trips nested checklists", () => {
+  const markdown = checklistManager();
+  const doc = markdown.parse("- [ ] a\n  - [ ] b");
+  const nested = { type: "taskList", content: [taskItem(false, "b")] };
+  const outer = taskItem(false, "a");
+
+  expect(doc.content).toEqual([{ type: "taskList", content: [{ ...outer, content: [...outer.content, nested] }] }]);
+  expect(markdown.serialize(doc).trim()).toBe("- [ ] a\n  - [ ] b");
+  expect(markdown.parse(markdown.serialize(doc))).toEqual(doc);
+});
+
+it("keeps plain bullets and checklist items together", () => {
+  const markdown = checklistManager();
+  const doc = markdown.parse("- a\n- [ ] b");
+
+  expect(doc.content).toEqual([
+    { type: "bulletList", content: [{ type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "a" }] }] }] },
+    { type: "taskList", content: [taskItem(false, "b")] },
+  ]);
+  expect(markdown.parse(markdown.serialize(doc))).toEqual(doc);
+});
+
+it("keeps checkbox markers literal in lists the checklist tokenizer skips", () => {
+  const markdown = checklistManager();
+  const item = (text: string) => ({ type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text }] }] });
+
+  for (const [source, list] of [
+    ["1. [ ] a", { type: "orderedList", content: [item("[ ] a")] }],
+    // Starts as a GFM list, so Marked emits a checkbox token for the second item.
+    ["- [ ]\n- [x] b", { type: "bulletList", content: [item("[ ]"), item("[x] b")] }],
+  ] as const) {
+    const doc = markdown.parse(source);
+    expect(doc.content).toEqual([list]);
+    expect(markdown.parse(markdown.serialize(doc))).toEqual(doc);
   }
 });

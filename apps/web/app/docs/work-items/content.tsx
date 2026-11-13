@@ -21,8 +21,23 @@ export const sections: GuideSection[] = [
       <p>Select a work item to open its details. Choose <strong>Open full page</strong> in the dialog when you want more room. Edit the title or description, or use the properties panel to change the <strong>Status</strong>, <strong>Assignee</strong>, <strong>Reporter</strong>, <strong>Due date</strong>, <strong>Type</strong>, or <strong>Priority</strong>.</p>
       <p>The <strong>Reporter</strong> is the person who asked for the work. It starts as the person who created the task, and you can change it to any organization member. <strong>Created by</strong> always shows who created the task.</p>
       <Screenshot name="task-detail" alt="A work item with a description, task properties including the reporter, and comments" caption="Edit task details in the properties panel and keep discussion in Comments." />
-      <p>Use the description toolbar for headings, bold text, lists, or inline code. Descriptions are stored as Markdown. To add a screenshot or other image, paste it into the editor or choose <strong>Add image</strong> in the toolbar. Images can be up to 5 MB and require project access to view.</p>
+      <p>Use the description toolbar for headings, bold text, lists, checklists, or inline code. Choose <strong>Checklist</strong> to turn lines into to-do items; ticking an item requires edit access. Descriptions are stored as Markdown. To add a screenshot or other image, paste it into the editor or choose <strong>Add image</strong> in the toolbar. Images can be up to 5 MB and require project access to view.</p>
       <Note>When a project restricts task editing, the creator, reporter, current assignee, and admins of the project or organization can edit. Other members can still view the task and comment. See <DocLink topic="project-settings" section="task-editing">Project settings</DocLink> for the toggle.</Note>
+    </>,
+  },
+  {
+    id: "sub-tasks",
+    title: "Break work into sub-tasks",
+    searchTerms: ["subtask", "sub task", "child task", "parent task", "checklist", "to-do list"],
+    content: <>
+      <Steps>
+        <li>Open the task you want to break down and choose <strong>Add sub-task</strong> under <strong>Sub-tasks</strong>. In a project that restricts task editing, you need edit access to the parent.</li>
+        <li>Enter a title and press <kbd>Enter</kbd>. The sub-task is a full work item in the same project, with its own status, assignee, and comments.</li>
+      </Steps>
+      <p>A sub-task shows its <strong>Parent</strong> in the properties panel. Choose <strong>Remove parent</strong> to make it a top-level task again. Sub-tasks are one level deep: a sub-task cannot have its own sub-tasks. To give an existing task a parent, use an <DocLink topic="mcp" section="task-tools">MCP client</DocLink>.</p>
+      <p>On the Board, a sub-task card shows <strong>↳</strong> and its parent’s key, and a parent card shows how many sub-tasks it has. The Table shows the parent key next to the title. Choose <strong>Hide sub-tasks</strong> in <strong>Filters</strong> to show only top-level tasks.</p>
+      <Note>Archiving a parent leaves its sub-tasks active. Permanently deleting a parent makes its sub-tasks top-level. A task with a parent or sub-tasks cannot be moved to another project; remove the link first.</Note>
+      <p>For a quick list of steps that don’t need their own status or assignee, use a <strong>Checklist</strong> in the description instead.</p>
     </>,
   },
   {

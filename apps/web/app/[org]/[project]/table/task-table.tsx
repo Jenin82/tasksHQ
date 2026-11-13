@@ -31,6 +31,7 @@ export type TaskRow = TaskPeople & {
   reportedBy: TaskPeople["reportedBy"] & { image?: string };
   id: string;
   key: string;
+  parent: { id: string; key: string } | null;
   /** The key sorts on this. `WEB-10` as a string sorts before `WEB-2`. */
   number: number;
   title: string;
@@ -127,6 +128,11 @@ export const columns = helper.columns([
         >
           {row.original.title}
         </TaskPreviewLink>
+        {row.original.parent && (
+          <span className="ml-2 text-xs tabular-nums text-muted-foreground">
+            <span className="sr-only">Sub-task of </span><span aria-hidden>↳ </span>{row.original.parent.key}
+          </span>
+        )}
       </>
     ),
   }),
@@ -248,7 +254,7 @@ export function TaskTable({
       <div data-task-list tabIndex={-1} className="min-w-0">
         <ProjectTabFilters view="table" count={visible.length} activeCount={filters.activeCount}>
           <div className="min-w-0 space-y-3">
-            <TaskPeopleFilters filters={filters} statuses={statuses} />
+            <TaskPeopleFilters filters={filters} statuses={statuses} showSubtaskFilter />
             <TableSortControls
               options={SORT_OPTIONS}
               sort={sort}

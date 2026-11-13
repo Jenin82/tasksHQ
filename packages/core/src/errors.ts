@@ -33,6 +33,14 @@ export function isConstraintError(
   return false;
 }
 
+/** Whether `error` is 0016's sub-task trigger refusing a write. */
+export function isTaskParentError(error: unknown): boolean {
+  for (let e = error; e instanceof Error; e = e.cause) {
+    if (e.message.includes("task_parent_invalid")) return true;
+  }
+  return false;
+}
+
 /**
  * Length caps, enforced in the domain so web and MCP cannot disagree. Counted
  * in code points, so an emoji costs one character, not two.

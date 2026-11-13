@@ -32,6 +32,7 @@ export function readFilters(key: string, previousDefaultAssignee?: string): Proj
       creators: people(saved.creators),
       // Filters saved before reporters existed still load.
       reporters: Array.isArray(saved.reporters) ? people(saved.reporters) : new Set(),
+      hideSubtasks: saved.hideSubtasks === true,
     };
   } catch {
     return null;

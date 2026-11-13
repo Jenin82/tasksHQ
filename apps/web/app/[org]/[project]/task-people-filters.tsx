@@ -35,15 +35,17 @@ export function useTaskPeopleFilters<T extends TaskPeople & {
   typeFilterId?: string;
   orgSlug?: string;
   projectId?: string;
+  parent?: { id: string } | null;
 }>(tasks: T[], storageScope?: string) {
   const shared = useContext(ProjectFiltersContext);
   const [local, setLocal] = useSavedTaskFilters(storageScope);
   const state = shared?.filters ?? local;
   const setState = shared?.setFilters ?? setLocal;
   const currentUser = shared?.currentUser;
-  const { assignees, creators, reporters, status, type, query, organization, projectId } = state;
+  const { assignees, creators, reporters, status, type, query, organization, projectId, hideSubtasks } = state;
   const peopleActive = assignees.size > 0 || creators.size > 0 || reporters.size > 0;
-  const activeCount = assignees.size + creators.size + reporters.size + [status, type, organization, projectId, query.trim()].filter(Boolean).length;
+  const activeCount = assignees.size + creators.size + reporters.size +
+    [status, type, organization, projectId, query.trim(), hideSubtasks].filter(Boolean).length;
 
   const options = useMemo(() => {
     const assigned = new Map<string, Person>();
@@ -74,9 +76,10 @@ export function useTaskPeopleFilters<T extends TaskPeople & {
       (!type || (task.typeFilterId ?? task.type.id) === type) &&
       (!organization || task.orgSlug === organization) &&
       (!projectId || task.projectId === projectId) &&
+      (!hideSubtasks || !task.parent) &&
       (!needle || task.title.toLowerCase().includes(needle) || task.key.toLowerCase().includes(needle)),
     );
-  }, [tasks, assignees, creators, reporters, query, status, type, organization, projectId]);
+  }, [tasks, assignees, creators, reporters, query, status, type, organization, projectId, hideSubtasks]);
 
   function setPeople(field: "assignees" | "creators" | "reporters", value: SetStateAction<Selection>) {
     setState((current) => ({ ...current, [field]: typeof value === "function" ? value(current[field]) : value }));
@@ -84,7 +87,8 @@ export function useTaskPeopleFilters<T extends TaskPeople & {
   function setFilter(field: "query" | "status" | "type" | "organization" | "projectId", value: string) {
     setState((current: ProjectFilters) => ({ ...current, [field]: value }));
   }
-  return { active: activeCount > 0, activeCount, peopleActive, visible, options, assignees, creators, reporters, query, status, type, organization, projectId, setFilter,
+  return { active: activeCount > 0, activeCount, peopleActive, visible, options, assignees, creators, reporters, query, status, type, organization, projectId, hideSubtasks, setFilter,
+    setHideSubtasks: (value: boolean) => setState((current) => ({ ...current, hideSubtasks: value })),
     setAssignees: (value: SetStateAction<Selection>) => setPeople("assignees", value),
     setCreators: (value: SetStateAction<Selection>) => setPeople("creators", value),
     setReporters: (value: SetStateAction<Selection>) => setPeople("reporters", value),
@@ -92,12 +96,14 @@ export function useTaskPeopleFilters<T extends TaskPeople & {
   };
 }
 
-export function TaskPeopleFilters({ filters, statuses, organizations, projects, disabled = false, showSearch = true }: {
+export function TaskPeopleFilters({ filters, statuses, organizations, projects, disabled = false, showSearch = true, showSubtaskFilter = false }: {
   filters: ReturnType<typeof useTaskPeopleFilters>;
   statuses?: { id: string; name: string }[];
   organizations?: { slug: string; name: string }[];
   projects?: { id: string; name: string }[];
   showSearch?: boolean;
+  /** Only views whose items carry `parent` can hide sub-tasks. */
+  showSubtaskFilter?: boolean;
   disabled?: boolean;
 }) {
   return (
@@ -179,6 +185,18 @@ export function TaskPeopleFilters({ filters, statuses, organizations, projects, 
         onChange={filters.setReporters}
         disabled={disabled}
       />
+      {showSubtaskFilter && (
+        <label className="col-span-2 flex min-h-9 items-center gap-2 px-0.5 text-sm has-disabled:opacity-50">
+          <input
+            type="checkbox"
+            className="accent-primary"
+            disabled={disabled}
+            checked={filters.hideSubtasks}
+            onChange={(event) => filters.setHideSubtasks(event.target.checked)}
+          />
+          Hide sub-tasks
+        </label>
+      )}
       {filters.active && (
         <Button type="button" variant="ghost" size="sm" className="col-span-2 justify-self-end rounded-md" onClick={filters.clear} disabled={disabled}>
           Clear filters

@@ -11,10 +11,11 @@ export type ProjectFilters = {
   assignees: PeopleSelection;
   creators: PeopleSelection;
   reporters: PeopleSelection;
+  hideSubtasks: boolean;
 };
 
 export function emptyProjectFilters(): ProjectFilters {
-  return { query: "", status: "", type: "", organization: "", projectId: "", assignees: new Set(), creators: new Set(), reporters: new Set() };
+  return { query: "", status: "", type: "", organization: "", projectId: "", assignees: new Set(), creators: new Set(), reporters: new Set(), hideSubtasks: false };
 }
 
 export const ProjectFiltersContext = createContext<{

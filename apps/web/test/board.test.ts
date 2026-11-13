@@ -152,6 +152,7 @@ it("keeps hidden tasks in order when a filtered board card moves", () => {
     id,
     statusId,
     key: id,
+    parent: null,
     title: id,
     assignee: null,
     createdBy: { id: "bd-owner", displayName: "Board Owner" },

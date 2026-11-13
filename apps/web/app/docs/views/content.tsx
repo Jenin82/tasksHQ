@@ -11,7 +11,7 @@ export const sections: GuideSection[] = [
         <li><strong>Table</strong> puts properties such as assignee, reporter, status, priority, and due date side by side. Select a column heading to sort or use the sorting controls inside <strong>Filters</strong>.</li>
       </ul>
       <Screenshot name="board" alt="Project board showing work item cards grouped into status columns" caption="The Board groups cards by status. Use Table to scan task properties or sort the list." />
-      <p>Open <strong>Filters</strong> to narrow the project view by title or task key, status, type, assignee, creator, or reporter. Choose <strong>Clear filters</strong> to show the full view again.</p>
+      <p>Open <strong>Filters</strong> to narrow the project view by title or task key, status, type, assignee, creator, or reporter, or choose <strong>Hide sub-tasks</strong> to show only top-level tasks. Choose <strong>Clear filters</strong> to show the full view again.</p>
     </>,
   },
   {
