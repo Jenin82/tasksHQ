@@ -145,6 +145,13 @@
   html {
     font-feature-settings: "case", "cv11";
   }
+  /* Tailwind v4 leaves buttons on the default cursor. Disabled controls keep it. */
+  :is(button, select, summary, input[type="checkbox"], input[type="radio"]):not(:disabled),
+  :is([role="button"], [role="tab"], [role="switch"], [role="checkbox"], [role="radio"], [role="option"],
+    [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]):not([aria-disabled="true"], [data-disabled]),
+  label:has(> input:is([type="checkbox"], [type="radio"]):not(:disabled)) {
+    cursor: pointer;
+  }
 }
 
 /* §7.3's stutter register. The only other voice in the system. */
