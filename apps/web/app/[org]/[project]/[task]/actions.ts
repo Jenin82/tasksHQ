@@ -66,7 +66,8 @@ async function detail(formData: FormData) {
 
 /**
  * A field absent from the form is `undefined` to `updateTask`, which leaves
- * it alone. An empty due date clears the current date.
+ * it alone. An empty due date clears the current date, and `clearParent`
+ * detaches a sub-task from its parent.
  */
 export async function editTaskAction(
   _prev: ActionState,
@@ -78,6 +79,7 @@ export async function editTaskAction(
   const dueDate = formData.has("clearDueDate") ? "" : formData.get("dueDate");
   const priority = formData.get("priority");
   const typeId = formData.get("typeId");
+  const parentTaskId = formData.has("clearParent") ? null : undefined;
 
   try {
     await updateTask(ctx, {
@@ -87,6 +89,7 @@ export async function editTaskAction(
       dueDate: dueDate === null ? undefined : String(dueDate) || null,
       priority: priority === null ? undefined : String(priority),
       typeId: typeId === null ? undefined : String(typeId),
+      parentTaskId,
     });
   } catch (error) {
     return toActionState(error, {

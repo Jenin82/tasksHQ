@@ -21,6 +21,7 @@ export function toRows(
   return tasks.map((t) => ({
     id: t.id,
     key: t.key,
+    parent: t.parent && { id: t.parent.id, key: t.parent.key },
     number: t.number,
     title: t.title,
     href: `${base}/${t.key}`,

@@ -35,6 +35,7 @@ export default async function BoardPage({
   const cards: BoardCard[] = tasks.map((t) => ({
     id: t.id,
     key: t.key,
+    parent: t.parent && { id: t.parent.id, key: t.parent.key },
     title: t.title,
     statusId: t.status.id,
     assignee: t.assignee,

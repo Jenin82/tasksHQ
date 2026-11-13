@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Bold, Code, Heading2, ImagePlus, Italic, List, LoaderCircle } from "lucide-react";
+import { Bold, Code, Heading2, ImagePlus, Italic, List, ListChecks, LoaderCircle } from "lucide-react";
 import type { Editor } from "@tiptap/core";
 import Image from "@tiptap/extension-image";
+import { TaskItem, TaskList } from "@tiptap/extension-list";
 import Placeholder from "@tiptap/extension-placeholder";
 import { Markdown } from "@tiptap/markdown";
 import { EditorContent, useEditor, useEditorState } from "@tiptap/react";
@@ -15,13 +16,14 @@ import { cn } from "@/lib/utils";
 import { MAX_TASK_IMAGE_BYTES, TASK_IMAGE_ID } from "@tasks/core/task-images";
 
 const ACCEPTED_IMAGES = "image/png,image/jpeg,image/webp,image/gif,image/avif";
-const DESCRIPTION_STYLES = "[&_.tiptap>*+*]:mt-3 [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_code]:rounded-sm [&_code]:bg-input [&_code]:px-1 [&_h1]:text-xl [&_h2]:text-lg [&_h3]:font-semibold [&_img]:max-w-full [&_img]:rounded-md [&_ol]:list-decimal [&_ol]:pl-5 [&_pre]:overflow-x-auto [&_ul]:list-disc [&_ul]:pl-5";
+const DESCRIPTION_STYLES = "[&_.tiptap>*+*]:mt-3 [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_code]:rounded-sm [&_code]:bg-input [&_code]:px-1 [&_h1]:text-xl [&_h2]:text-lg [&_h3]:font-semibold [&_img]:max-w-full [&_img]:rounded-md [&_ol]:list-decimal [&_ol]:pl-5 [&_pre]:overflow-x-auto [&_ul]:list-disc [&_ul]:pl-5 [&_ul[data-type=taskList]]:list-none [&_ul[data-type=taskList]]:pl-0 [&_ul[data-type=taskList]>li]:flex [&_ul[data-type=taskList]>li]:gap-2 [&_ul[data-type=taskList]>li>label]:flex [&_ul[data-type=taskList]>li>label]:h-[1lh] [&_ul[data-type=taskList]>li>label]:items-center [&_ul[data-type=taskList]>li>div]:min-w-0 [&_ul[data-type=taskList]>li>div]:flex-1 [&_ul[data-type=taskList]>li_input]:size-4 [&_ul[data-type=taskList]>li_input]:accent-foreground [&_li[data-checked=true]>div]:text-muted-foreground [&_li[data-checked=true]>div]:line-through";
 const PLACEHOLDER_STYLES = "[&_p.is-editor-empty:first-child::before]:pointer-events-none [&_p.is-editor-empty:first-child::before]:float-left [&_p.is-editor-empty:first-child::before]:h-0 [&_p.is-editor-empty:first-child::before]:text-muted-foreground [&_p.is-editor-empty:first-child::before]:content-[attr(data-placeholder)]";
 const TOOLS = [
   { label: "Bold", icon: Bold, active: (editor: Editor) => editor.isActive("bold"), apply: (editor: Editor) => editor.chain().focus().toggleBold().run() },
   { label: "Italic", icon: Italic, active: (editor: Editor) => editor.isActive("italic"), apply: (editor: Editor) => editor.chain().focus().toggleItalic().run() },
   { label: "Heading", icon: Heading2, active: (editor: Editor) => editor.isActive("heading", { level: 2 }), apply: (editor: Editor) => editor.chain().focus().command(selectDescriptionLines).toggleHeading({ level: 2 }).run() },
   { label: "Bulleted list", icon: List, active: (editor: Editor) => editor.isActive("bulletList"), apply: (editor: Editor) => editor.chain().focus().command(selectDescriptionLines).toggleBulletList().run() },
+  { label: "Checklist", icon: ListChecks, active: (editor: Editor) => editor.isActive("taskList"), apply: (editor: Editor) => editor.chain().focus().command(selectDescriptionLines).toggleTaskList().run() },
   { label: "Inline code", icon: Code, active: (editor: Editor) => editor.isActive("code"), apply: (editor: Editor) => editor.chain().focus().toggleCode().run() },
 ];
 
@@ -83,6 +85,30 @@ export function DescriptionEditor({
     editable: !readOnly && !busy,
     extensions: [
       StarterKit.configure({ link: { openOnClick: readOnly } }),
+      TaskList,
+      // Read-only checklists show state without inviting a click.
+      TaskItem.extend({
+        addNodeView() {
+          const view = this.parent?.();
+          if (!view) return null;
+          return (props) => {
+            const nodeView = view(props);
+            const checkbox = (nodeView.dom as HTMLElement).querySelector("input");
+            if (!checkbox) return nodeView;
+            // The description form resets after each save, which would put
+            // every box back to its default. Keep the default in step.
+            checkbox.defaultChecked = props.node.attrs.checked;
+            if (readOnly) checkbox.disabled = true;
+            const update = nodeView.update;
+            nodeView.update = (node, ...rest) => {
+              const updated = update?.call(nodeView, node, ...rest) ?? false;
+              if (updated) checkbox.defaultChecked = node.attrs.checked;
+              return updated;
+            };
+            return nodeView;
+          };
+        },
+      }).configure({ nested: true }),
       Markdown.configure({ marked: descriptionMarked }),
       Placeholder.configure({ placeholder: "Describe the task. You can paste an image here." }),
       Image.extend({

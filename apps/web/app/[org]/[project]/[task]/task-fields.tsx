@@ -1,11 +1,13 @@
 "use client";
 
-import { CircleDashed, Folder, UserRound } from "lucide-react";
-import { createContext, startTransition, useActionState, useContext, useEffect, useLayoutEffect, useOptimistic, useRef, useState } from "react";
+import { CircleDashed, Folder, Plus, UserRound } from "lucide-react";
+import Link from "next/link";
+import { type ReactNode, createContext, startTransition, useActionState, useContext, useEffect, useLayoutEffect, useOptimistic, useRef, useState } from "react";
 import type { TaskTypeRef } from "@tasks/core/domain";
 import { ProfileAvatar } from "@/components/profile-avatar";
 import { TaskTypeIcon } from "@/components/task-type";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { NO_ERROR, type ActionState } from "@/lib/action-result";
 import { TASK_PRIORITIES, type Status, type TaskPriority } from "@tasks/core/schema";
@@ -15,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { CommentComposer } from "./comment-composer";
 import { DescriptionEditor } from "./description-editor";
 import { TaskDetailPicker, type DetailPickerOption } from "./task-detail-picker";
+import { createTaskAction } from "../actions";
 import {
   addCommentAction,
   archiveAction,
@@ -402,6 +405,113 @@ export function MoveTaskButton({ ids, targets }: {
         </form>
       </PopoverContent>
     </Popover>
+  );
+}
+
+/** Detaches a sub-task. Re-parenting is MCP-only. */
+export function RemoveParentButton({ ids }: { ids: TaskFieldsIds }) {
+  const [state, act, pending] = useTaskAction(editTaskAction);
+
+  return (
+    <form action={act}>
+      <Ids {...ids} />
+      <Button type="submit" name="clearParent" value="1" variant="ghost" size="xs" className="-ml-2" disabled={pending}>
+        Remove parent
+      </Button>
+      <FieldError state={state} />
+    </form>
+  );
+}
+
+/**
+ * Blurs the focused field first, like the dialog's full-page link, so a
+ * blur-save control submits before the route changes.
+ */
+export function TaskLink({ href, className, children }: { href: string; className: string; children: ReactNode }) {
+  const link = useRef<HTMLAnchorElement>(null);
+  return (
+    <Link
+      ref={link}
+      href={href}
+      prefetch={false}
+      className={className}
+      onClick={(event) => {
+        // Like the dialog's full-page link: wait for an upload or save to finish.
+        if (link.current?.closest("[data-task-detail]")?.querySelector("form[data-description-busy]")) event.preventDefault();
+      }}
+      onNavigate={() => {
+        const active = document.activeElement;
+        if (active instanceof HTMLElement && link.current?.closest("[data-task-detail]")?.contains(active)) active.blur();
+      }}
+    >
+      {children}
+    </Link>
+  );
+}
+
+/** A ghost trigger, not a CTA: the comment button is this view's one primary. */
+export function AddSubtask({ ids }: { ids: TaskFieldsIds }) {
+  const [open, setOpen] = useState(false);
+  const [state, add, pending] = useTaskAction(createTaskAction);
+  const input = useRef<HTMLInputElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const escaped = useRef(false);
+
+  // Disabling the input while pending drops its focus; take it back so the
+  // next title can be typed straight away.
+  useEffect(() => {
+    if (open && !pending) input.current?.focus();
+  }, [open, pending]);
+
+  // Escape returns focus to the trigger it came from.
+  useEffect(() => {
+    if (!open && escaped.current) {
+      escaped.current = false;
+      trigger.current?.focus();
+    }
+  }, [open]);
+
+  if (!open) {
+    return (
+      // Matches the board's "New work item" row: visible, but not a blue CTA.
+      <button
+        ref={trigger}
+        type="button"
+        onClick={() => setOpen(true)}
+        className="mt-3 flex min-h-9 w-full items-center gap-2 rounded-lg bg-muted px-2.5 text-left text-sm font-medium text-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <Plus aria-hidden className="size-4 shrink-0" />
+        Add sub-task
+      </button>
+    );
+  }
+
+  return (
+    <form action={add} className="mt-3">
+      <Ids {...ids} />
+      <input type="hidden" name="parentTaskId" value={ids.taskId} />
+      <Input
+        ref={input}
+        name="title"
+        required
+        aria-label="Sub-task title"
+        placeholder="Sub-task title"
+        defaultValue={state.values?.title}
+        disabled={pending}
+        // The task dialog leaves Escape to this composer.
+        data-dialog-keep-escape
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            escaped.current = true;
+            setOpen(false);
+          }
+        }}
+        onBlur={(event) => {
+          if (!pending && !event.currentTarget.value.trim()) setOpen(false);
+        }}
+      />
+      <FieldError state={state} />
+    </form>
   );
 }
 

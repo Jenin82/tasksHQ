@@ -4,13 +4,14 @@ import { ProfileAvatar } from "@/components/profile-avatar";
 import { TaskPriorityIcon, taskPriorityLabel } from "@/components/task-priority";
 import { TaskTypeBadge } from "@/components/task-type";
 import { shortDateTime } from "@/lib/format";
-import { statusColorClass } from "@/lib/status-style";
+import { statusColorClass, statusDot } from "@/lib/status-style";
 import { formatTaskDueDate } from "@/lib/task-due-date";
 import { cn } from "@/lib/utils";
 import { ActivityLog, groupDescriptionActivity, SourceBadge } from "./activity-log";
 import { DescriptionEditor } from "./description-editor";
 import type { TaskDetailData } from "./task-detail-data";
 import {
+  AddSubtask,
   ArchiveButton,
   AssigneeField,
   CommentForm,
@@ -18,8 +19,10 @@ import {
   DueDateField,
   MoveTaskButton,
   PriorityField,
+  RemoveParentButton,
   ReporterField,
   StatusField,
+  TaskLink,
   TitleField,
   TypeField,
 } from "./task-fields";
@@ -64,6 +67,39 @@ function Property({
       <dt className="stutter">{label}</dt>
       <dd>{children}</dd>
     </div>
+  );
+}
+
+function Subtasks({ subtasks, base }: { subtasks: TaskWithHistory["subtasks"]; base: string }) {
+  if (subtasks.length === 0) return null;
+
+  return (
+    <ul className="mt-4 divide-y divide-border/50">
+      {subtasks.map((t) => (
+        <li key={t.id} className={cn("flex min-w-0 items-center gap-3 py-2", t.archivedAt && "text-muted-foreground")}>
+          <span className="stutter numeral shrink-0">{t.key}</span>
+          <TaskLink
+            href={`${base}/${t.key}`}
+            className="min-w-0 flex-1 truncate rounded-sm text-sm underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {t.title}
+          </TaskLink>
+          {t.archivedAt && <span className="shrink-0 text-xs text-muted-foreground">Archived</span>}
+          <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+            <span aria-hidden className={cn("size-1.5 rounded-full", statusDot(t.status.color))} />
+            {t.status.name}
+          </span>
+          {t.assignee ? (
+            <>
+              <ProfileAvatar name={t.assignee.displayName} image={t.assignee.image} className="size-5 shrink-0" />
+              <span className="sr-only">Assigned to {t.assignee.displayName}</span>
+            </>
+          ) : (
+            <UserRound role="img" aria-label="Unassigned" className="size-4 shrink-0 text-muted-foreground" />
+          )}
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -123,7 +159,11 @@ export function TaskDetailContent({
   inDialog?: boolean;
 }) {
   const activity = groupDescriptionActivity(detail.activity);
-  const { assignee, description, dueDate, priority, reportedBy, status, type } = detail;
+  const { assignee, description, dueDate, parent, priority, reportedBy, status, type } = detail;
+  const base = `/${ids.orgSlug}/${ids.projectSlug}`;
+  const { subtasks } = detail;
+  // Sub-tasks stay in their parent's project, so neither side can move.
+  const movable = moveTargets.length > 0 && parent === null && detail.subtasks.length === 0;
   const readOnlyValue = "flex min-h-8 items-center gap-2 text-sm";
   const heading = (
     <>
@@ -193,6 +233,12 @@ export function TaskDetailContent({
               <DescriptionEditor key={ids.taskId} value={description} imagesPath={`/${ids.orgSlug}/${ids.projectSlug}/images`} readOnly />
             ) : <p className="text-sm text-muted-foreground">No description</p>}
           </div>
+          {parent === null && (subtasks.length > 0 || (canEdit && !detail.archivedAt)) && (
+            <Section title="Sub-tasks" count={subtasks.length}>
+              <Subtasks subtasks={subtasks} base={base} />
+              {canEdit && !detail.archivedAt && <AddSubtask key={ids.taskId} ids={ids} />}
+            </Section>
+          )}
         </div>
 
         <aside
@@ -209,6 +255,18 @@ export function TaskDetailContent({
             "grid grid-cols-1 gap-x-4 gap-y-5",
             inDialog ? "min-[420px]:max-md:grid-cols-2" : "min-[420px]:max-lg:grid-cols-2",
           )}>
+            {parent && (
+              <Property label="Parent" className="col-span-full">
+                <TaskLink
+                  href={`${base}/${parent.key}`}
+                  className="flex min-h-8 min-w-0 items-center gap-2 rounded-sm text-sm underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <span className="stutter numeral shrink-0">{parent.key}</span>
+                  <span className="truncate">{parent.title}</span>
+                </TaskLink>
+                {canEdit && <RemoveParentButton ids={ids} />}
+              </Property>
+            )}
             <Property label="Status">
               {canEdit ? <StatusField ids={ids} statuses={statuses} statusId={status.id} /> : (
                 <span className={readOnlyValue}>
@@ -268,8 +326,8 @@ export function TaskDetailContent({
             </Property>
           </dl>
           {canEdit && (
-            <div className={cn("mt-6 pt-2", moveTargets.length > 0 && "grid grid-cols-2 items-start gap-2")}>
-              {moveTargets.length > 0 && <MoveTaskButton ids={ids} targets={moveTargets} />}
+            <div className={cn("mt-6 pt-2", movable && "grid grid-cols-2 items-start gap-2")}>
+              {movable && <MoveTaskButton ids={ids} targets={moveTargets} />}
               <ArchiveButton ids={ids} archived={detail.archivedAt !== null} className="w-full" />
             </div>
           )}

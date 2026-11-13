@@ -95,6 +95,7 @@ export async function createTaskAction(
   // Absent means "the default todo status" (§18), never the string "null".
   const typeId = formData.get("typeId");
   const statusId = String(formData.get("statusId") ?? "") || undefined;
+  const parentTaskId = String(formData.get("parentTaskId") ?? "") || undefined;
   const { user, org, project } = await getProjectContext(orgSlug, projectSlug);
 
   let created;
@@ -108,6 +109,7 @@ export async function createTaskAction(
         assigneeUserId: formData.get("assignSelf") === "on" ? user.id : undefined,
         statusId,
         typeId: typeId === null ? undefined : String(typeId),
+        parentTaskId,
       },
     );
   } catch (error) {

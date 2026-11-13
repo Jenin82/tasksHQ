@@ -210,6 +210,7 @@ describe("list_tasks", () => {
       status: "Todo",
       assignee: null,
       reporter: { email: "mc-owner@Example.test", displayName: "MC-OWNER" },
+      parent: null,
       updatedAt: expect.any(String),
     });
     expect(first.data.cursor).toEqual(expect.any(String));
@@ -511,4 +512,44 @@ it("sets the reporter by email on create and update, and returns it from every t
     .toEqual({ email: "mc-admin@Example.test", displayName: "MC-ADMIN" });
   expect(await call(MEMBER, "update_task", { task: key, reporter: `${OUTSIDER}@example.test` }))
     .toEqual({ isError: true, data: "That user must be a member of this organization." });
+});
+
+it("creates, lists and detaches sub-tasks within one project", async () => {
+  const parent = await call(MEMBER, "create_task", { project: "OPS", title: "Parent" });
+  expect(parent).toMatchObject({ isError: false, data: { parent: null } });
+  const key = parent.data.key;
+
+  const child = await call(MEMBER, "create_task", {
+    project: "OPS", title: "Child", parent: key.toLowerCase(), assignee: `${BYSTANDER}@example.test`,
+  });
+  expect(child).toMatchObject({ isError: false, data: { title: "Child", parent: key } });
+
+  const detail = await call(MEMBER, "get_task", { task: key });
+  expect(detail.data).toMatchObject({
+    parent: null,
+    subtasks: [{ key: child.data.key, title: "Child", status: "Todo", assignee: { email: "mc-bystander@Example.test", displayName: "MC-BYSTANDER" }, archived: false }],
+  });
+  expect((await call(MEMBER, "get_task", { task: child.data.key })).data).toMatchObject({ parent: key, subtasks: [] });
+
+  expect(await call(MEMBER, "update_task", { task: child.data.key, parent: null })).toMatchObject({
+    isError: false, data: { parent: null },
+  });
+  expect((await call(MEMBER, "get_task", { task: key })).data.subtasks).toEqual([]);
+  expect(await call(MEMBER, "update_task", { task: child.data.key, parent: key })).toMatchObject({
+    isError: false, data: { parent: key },
+  });
+});
+
+it("rejects a parent from another project or a nested one", async () => {
+  const ops = await call(MEMBER, "create_task", { project: "OPS", title: "Ops task" });
+  expect(await call(MEMBER, "create_task", { project: "ENG", title: "x", parent: ops.data.key }))
+    .toEqual({ isError: true, data: "No such parent task in this project." });
+
+  const child = await call(MEMBER, "create_task", { project: "OPS", title: "Nested", parent: ops.data.key });
+  expect(await call(MEMBER, "create_task", { project: "OPS", title: "x", parent: child.data.key }))
+    .toEqual({ isError: true, data: "A sub-task cannot have its own sub-tasks." });
+  expect(await call(MEMBER, "update_task", { task: ops.data.key, parent: ops.data.key }))
+    .toEqual({ isError: true, data: "A task cannot be its own parent." });
+  expect(await call(MEMBER, "update_task", { task: ops.data.key, parent: "OPS-999" }))
+    .toEqual({ isError: true, data: "No such parent task." });
 });

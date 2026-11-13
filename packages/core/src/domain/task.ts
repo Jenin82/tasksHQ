@@ -20,6 +20,7 @@ import {
   MAX_LENGTH,
   assertMaxLength,
   isConstraintError,
+  isTaskParentError,
 } from "../errors";
 import { user } from "../schema/auth";
 import { orgMember, orgReportingLine } from "../schema/org";
@@ -74,6 +75,7 @@ export type TaskSummary = {
   assignee: (NonNullable<UserRef> & { image?: string }) | null;
   createdBy: NonNullable<UserRef>;
   reportedBy: NonNullable<UserRef> & { image?: string };
+  parent: { id: string; key: string; title: string } | null;
   position: string;
   archivedAt: Date | null;
   createdAt: Date;
@@ -91,6 +93,8 @@ type TaskTarget = { taskId: string; projectId?: string; number?: number };
 /** §3: `task.updated` carries scalars as plain `{from, to}`. */
 export type ScalarChange = { from: string | null; to: string | null };
 
+export type TaskRef = { id: string; key: string };
+
 /**
  * §3: assignee and reporter are the non-scalar fields `task.updated` carries,
  * spelled out because `null` on both sides of an assignee change is meaningful.
@@ -104,6 +108,7 @@ export type UpdatedFields = {
   type?: { from: string; to: string };
   assignee?: { from: UserRef; to: UserRef };
   reporter?: { from: NonNullable<UserRef>; to: NonNullable<UserRef> };
+  parent?: { from: TaskRef | null; to: TaskRef | null };
 };
 
 export type TaskComment = {
@@ -121,7 +126,7 @@ export type TaskComment = {
  * for a reader rather than a writer.
  */
 type TaskActivityPayload = {
-  "task.created": { title: string; status: StatusRef };
+  "task.created": { title: string; status: StatusRef; parent?: TaskRef };
   "task.updated": { fields: UpdatedFields };
   "task.moved": { from: StatusRef; to: StatusRef };
   "task.transferred": {
@@ -157,6 +162,7 @@ export type TaskActivityEntry = {
  * through one implementation rather than two compositions that can drift.
  */
 export type TaskWithHistory = TaskDetail & {
+  subtasks: TaskSummary[];
   comments: TaskComment[];
   activity: TaskActivityEntry[];
 };
@@ -169,6 +175,7 @@ const EXCERPT_LENGTH = 140;
 
 const creator = alias(user, "task_creator");
 const reporter = alias(user, "task_reporter");
+const parentTask = alias(task, "task_parent");
 
 const taskTypeJoin = and(
   eq(projectTaskType.projectId, task.projectId),
@@ -199,6 +206,9 @@ const DETAIL_COLUMNS = {
   reporterId: reporter.id,
   reporterName: reporter.name,
   reporterImage: reporter.image,
+  parentId: parentTask.id,
+  parentNumber: parentTask.number,
+  parentTitle: parentTask.title,
 };
 
 type DetailRow = Awaited<ReturnType<typeof detailQuery>>[number];
@@ -233,6 +243,10 @@ function toDetail(row: DetailRow, projectKey: string): TaskDetail {
       displayName: row.reporterName,
       ...(row.reporterImage ? { image: row.reporterImage } : {}),
     },
+    // A parent always shares its sub-task's project, so it shares the key.
+    parent: row.parentId && row.parentNumber !== null && row.parentTitle !== null
+      ? { id: row.parentId, key: taskKey(projectKey, row.parentNumber), title: row.parentTitle }
+      : null,
     position: row.position,
     archivedAt: row.archivedAt,
     createdAt: row.createdAt,
@@ -248,7 +262,8 @@ function detailQuery(db: DrizzleD1Database) {
     .innerJoin(projectTaskType, taskTypeJoin)
     .innerJoin(creator, eq(creator.id, task.createdByUserId))
     .innerJoin(reporter, eq(reporter.id, task.reporterUserId))
-    .leftJoin(user, eq(user.id, task.assigneeUserId));
+    .leftJoin(user, eq(user.id, task.assigneeUserId))
+    .leftJoin(parentTask, eq(parentTask.id, task.parentTaskId));
 }
 
 async function readDetail(
@@ -477,8 +492,11 @@ async function readTaskHistory(db: DrizzleD1Database, taskId: string, p: Project
 
   // Scope every read so an in-flight move cannot expose destination history
   // to a caller who only reached the task in its original project.
-  const [[row], commentRows, activityRows] = await Promise.all([
+  const [[row], subtaskRows, commentRows, activityRows] = await Promise.all([
     detailQuery(db).where(scope),
+    detailQuery(db)
+      .where(and(eq(task.parentTaskId, taskId), eq(task.projectId, p.id)))
+      .orderBy(asc(task.number)),
     commentQuery,
     activityQuery,
   ]);
@@ -486,6 +504,10 @@ async function readTaskHistory(db: DrizzleD1Database, taskId: string, p: Project
 
   return {
     ...toDetail(row, p.key),
+    subtasks: subtaskRows.map((row) => {
+      const { description: _, projectId: __, ...summary } = toDetail(row, p.key);
+      return summary;
+    }),
     comments: commentRows.map((row) => ({
       id: row.id,
       body: row.body,
@@ -682,6 +704,58 @@ async function displayUser(
   return { id: userId, displayName: row.displayName };
 }
 
+const TASK_PARENT_RACE = "That parent task can't hold this sub-task. Refresh and try again.";
+
+/**
+ * Sub-tasks are one level deep and stay in their parent's project. 0016's
+ * triggers enforce the same rule; this gives the readable message first.
+ * `childTaskId` is the task being re-parented, absent on create.
+ */
+async function requireParentTask(
+  ctx: DomainContext,
+  p: Project,
+  parentTaskId: string,
+  childTaskId?: string,
+): Promise<TaskRef> {
+  if (parentTaskId === childTaskId) throw new DomainError("A task cannot be its own parent.");
+  const [parent] = await ctx.db
+    .select({ number: task.number, parentTaskId: task.parentTaskId, archivedAt: task.archivedAt })
+    .from(task)
+    .where(and(eq(task.id, parentTaskId), eq(task.projectId, p.id)));
+  if (!parent) throw new DomainError("No such parent task in this project.");
+  // Linking changes the parent, so restricted projects need edit rights on it too.
+  try {
+    await loadEditableTask(ctx, { taskId: parentTaskId, projectId: p.id });
+  } catch (error) {
+    if (error instanceof TaskEditForbidden) throw new AccessError("forbidden", PARENT_EDIT_FORBIDDEN);
+    throw error;
+  }
+  if (parent.archivedAt) throw new DomainError("Restore the parent task before adding sub-tasks to it.");
+  if (parent.parentTaskId) throw new DomainError("A sub-task cannot have its own sub-tasks.");
+  if (childTaskId && await hasSubtasks(ctx.db, childTaskId)) {
+    throw new DomainError("A task with sub-tasks cannot become a sub-task.");
+  }
+  return { id: parentTaskId, key: taskKey(p.key, parent.number) };
+}
+
+const PARENT_EDIT_FORBIDDEN = "You need edit access to the parent task to add sub-tasks to it.";
+
+/**
+ * Rechecks edit rights on the parent inside the write. In the subquery,
+ * `hasTaskEditPermission`'s task columns resolve to the parent row.
+ */
+function parentEditGuard(ctx: DomainContext, projectId: string, parentTaskId: string) {
+  return exists(ctx.db.select({ id: task.id }).from(task).where(and(
+    eq(task.id, parentTaskId),
+    hasTaskEditPermission(ctx.db, projectId, ctx.actorUserId),
+  )));
+}
+
+async function hasSubtasks(db: DrizzleD1Database, taskId: string): Promise<boolean> {
+  const [child] = await db.select({ id: task.id }).from(task).where(eq(task.parentTaskId, taskId)).limit(1);
+  return child !== undefined;
+}
+
 /**
  * §3: one atomic statement, because D1 has no interactive transactions and a
  * read-then-write would race. A failed insert afterwards leaves a gap in the
@@ -864,6 +938,7 @@ export async function createTask(
     statusId?: string;
     assigneeUserId?: string | null;
     reporterUserId?: string;
+    parentTaskId?: string;
   },
 ): Promise<TaskDetail> {
   // Project reach is the whole rule: §3's matrix gives tasks no capability, so
@@ -891,6 +966,9 @@ export async function createTask(
   if (input.reporterUserId) {
     await requireAssignableUser(ctx.db, p.orgId, input.reporterUserId);
   }
+  // The insert has no WHERE, so parent edit rights are checked only here. A
+  // revocation racing this create can still land one sub-task.
+  const parent = input.parentTaskId ? await requireParentTask(ctx, p, input.parentTaskId) : null;
 
   // Appending never re-keys. Concurrent creates can all read the same last
   // key and store equal positions; `positionIn` repairs such a run when a
@@ -924,6 +1002,7 @@ export async function createTask(
         statusId: target.id,
         assigneeUserId: input.assigneeUserId ?? null,
         reporterUserId: input.reporterUserId ?? ctx.actorUserId,
+        parentTaskId: parent?.id ?? null,
         position,
         archivedAt: null,
         createdByUserId: ctx.actorUserId,
@@ -934,7 +1013,7 @@ export async function createTask(
         projectId: input.projectId,
         taskId: id,
         type: "task.created",
-        data: { title, status: { id: target.id, name: target.name } },
+        data: { title, status: { id: target.id, name: target.name }, ...(parent ? { parent } : {}) },
       }),
       queueSlackTaskEvent(ctx, id),
     ];
@@ -943,6 +1022,8 @@ export async function createTask(
     }
     await ctx.db.batch(writes);
   } catch (error) {
+    // The parent can be nested or moved after validation.
+    if (isTaskParentError(error)) throw new DomainError(TASK_PARENT_RACE);
     // The chosen status or type can be removed after validation. The number
     // is burned if the insert loses that race, which §3 accepts.
     if (isConstraintError(error, "FOREIGN KEY")) {
@@ -1043,9 +1124,11 @@ export async function updateTask(
     statusId?: string;
     assigneeUserId?: string | null;
     reporterUserId?: string;
+    parentTaskId?: string | null;
   },
 ): Promise<TaskDetail> {
-  const { row, project: p, scope } = await loadEditableTask(ctx, input);
+  const { row, project: p, scope: editScope } = await loadEditableTask(ctx, input);
+  let scope = editScope;
 
   const columns: Partial<typeof task.$inferInsert> = {};
   const fields: UpdatedFields = {};
@@ -1111,6 +1194,16 @@ export async function updateTask(
     fields.reporter = { from, to };
   }
 
+  if (input.parentTaskId !== undefined && input.parentTaskId !== row.parentTaskId) {
+    const to = input.parentTaskId ? await requireParentTask(ctx, p, input.parentTaskId, row.id) : null;
+    const [from] = row.parentTaskId
+      ? await ctx.db.select({ number: task.number }).from(task).where(eq(task.id, row.parentTaskId))
+      : [];
+    columns.parentTaskId = input.parentTaskId;
+    if (input.parentTaskId) scope = and(scope, parentEditGuard(ctx, p.id, input.parentTaskId))!;
+    fields.parent = { from: from ? { id: row.parentTaskId!, key: taskKey(p.key, from.number) } : null, to };
+  }
+
   // Appends to the end of the destination column: a caller that cares where
   // the card lands uses `moveTask`.
   const plan =
@@ -1165,6 +1258,7 @@ export async function updateTask(
     if (columns.typeId && isConstraintError(error, "FOREIGN KEY")) {
       await resolveTaskType(ctx.db, row.projectId, columns.typeId);
     }
+    if (isTaskParentError(error)) throw new DomainError(TASK_PARENT_RACE);
     throw error;
   }
 
@@ -1227,6 +1321,9 @@ export async function transferTask(
   const sourceTask = { ...input, projectId: input.sourceProjectId };
   const { row, project: source, scope } = await loadEditableTask(ctx, sourceTask);
   if (source.id === input.destinationProjectId) throw new DomainError("Choose another project.");
+  // Sub-tasks stay in their parent's project, so neither side of the link moves.
+  if (row.parentTaskId) throw new DomainError("Remove the parent before moving this task.");
+  if (await hasSubtasks(db, row.id)) throw new DomainError("Move or detach its sub-tasks before moving this task.");
 
   const { project: target } = await requireProjectMember(db, input.destinationProjectId, actorUserId);
   if (source.orgId !== target.orgId) throw new DomainError("Choose a project in this workspace.");
@@ -1302,7 +1399,14 @@ export async function transferTask(
       notifications.push(queueTaskEditMail(ctx, row.id, target.orgId, sql`${task.assigneeUserId}`, sql`${task.reporterUserId}`, targetScope, new Date()));
     }
   }
-  const [updated] = await db.batch([...writes, ...notifications]);
+  let updated;
+  try {
+    [updated] = await db.batch([...writes, ...notifications]);
+  } catch (error) {
+    // A parent or sub-task linked after the checks above.
+    if (isTaskParentError(error)) throw new DomainError("Remove the parent and sub-tasks before moving this task.");
+    throw error;
+  }
   if (!updated.length) {
     await loadEditableTask(ctx, sourceTask);
     throw new DomainError("The work item or project changed. Refresh and try again.");
