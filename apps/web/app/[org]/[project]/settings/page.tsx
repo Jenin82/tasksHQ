@@ -16,6 +16,7 @@ import { deleteProjectAction } from "./actions";
 import { ProjectAdminList } from "./project-admin-list";
 import { SlackIntegration } from "./slack-integration";
 import { TaskEditingSettings } from "./task-editing-settings";
+import { AutoArchiveSettings } from "./auto-archive-settings";
 import { StatusList, type SettingsStatus } from "./status-list";
 import { TaskTypeList } from "./task-type-list";
 
@@ -79,6 +80,13 @@ export default async function ProjectSettingsPage({
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-12 sm:px-10">
       <TaskEditingSettings orgSlug={org.slug} projectSlug={project.slug} restricted={project.restrictTaskEdits} />
+      <AutoArchiveSettings
+        orgSlug={org.slug}
+        projectSlug={project.slug}
+        statuses={statuses.map(({ id, name }) => ({ id, name }))}
+        currentStatusId={project.autoArchiveStatusId}
+        currentDays={project.autoArchiveDays}
+      />
       <section className="rounded-2xl bg-card p-6 shadow-subtle">
         <div className="flex items-baseline justify-between gap-6">
           <h2 className="text-xl">Statuses</h2>

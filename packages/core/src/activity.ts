@@ -29,6 +29,7 @@ export type ProjectActivityType =
   | "project.invite_revoked"
   | "project.member_role_changed"
   | "project.task_edit_restriction_changed"
+  | "project.auto_archive_changed"
   | "status.created"
   | "status.renamed"
   | "status.recolored"
@@ -48,6 +49,7 @@ export type TaskActivityType =
   | "task.transferred"
   | "task.archived"
   | "task.unarchived"
+  | "task.auto_archived"
   | "comment.added";
 
 export type ActivityType = ProjectActivityType | TaskActivityType;

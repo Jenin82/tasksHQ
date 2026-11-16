@@ -10,6 +10,7 @@ import {
   recolorStatus,
   renameStatus,
   reorderStatus,
+  setProjectAutoArchive,
   setProjectMemberRole,
   setProjectTaskEditRestriction,
 } from "@tasks/core/domain";
@@ -256,5 +257,29 @@ export async function setProjectTaskEditRestrictionAction(
   revalidatePath(`/${org.slug}/settings/your-tasks`);
   revalidatePath(`/${org.slug}/settings/your-team`);
   revalidatePath("/[org]/settings/all-tasks", "page");
+  return NO_ERROR;
+}
+
+export async function setProjectAutoArchiveAction(
+  orgSlug: string,
+  projectSlug: string,
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const { org, project, user } = await getProjectContext(orgSlug, projectSlug);
+  const rawStatus = String(formData.get("statusId") ?? "");
+  const statusId = rawStatus === "" ? null : rawStatus;
+  const days = Number(formData.get("days"));
+
+  try {
+    await setProjectAutoArchive(
+      { db, actorUserId: user.id, source: "web" },
+      { projectId: project.id, statusId, days },
+    );
+  } catch (error) {
+    return toActionState(error);
+  }
+
+  revalidatePath(`/${org.slug}/${project.slug}`, "layout");
   return NO_ERROR;
 }

@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  type AnySQLiteColumn,
   foreignKey,
   index,
   integer,
@@ -29,6 +30,11 @@ export const project = sqliteTable(
     taskCounter: integer("task_counter").notNull().default(0),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     restrictTaskEdits: integer("restrict_task_edits", { mode: "boolean" }).notNull().default(false),
+    // The status whose tasks are auto-archived once they have sat in it for
+    // `autoArchiveDays`. Null turns the feature off for the project; deleting
+    // the chosen status clears it (SET NULL), so the sweep then matches nothing.
+    autoArchiveStatusId: text("auto_archive_status_id").references((): AnySQLiteColumn => status.id, { onDelete: "set null" }),
+    autoArchiveDays: integer("auto_archive_days").notNull().default(14),
   },
   (t) => [
     uniqueIndex("project_org_id_slug_unique").on(t.orgId, t.slug),

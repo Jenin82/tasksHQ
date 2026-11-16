@@ -120,6 +120,13 @@
       "when": 1794552674343,
       "tag": "0016_task_parent",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1794805714887,
+      "tag": "0017_project_auto_archive",
+      "breakpoints": true
     }
   ]
 }

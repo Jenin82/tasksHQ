@@ -32,6 +32,10 @@ export const task = sqliteTable(
     parentTaskId: text("parent_task_id").references((): AnySQLiteColumn => task.id, { onDelete: "set null" }),
     // Fractional index, scoped to (projectId, statusId).
     position: text("position").notNull(),
+    // When the task last entered its current status. Drives auto-archive; set
+    // by the domain on every real status change. Nullable for rows written by
+    // older Workers during rollout, which the sweep treats as not-yet-eligible.
+    statusChangedAt: integer("status_changed_at", { mode: "timestamp_ms" }),
     archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
     createdByUserId: text("created_by_user_id")
       .notNull()

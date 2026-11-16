@@ -1,6 +1,7 @@
 export * from "./org";
 export * from "./project";
 export * from "./task";
+export * from "./auto-archive";
 export * from "./task-share";
 export * from "./deletion";
 export * from "./invite-eligibility";
