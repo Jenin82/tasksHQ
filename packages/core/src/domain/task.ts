@@ -135,6 +135,7 @@ type TaskActivityPayload = {
   };
   "task.archived": Record<string, never>;
   "task.unarchived": Record<string, never>;
+  "task.auto_archived": Record<string, never>;
   "comment.added": { commentId: string; excerpt: string };
 };
 
@@ -1004,6 +1005,7 @@ export async function createTask(
         reporterUserId: input.reporterUserId ?? ctx.actorUserId,
         parentTaskId: parent?.id ?? null,
         position,
+        statusChangedAt: now,
         archivedAt: null,
         createdByUserId: ctx.actorUserId,
         createdAt: now,
@@ -1253,7 +1255,7 @@ export async function updateTask(
     }
   }
   try {
-    await commitTaskEdit(ctx, row, scope, { ...columns, updatedAt: now }, writes);
+    await commitTaskEdit(ctx, row, scope, { ...columns, updatedAt: now, ...(plan ? { statusChangedAt: now } : {}) }, writes);
   } catch (error) {
     if (columns.typeId && isConstraintError(error, "FOREIGN KEY")) {
       await resolveTaskType(ctx.db, row.projectId, columns.typeId);
@@ -1297,7 +1299,13 @@ export async function moveTask(
         and(scope, sql`${task.statusId} is not ${plan.to.id}`)!, now));
     }
   }
-  await commitTaskEdit(ctx, row, scope, { statusId: plan.to.id, position: plan.position, updatedAt: now }, writes);
+  await commitTaskEdit(
+    ctx,
+    row,
+    scope,
+    { statusId: plan.to.id, position: plan.position, updatedAt: now, ...(plan.to.id !== plan.from.id ? { statusChangedAt: now } : {}) },
+    writes,
+  );
 
   return readDetail(ctx.db, row.id, p, row.number);
 }
@@ -1361,6 +1369,7 @@ export async function transferTask(
       typeId: toType.id,
       assigneeUserId: sql`case when ${assigneeCanStay} then ${task.assigneeUserId} else null end`,
       position,
+      statusChangedAt: new Date(),
       updatedAt: new Date(),
     }).where(and(
       scope,
@@ -1468,7 +1477,9 @@ export async function unarchiveTask(
   const [updated] = await ctx.db.batch([
     ctx.db
       .update(task)
-      .set({ archivedAt: null, updatedAt: new Date() })
+      // Restart the auto-archive window, so restoring a task the sweep archived
+      // does not let the next sweep re-archive it while it sits in the same status.
+      .set({ archivedAt: null, statusChangedAt: new Date(), updatedAt: new Date() })
       .where(and(scope, isNotNull(task.archivedAt)))
       .returning({ id: task.id }),
     writeActivityIfChanged(ctx, {

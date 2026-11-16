@@ -140,6 +140,10 @@ export async function createProject(
   }
 
   const now = new Date();
+  // Pre-generated so the project can default its auto-archive to the seeded
+  // "Done" status by id.
+  const statusIds = DEFAULT_STATUSES.map(() => crypto.randomUUID());
+  const doneStatusId = statusIds[DEFAULT_STATUSES.findIndex((s) => s.name === "Done")];
   const row: Project = {
     id: crypto.randomUUID(),
     orgId: input.orgId,
@@ -149,11 +153,16 @@ export async function createProject(
     taskCounter: 0,
     createdAt: now,
     restrictTaskEdits: false,
+    autoArchiveStatusId: doneStatusId,
+    autoArchiveDays: 14,
   };
   const positions = generateNKeysBetween(null, null, DEFAULT_STATUSES.length);
   try {
     await ctx.db.batch([
-      ctx.db.insert(project).values(row),
+      // Inserted with a null auto-archive status: it references a status row the
+      // next statement creates, so the final update below sets it within the
+      // same batch once that row exists.
+      ctx.db.insert(project).values({ ...row, autoArchiveStatusId: null }),
       // §3: the creator becomes a member, so a project is never created memberless.
       ctx.db.insert(projectMember).values({
         orgId: input.orgId,
@@ -162,13 +171,14 @@ export async function createProject(
       }),
       ctx.db.insert(status).values(
         DEFAULT_STATUSES.map((s, i) => ({
-          id: crypto.randomUUID(),
+          id: statusIds[i],
           projectId: row.id,
           ...s,
           position: positions[i],
           createdAt: now,
         })),
       ),
+      ctx.db.update(project).set({ autoArchiveStatusId: doneStatusId }).where(eq(project.id, row.id)),
       // One activity row. The seeded statuses and the creator's
       // membership are part of creating the project, not separate events a
       // reader would want listed — §3 assigns no payload to "created with
@@ -216,6 +226,57 @@ export async function setProjectTaskEditRestriction(
       projectId: id,
       type: "project.task_edit_restriction_changed",
       data: { restricted },
+    }),
+  ]);
+  if (!changed.length) await requireProjectCapability(ctx, projectId, capability);
+}
+
+export const AUTO_ARCHIVE_MIN_DAYS = 1;
+export const AUTO_ARCHIVE_MAX_DAYS = 365;
+
+/**
+ * The auto-archive policy is a chosen status plus a day count. A null status
+ * turns the feature off for the project. Automatic archiving itself runs from
+ * the cron sweep (`autoArchiveDoneTasks`), not here.
+ */
+export async function setProjectAutoArchive(
+  ctx: DomainContext,
+  { projectId, statusId, days }: { projectId: string; statusId: string | null; days: number },
+) {
+  const capability = "project:manage_statuses";
+  const { id, orgId } = await requireProjectCapability(ctx, projectId, capability);
+  const { db, actorUserId } = ctx;
+  if (!Number.isInteger(days) || days < AUTO_ARCHIVE_MIN_DAYS || days > AUTO_ARCHIVE_MAX_DAYS) {
+    throw new DomainError(`Choose a number of days between ${AUTO_ARCHIVE_MIN_DAYS} and ${AUTO_ARCHIVE_MAX_DAYS}.`);
+  }
+  if (statusId !== null) {
+    const [chosen] = await db.select({ id: status.id }).from(status)
+      .where(and(eq(status.id, statusId), eq(status.projectId, id)));
+    if (!chosen) throw new DomainError("Choose a status that belongs to this project.");
+  }
+  const permittedRoles = orgMember.role.enumValues.filter((role) => can(role, capability));
+  const stillPermitted = exists(db.select({ userId: orgMember.userId }).from(orgMember)
+    .leftJoin(projectMember, and(
+      eq(projectMember.projectId, id),
+      eq(projectMember.orgId, orgMember.orgId),
+      eq(projectMember.userId, orgMember.userId),
+    ))
+    .where(and(
+      eq(orgMember.orgId, orgId),
+      eq(orgMember.userId, actorUserId),
+      or(inArray(orgMember.role, permittedRoles), eq(projectMember.role, "admin")),
+    )));
+  // `is not` is null-safe, so a status going to/from null is detected too; a
+  // no-op change writes no activity row (writeActivityIfChanged).
+  const differs = or(sql`${project.autoArchiveStatusId} is not ${statusId}`, ne(project.autoArchiveDays, days));
+  const [changed] = await db.batch([
+    db.update(project).set({ autoArchiveStatusId: statusId, autoArchiveDays: days })
+      .where(and(eq(project.id, id), differs, stillPermitted))
+      .returning({ id: project.id }),
+    writeActivityIfChanged(ctx, {
+      projectId: id,
+      type: "project.auto_archive_changed",
+      data: { statusId, days },
     }),
   ]);
   if (!changed.length) await requireProjectCapability(ctx, projectId, capability);
@@ -651,7 +712,7 @@ export async function deleteStatus(
         // needs a gap there.
         ctx.db
           .update(task)
-          .set({ statusId: movedTo.id, updatedAt: new Date() })
+          .set({ statusId: movedTo.id, statusChangedAt: new Date(), updatedAt: new Date() })
           .where(eq(task.statusId, row.id)),
       ]
     : [];
@@ -676,6 +737,11 @@ export async function deleteStatus(
             : null,
       },
     }),
+    // A project auto-archiving from this status turns off, independently of D1
+    // foreign-key enforcement (the column's ON DELETE SET NULL would do the same
+    // when FKs are on). Last, so the activity insert above still reads the
+    // status delete's `changes()`.
+    ctx.db.update(project).set({ autoArchiveStatusId: null }).where(eq(project.autoArchiveStatusId, row.id)),
   ];
   writes.unshift(...moves);
 

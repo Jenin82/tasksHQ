@@ -155,6 +155,8 @@ function describe(entry: TaskActivityEntry): React.ReactNode[] {
       return ["archived this task"];
     case "task.unarchived":
       return ["unarchived this task"];
+    case "task.auto_archived":
+      return ["archived this task automatically"];
     case "comment.added":
       return [
         <>
