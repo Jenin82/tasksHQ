@@ -8,7 +8,7 @@ vi.mock("next/navigation", () => ({ usePathname: () => route.pathname }));
 function renderSidebar(pathname: string, canManageWorkspace: boolean, hasMultipleOrganizations = false, canManageProject = false) {
   route.pathname = pathname;
   return renderToStaticMarkup(
-    <WorkspaceShell org="acme" projects={[{ slug: "web", key: "WEB", name: "Website", canManageSettings: canManageProject }]} canManageWorkspace={canManageWorkspace} hasReports hasMultipleOrganizations={hasMultipleOrganizations} header={null}>
+    <WorkspaceShell org="acme" projects={[{ slug: "web", key: "WEB", name: "Website", canManageSettings: canManageProject }]} canManageWorkspace={canManageWorkspace} hasReports canViewTimeReports={false} hasMultipleOrganizations={hasMultipleOrganizations} header={null}>
       Content
     </WorkspaceShell>,
   );
@@ -54,4 +54,17 @@ it("shows project Settings to authorized admins and Archive to all project reade
   expect(scopedAdmin).toContain('href="/acme/web/settings"');
   expect(scopedAdmin).toContain('href="/acme/web/archived"');
   expect(scopedAdmin).not.toContain('href="/acme/settings/members"');
+});
+
+it("shows Team Time to time-report viewers and leads only", () => {
+  route.pathname = "/acme/settings/your-tasks";
+  const render = (canViewTimeReports: boolean, hasReports: boolean) => renderToStaticMarkup(
+    <WorkspaceShell org="acme" projects={[]} canManageWorkspace={false} hasReports={hasReports} canViewTimeReports={canViewTimeReports} hasMultipleOrganizations={false} header={null}>
+      Content
+    </WorkspaceShell>,
+  );
+  const link = /<a\b[^>]*href="\/acme\/settings\/time"[^>]*>.*?Team Time<\/a>/;
+  expect(render(true, false)).toMatch(link);
+  expect(render(false, true)).toMatch(link);
+  expect(render(false, false)).not.toContain('href="/acme/settings/time"');
 });

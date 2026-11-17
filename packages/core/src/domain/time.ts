@@ -18,6 +18,11 @@ import { taskKey } from "./task";
 /** The longest entry that can be logged or edited by hand. */
 export const MAX_ENTRY_MS = 24 * 60 * 60 * 1000;
 const MAX_NOTE = 500;
+
+/** How much of `[start, end)` falls inside `[from, to)`, in milliseconds. */
+export function overlapMs(start: number, end: number, from: number, to: number) {
+  return Math.max(0, Math.min(end, to) - Math.max(start, from));
+}
 /** Own entries only: another user's entry reads as missing, as a deleted one does. */
 const MISSING_ENTRY = "This time entry no longer exists.";
 

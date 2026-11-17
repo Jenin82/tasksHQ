@@ -6,6 +6,12 @@
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** The Monday on or before a calendar date. */
+export function weekStart(date: string) {
+  const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
+  return addDays(date, -((weekday + 6) % 7));
+}
+
 /** The zone this browser (or, on the server, this runtime) reports. */
 export function browserTimeZone() {
   return Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -32,6 +38,15 @@ export function zonedDate(ms: number, zone: string) {
 export function zonedWallTime(ms: number, zone: string) {
   const { year, month, day, hour, minute } = zonedParts(ms, zone);
   return { date: `${year}-${month}-${day}`, time: `${hour}:${minute}` };
+}
+
+/** ISO 8601 with `zone`'s offset at `ms`, to the second: `2026-11-17T09:30:00+05:30`. */
+export function zonedIsoString(ms: number, zone: string) {
+  const { year, month, day, hour, minute, second } = zonedParts(ms, zone);
+  const offset = Math.round(zoneOffset(ms, zone) / 60_000);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const sign = offset < 0 ? "-" : "+";
+  return `${year}-${month}-${day}T${hour}:${minute}:${second}${sign}${pad(Math.floor(Math.abs(offset) / 60))}:${pad(Math.abs(offset) % 60)}`;
 }
 
 /** How far `zone`'s wall clock is ahead of UTC at `ms`. */

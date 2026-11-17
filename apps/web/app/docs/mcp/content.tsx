@@ -78,6 +78,7 @@ export const sections: GuideSection[] = [
     <p><code>start_timer</code> starts a timer on a task and stops any timer you already have running. <code>stop_timer</code> stops it, and <code>get_running_timer</code> shows what is running.</p>
     <p><code>log_time</code> records a finished span with ISO 8601 <code>start</code> and <code>end</code> times that include an offset, such as <code>2026-11-17T09:00:00+05:30</code>. An entry can be up to 24 hours, can’t end in the future, and can’t be logged on an archived task.</p>
     <p><code>list_my_time_entries</code> returns your entries in an organization between <code>from</code> and <code>to</code>, up to 92 days, with a total in minutes. Use <code>delete_time_entry</code> with an entry ID to remove one of your own entries.</p>
+    <p><code>get_time_report</code> totals time in an organization per person, project, and task between <code>from</code> and <code>to</code>, up to 92 days. Owners and admins see everyone, including former members. Leads see themselves and their direct reports, and everyone else sees only themselves. Pass an email as <code>user</code> to limit it to one person. Ask your assistant to summarize the result as a timesheet or a work summary.</p>
   </> },
 ];
 

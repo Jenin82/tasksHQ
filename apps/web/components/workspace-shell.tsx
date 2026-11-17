@@ -3,7 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Archive, Briefcase, Clock, Layers, ListTodo, PanelLeft, Settings, Users } from "lucide-react";
+import { Archive, Briefcase, CalendarClock, Clock, Layers, ListTodo, PanelLeft, Settings, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "./ui/dialog";
@@ -14,11 +14,12 @@ import { WorkspaceNavigationToggle } from "./workspace-navigation";
 
 type Project = { slug: string; name: string; key: string; canManageSettings: boolean };
 
-export function WorkspaceShell({ org, projects, canManageWorkspace, hasReports, hasMultipleOrganizations, header, children }: {
+export function WorkspaceShell({ org, projects, canManageWorkspace, hasReports, canViewTimeReports, hasMultipleOrganizations, header, children }: {
   org: string;
   projects: Project[];
   canManageWorkspace: boolean;
   hasReports: boolean;
+  canViewTimeReports: boolean;
   hasMultipleOrganizations?: boolean;
   header: ReactNode;
   children: ReactNode;
@@ -81,6 +82,11 @@ export function WorkspaceShell({ org, projects, canManageWorkspace, hasReports, 
         {hasReports && (
           <SidebarLink href={`${workspaceSettings}/your-team`} current={pathname === `${workspaceSettings}/your-team`} onNavigate={onNavigate}>
             <Users aria-hidden /> Your Team
+          </SidebarLink>
+        )}
+        {(canViewTimeReports || hasReports) && (
+          <SidebarLink href={`${workspaceSettings}/time`} current={pathname === `${workspaceSettings}/time`} onNavigate={onNavigate}>
+            <CalendarClock aria-hidden /> Team Time
           </SidebarLink>
         )}
         {canManageWorkspace && (
