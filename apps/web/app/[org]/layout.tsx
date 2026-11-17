@@ -48,6 +48,7 @@ export default async function OrgLayout({
       canManageWorkspace={can(member.role, "org:manage_members")}
       hasMultipleOrganizations={orgs.length > 1}
       hasReports={reports.length > 0}
+      canViewTimeReports={can(member.role, "org:view_time_reports")}
       header={
         <TopBar
           org={{ slug: org.slug, name: org.name }}

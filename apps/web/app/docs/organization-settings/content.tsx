@@ -79,4 +79,22 @@ export const sections: GuideSection[] = [
       </>
     ),
   },
+  {
+    id: "team-time",
+    title: "See your team's time",
+    searchTerms: ["timesheet", "payroll", "hours report", "team time", "time report", "export csv"],
+    content: (
+      <>
+        <p>
+          Open <strong>Team Time</strong> in the sidebar to see hours logged by person and day for a week, or each person&rsquo;s total for a month.
+          Select a person to break their time down by project and task. Each person&rsquo;s days follow their own time zone.
+        </p>
+        <p>
+          The link shows for owners, admins and leads. Running timers count up to now, capped at 12 hours, and people without time in the period aren&rsquo;t listed.
+          Owners and admins see everyone in the organization, including former members. Leads see themselves and their direct reports.
+          Choose <strong>Download CSV</strong> to export every entry in the period, one row for each day it covers, for example for payroll.
+        </p>
+      </>
+    ),
+  },
 ];

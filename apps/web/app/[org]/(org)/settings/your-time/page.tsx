@@ -5,16 +5,11 @@ import { STALE_MS, user as userTable } from "@tasks/core/schema";
 import { db } from "@/lib/db";
 import { formatDuration } from "@/lib/format";
 import { getOrgContext } from "@/lib/org-context";
-import { addDays, zonedDate, zonedMidnight } from "@/lib/time-zone";
+import { addDays, weekStart, zonedDate, zonedMidnight } from "@/lib/time-zone";
 import { cn } from "@/lib/utils";
 import { AddTimeEntry, TimeEntryList, TimezoneNotice } from "./your-time-controls";
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
-
-function weekStart(date: string) {
-  const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
-  return addDays(date, -((weekday + 6) % 7));
-}
 
 export default async function YourTimePage({ params, searchParams }: {
   params: Promise<{ org: string }>;
@@ -79,29 +74,30 @@ export default async function YourTimePage({ params, searchParams }: {
         <AddTimeEntry orgSlug={org.slug} timeZone={zone} />
       </div>
       <p className="mt-1 text-sm text-muted-foreground">
-        Everyone in the workspace can see the total time logged on each task.
+        Owners, admins and your lead can see your logged time and notes. Everyone in the workspace can see the total time logged on each task.
       </p>
       <TimezoneNotice saved={savedZone} />
 
       <div className="mt-6 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-base">
+        <h2 id="time-range" className="text-base">
           {rangeLabel.format(Date.parse(monday))} – {rangeLabel.format(Date.parse(days[6]))}
         </h2>
         <nav aria-label="Weeks" className="flex items-center gap-1">
-          <Link href={`${path}?week=${addDays(monday, -7)}`} className={navLink}>Previous</Link>
+          <Link href={`${path}?week=${addDays(monday, -7)}`} className={navLink}>Previous<span className="sr-only"> week</span></Link>
           {monday !== thisWeek && <Link href={path} className={navLink}>This week</Link>}
-          <Link href={`${path}?week=${addDays(monday, 7)}`} className={navLink}>Next</Link>
+          <Link href={`${path}?week=${addDays(monday, 7)}`} className={navLink}>Next<span className="sr-only"> week</span></Link>
         </nav>
       </div>
 
       <div className="mt-3 overflow-x-auto rounded-xl bg-card shadow-subtle">
-        <table className="w-full min-w-[44rem] text-sm">
+        <table aria-labelledby="time-range" className="w-full min-w-[44rem] text-sm">
           <thead>
             <tr className="border-b border-border">
               <th scope="col" className="stutter px-3 py-2 text-left font-normal">Task</th>
               {days.map((date) => (
                 <th key={date} scope="col" className={cn("stutter px-3 py-2 text-right font-normal", date === today && "text-foreground")}>
                   {dayLabel.format(Date.parse(date))}
+                  {date === today && <span className="sr-only"> (today)</span>}
                 </th>
               ))}
               <th scope="col" className="stutter px-3 py-2 text-right font-normal">Total</th>
@@ -114,14 +110,14 @@ export default async function YourTimePage({ params, searchParams }: {
               </tr>
             ) : grid.map((taskRow) => (
               <tr key={taskRow.href} className="border-b border-border/50">
-                <th scope="row" className="max-w-64 px-3 py-2 text-left font-normal">
-                  <Link href={taskRow.href} prefetch={false} className="flex min-w-0 items-baseline gap-2 rounded-sm outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">
+                <th scope="row" className="px-3 py-2 text-left font-normal">
+                  <Link href={taskRow.href} prefetch={false} className="flex max-w-64 min-w-0 items-baseline gap-2 rounded-sm outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">
                     <span className="stutter numeral shrink-0">{taskRow.key}</span>
                     <span className="truncate">{taskRow.title}</span>
                   </Link>
                 </th>
                 {taskRow.days.map((ms, index) => (
-                  <td key={days[index]} className={cn(cell, !ms && "text-muted-foreground")}>{ms ? formatDuration(ms) : "–"}</td>
+                  <td key={days[index]} className={cn(cell, !ms && "text-muted-foreground")}>{ms ? formatDuration(ms) : <><span aria-hidden="true">–</span><span className="sr-only">No time</span></>}</td>
                 ))}
                 <td className={cell}>{formatDuration(taskRow.days.reduce((sum, ms) => sum + ms, 0))}</td>
               </tr>
@@ -131,7 +127,7 @@ export default async function YourTimePage({ params, searchParams }: {
             <tr>
               <th scope="row" className="stutter px-3 py-2 text-left font-normal">Total</th>
               {dailyTotals.map((ms, index) => (
-                <td key={days[index]} className={cn(cell, !ms && "text-muted-foreground")}>{ms ? formatDuration(ms) : "–"}</td>
+                <td key={days[index]} className={cn(cell, !ms && "text-muted-foreground")}>{ms ? formatDuration(ms) : <><span aria-hidden="true">–</span><span className="sr-only">No time</span></>}</td>
               ))}
               <td className={cn(cell, "font-semibold")}>{formatDuration(weekTotal)}</td>
             </tr>

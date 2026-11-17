@@ -8,7 +8,9 @@ import {
   getRunningTimer,
   getTaskDetail,
   listMyTimeEntries,
+  listTimeReportEntries,
   listTasks,
+  overlapMs,
   startTimer,
   stopTimer,
   taskKey,
@@ -641,6 +643,78 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
         return {
           entries,
           totalMinutes: entries.reduce((sum, e) => sum + e.durationMinutes, 0),
+        };
+      }),
+  );
+
+  server.registerTool(
+    "get_time_report",
+    {
+      description: `Time logged in an organization, per person, project and task, in minutes. Owners and admins see everyone in the organization, including former members; leads see themselves and their direct reports; others see only themselves. from and to are instants, and entries are clipped to [from, to). Running time counts up to now, capped at 12 hours. Minutes are rounded down at each level, so parts may not add up to the total exactly. The range can be at most ${MAX_LIST_DAYS} days.`,
+      inputSchema: z.object({
+        org: z.string().min(1).describe("Organization slug, as list_projects returns it."),
+        from: DATETIME.describe("ISO 8601 date-time with offset, inclusive."),
+        to: DATETIME.describe("ISO 8601 date-time with offset, exclusive."),
+        user: z.string().min(1).optional().describe("Only this person's time, by email address."),
+      }),
+      annotations: { readOnlyHint: true },
+    },
+    (args) =>
+      run(async () => {
+        const from = new Date(args.from);
+        const to = new Date(args.to);
+        if (to <= from) throw new DomainError("to must be after from.");
+        if (to.getTime() - from.getTime() > MAX_LIST_DAYS * DAY_MS) {
+          throw new DomainError(`The range can be at most ${MAX_LIST_DAYS} days.`);
+        }
+        const o = await resolveOrg(db, props.userId, args.org);
+        const entries = await listTimeReportEntries(ctx, {
+          orgId: o.id,
+          from,
+          to,
+          ...(args.user ? { userEmail: args.user } : {}),
+        });
+
+        type TaskTotal = { task: string; title: string; ms: number };
+        type ProjectTotal = { project: string; name: string; ms: number; tasks: Map<string, TaskTotal> };
+        type PersonTotal = { name: string; email: string; ms: number; projects: Map<string, ProjectTotal> };
+        const people = new Map<string, PersonTotal>();
+        let totalMs = 0;
+        for (const e of entries) {
+          const ms = overlapMs(e.startedAt.getTime(), e.endedAt.getTime(), from.getTime(), to.getTime());
+          if (ms === 0) continue;
+          let person = people.get(e.userId);
+          if (!person) people.set(e.userId, (person = { name: e.userName, email: e.userEmail, ms: 0, projects: new Map() }));
+          let proj = person.projects.get(e.projectSlug);
+          if (!proj) person.projects.set(e.projectSlug, (proj = { project: e.projectSlug, name: e.projectName, ms: 0, tasks: new Map() }));
+          let t = proj.tasks.get(e.taskId);
+          if (!t) proj.tasks.set(e.taskId, (t = { task: e.key, title: e.title, ms: 0 }));
+          totalMs += ms;
+          person.ms += ms;
+          proj.ms += ms;
+          t.ms += ms;
+        }
+        if (args.user && people.size === 0) {
+          throw new DomainError("No time logged by that person in this range, or they are outside your report scope.");
+        }
+        // Floor each level's summed ms, so a total isn't a sum of floored parts.
+        const minutes = (ms: number) => Math.floor(ms / 60_000);
+        const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
+        return {
+          people: [...people.values()].sort(byName).map((p) => ({
+            name: p.name,
+            email: p.email,
+            totalMinutes: minutes(p.ms),
+            projects: [...p.projects.values()].sort(byName).map((pr) => ({
+              project: pr.project,
+              name: pr.name,
+              totalMinutes: minutes(pr.ms),
+              tasks: [...pr.tasks.values()]
+                .sort((a, b) => a.task.localeCompare(b.task, "en", { numeric: true }))
+                .map((t) => ({ task: t.task, title: t.title, minutes: minutes(t.ms) })),
+            })),
+          })),
+          totalMinutes: minutes(totalMs),
         };
       }),
   );

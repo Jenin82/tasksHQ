@@ -587,4 +587,41 @@ describe("time tracking", () => {
     expect((await call(BYSTANDER, "delete_time_entry", { id: logged.data.entryId })).isError).toBe(false);
     expect((await call(BYSTANDER, "list_my_time_entries", { org: "mc-acme", from, to })).data.entries).toHaveLength(1);
   });
+
+  it("reports time by scope: self, lead plus direct reports, or everyone", async () => {
+    const [acme] = await db.select({ id: org.id }).from(org).where(eq(org.slug, "mc-acme"));
+    const created = await call(MEMBER, "create_task", { project: "ENG", title: "Reported time" });
+    const key = created.data.key;
+    // A fixed past day that no other test logs time in.
+    const end = new Date("2026-01-05T12:00:00Z");
+    const at = (minutes: number) => ({ start: new Date(end.getTime() - minutes * 60 * 1000).toISOString(), end: end.toISOString() });
+    expect((await call(MEMBER, "log_time", { task: key, ...at(60) })).isError).toBe(false);
+    expect((await call(ADMIN, "log_time", { task: key, ...at(30) })).isError).toBe(false);
+    const range = { org: "mc-acme", from: "2026-01-05T00:00:00Z", to: "2026-01-06T00:00:00Z" };
+    const report = async (userId: string, extra = {}) => (await call(userId, "get_time_report", { ...range, ...extra })).data;
+    const memberRow = {
+      name: "MC-MEMBER",
+      email: "mc-member@Example.test",
+      totalMinutes: 60,
+      projects: [{ project: "engineering", name: "Engineering", totalMinutes: 60, tasks: [{ task: key, title: "Reported time", minutes: 60 }] }],
+    };
+
+    expect(await report(MEMBER)).toEqual({ people: [memberRow], totalMinutes: 60 });
+    expect((await report(ADMIN)).people.map((p: any) => p.name)).toEqual(["MC-ADMIN", "MC-MEMBER"]);
+    expect((await report(BYSTANDER)).people).toEqual([]);
+    await setReportingLead(ctx(OWNER), { orgId: acme.id, userId: MEMBER, leadUserId: BYSTANDER });
+    try {
+      expect(await report(BYSTANDER)).toEqual({ people: [memberRow], totalMinutes: 60 });
+    } finally {
+      await setReportingLead(ctx(OWNER), { orgId: acme.id, userId: MEMBER, leadUserId: null });
+    }
+
+    expect((await report(ADMIN, { user: "MC-MEMBER@EXAMPLE.TEST" })).people).toEqual([memberRow]);
+    const missing = "No time logged by that person in this range, or they are outside your report scope.";
+    expect(await report(ADMIN, { user: "mc-owner@example.test" })).toBe(missing);
+    expect(await report(ADMIN, { user: "nobody@example.test" })).toBe(missing);
+    expect(await report(MEMBER, { user: "mc-admin@example.test" })).toBe(missing);
+    expect(await report(MEMBER, { org: "mc-other" })).toBe("No such organization.");
+    expect(await report(MEMBER, { from: "2026-01-01T00:00:00Z", to: "2026-06-01T00:00:00Z" })).toBe("The range can be at most 92 days.");
+  });
 });
