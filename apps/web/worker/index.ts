@@ -1,5 +1,5 @@
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
-import { autoArchiveDoneTasks } from "@tasks/core/domain";
+import { autoArchiveDoneTasks, stopStaleTimers } from "@tasks/core/domain";
 import app from "vinext/server/fetch-handler";
 import { drainMailOutbox } from "../lib/mail-outbox";
 import { drainSlackOutbox } from "../lib/slack";
@@ -27,9 +27,10 @@ export default {
       deliverSlack(db, env),
       emailEnabled ? drainMailOutbox(db, env.BETTER_AUTH_URL, sendMail) : undefined,
       autoArchiveDoneTasks(db),
+      stopStaleTimers(db),
     ]);
     if (results.some(({ status }) => status === "rejected")) {
-      throw new Error("A notification outbox could not be processed.");
+      throw new Error("A scheduled job failed.");
     }
   },
 };

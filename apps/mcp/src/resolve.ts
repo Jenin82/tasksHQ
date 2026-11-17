@@ -48,6 +48,21 @@ export async function reachableProjects(
   return rows.map((r) => ({ ...r.project, orgSlug: r.orgSlug }));
 }
 
+/** `org` is an organization slug the caller belongs to; any other is "No such organization." */
+export async function resolveOrg(
+  db: DrizzleD1Database,
+  userId: string,
+  slug: string,
+): Promise<{ id: string; slug: string }> {
+  const [row] = await db
+    .select({ id: org.id, slug: org.slug })
+    .from(org)
+    .innerJoin(orgMember, and(eq(orgMember.orgId, org.id), eq(orgMember.userId, userId)))
+    .where(eq(org.slug, slug.trim().toLowerCase()));
+  if (!row) throw new AccessError("not_a_member", "No such organization.");
+  return row;
+}
+
 /**
  * Splits the optional `org/` qualifier. Project keys and slugs are unique only
  * within an org (§3), so one user in two orgs can reach two `WEB` projects;

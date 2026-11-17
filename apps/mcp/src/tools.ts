@@ -3,15 +3,22 @@ import {
   addComment,
   archiveTask,
   createTask,
+  createTimeEntry,
+  deleteTimeEntry,
+  getRunningTimer,
   getTaskDetail,
+  listMyTimeEntries,
   listTasks,
+  startTimer,
+  stopTimer,
+  taskKey,
   updateTask,
   type TaskDetail,
   type UserRef,
 } from "@tasks/core/domain";
 import { AccessError } from "@tasks/core/access";
 import { DomainError } from "@tasks/core/errors";
-import { TASK_PRIORITIES } from "@tasks/core/schema";
+import { STALE_MS, TASK_PRIORITIES } from "@tasks/core/schema";
 import {
   MAX_TASK_IMAGE_BYTES,
   TASK_IMAGE_ID,
@@ -28,6 +35,7 @@ import {
   projectTaskTypes,
   reachableProjects,
   resolveAssignee,
+  resolveOrg,
   resolveProject,
   resolveStatus,
   resolveTask,
@@ -59,6 +67,10 @@ const PARENT = z
 const DESCRIPTION = z.string().describe(
   "Markdown. To embed a project image, insert the Markdown from upload_project_image.",
 );
+const DATETIME = z.iso.datetime({ offset: true });
+const NOTE = z.string().max(500).describe("Optional note, up to 500 characters.");
+const MAX_LIST_DAYS = 92;
+const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_IMAGE_BASE64_LENGTH = 4 * Math.ceil(MAX_TASK_IMAGE_BYTES / 3);
 // Allow room for the JSON-RPC envelope around a maximum-size encoded image.
 export const MAX_MCP_REQUEST_BYTES = MAX_IMAGE_BASE64_LENGTH + 128 * 1024;
@@ -139,6 +151,12 @@ async function resolveParent(db: DrizzleD1Database, userId: string, p: Reachable
   }
   if (parent.project.id !== p.id) throw new DomainError("No such parent task in this project.");
   return parent.taskId;
+}
+
+/** Running entries count up to now, capped where the stale-timer sweep would stop them. */
+function durationMinutes(startedAt: Date, endedAt: Date | null, now: number) {
+  const end = endedAt?.getTime() ?? Math.min(now, startedAt.getTime() + STALE_MS);
+  return Math.max(0, Math.floor((end - startedAt.getTime()) / 60_000));
 }
 
 /** Opaque to agents; an offset into `listTasks`' `position, id` order. */
@@ -494,6 +512,151 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
         const data = new Uint8Array(await image.arrayBuffer()).toBase64();
         return { type: "image" as const, data, mimeType: "image/webp" };
       }, (image) => ({ content: [image] })),
+  );
+
+  server.registerTool(
+    "start_timer",
+    {
+      description:
+        "Start a timer on a task. Stops any timer you already have running, in any organization. Archived tasks can't track time.",
+      inputSchema: z.object({ task: TASK, note: NOTE.optional() }),
+    },
+    (args) =>
+      run(async () => {
+        const { taskId, project, number } = await resolveTask(db, props.userId, args.task);
+        const entry = await startTimer(ctx, { taskId, projectId: project.id, note: args.note });
+        return { entryId: entry.id, task: taskKey(project.key, number), startedAt: entry.startedAt };
+      }),
+  );
+
+  server.registerTool(
+    "stop_timer",
+    {
+      description: "Stop your running timer. A timer left running for 12 hours stops at 12 hours and is marked autoStopped.",
+    },
+    () =>
+      run(async () => {
+        const entry = await stopTimer(ctx);
+        return {
+          entryId: entry.id,
+          startedAt: entry.startedAt,
+          endedAt: entry.endedAt,
+          durationMinutes: durationMinutes(entry.startedAt, entry.endedAt, Date.now()),
+          autoStopped: entry.autoStopped,
+        };
+      }),
+  );
+
+  server.registerTool(
+    "get_running_timer",
+    {
+      description: "Your running timer, if any, with its task and elapsed minutes.",
+      annotations: { readOnlyHint: true },
+    },
+    () =>
+      run(async () => {
+        const timer = await getRunningTimer(ctx);
+        if (!timer) return { running: null };
+        return {
+          running: {
+            entryId: timer.id,
+            task: timer.key,
+            title: timer.title,
+            org: timer.orgSlug,
+            startedAt: timer.startedAt,
+            elapsedMinutes: durationMinutes(timer.startedAt, null, Date.now()),
+            note: timer.note,
+          },
+        };
+      }),
+  );
+
+  server.registerTool(
+    "log_time",
+    {
+      description:
+        "Log a finished span of time on a task. An entry can be at most 24 hours, can't end in the future, and can't be logged on archived tasks.",
+      inputSchema: z.object({
+        task: TASK,
+        start: DATETIME.describe('ISO 8601 date-time with offset, e.g. "2026-11-17T09:00:00+05:30".'),
+        end: DATETIME.describe("ISO 8601 date-time with offset, after start."),
+        note: NOTE.optional(),
+      }),
+    },
+    (args) =>
+      run(async () => {
+        const { taskId, project, number } = await resolveTask(db, props.userId, args.task);
+        const entry = await createTimeEntry(ctx, {
+          taskId,
+          projectId: project.id,
+          startedAt: new Date(args.start),
+          endedAt: new Date(args.end),
+          note: args.note,
+        });
+        return {
+          entryId: entry.id,
+          task: taskKey(project.key, number),
+          startedAt: entry.startedAt,
+          endedAt: entry.endedAt,
+          durationMinutes: durationMinutes(entry.startedAt, entry.endedAt, Date.now()),
+        };
+      }),
+  );
+
+  server.registerTool(
+    "list_my_time_entries",
+    {
+      description: `Your time entries in an organization that overlap [from, to), newest first, with totalMinutes. Entries are counted whole, and running ones count up to now. The range can be at most ${MAX_LIST_DAYS} days.`,
+      inputSchema: z.object({
+        org: z.string().min(1).describe("Organization slug, as list_projects returns it."),
+        from: DATETIME.describe("ISO 8601 date-time with offset, inclusive."),
+        to: DATETIME.describe("ISO 8601 date-time with offset, exclusive."),
+      }),
+      annotations: { readOnlyHint: true },
+    },
+    (args) =>
+      run(async () => {
+        const from = new Date(args.from);
+        const to = new Date(args.to);
+        if (to <= from) throw new DomainError("to must be after from.");
+        if (to.getTime() - from.getTime() > MAX_LIST_DAYS * DAY_MS) {
+          throw new DomainError(`The range can be at most ${MAX_LIST_DAYS} days.`);
+        }
+        const o = await resolveOrg(db, props.userId, args.org);
+        const now = Date.now();
+        const entries = (await listMyTimeEntries(ctx, { orgId: o.id, from, to })).map((e) => ({
+          id: e.id,
+          task: e.key,
+          title: e.title,
+          project: e.projectSlug,
+          startedAt: e.startedAt,
+          endedAt: e.endedAt,
+          durationMinutes: durationMinutes(e.startedAt, e.endedAt, now),
+          note: e.note,
+          kind: e.kind,
+          source: e.source,
+          autoStopped: e.autoStopped,
+          edited: e.editedAt !== null,
+        }));
+        return {
+          entries,
+          totalMinutes: entries.reduce((sum, e) => sum + e.durationMinutes, 0),
+        };
+      }),
+  );
+
+  server.registerTool(
+    "delete_time_entry",
+    {
+      description: "Permanently delete one of your time entries.",
+      inputSchema: z.object({ id: z.string().min(1).describe("Time entry ID.") }),
+      annotations: { destructiveHint: true },
+    },
+    (args) =>
+      run(async () => {
+        await deleteTimeEntry(ctx, { id: args.id });
+        return { deleted: args.id };
+      }),
   );
 
   return server;

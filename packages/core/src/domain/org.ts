@@ -13,8 +13,10 @@ import { user } from "../schema/auth";
 import { type Org, type OrgMember, org, orgInvite, orgMember } from "../schema/org";
 import { project } from "../schema/project";
 import { task } from "../schema/task";
+import { timeEntry } from "../schema/time";
 import { inviterStillManagesOrg, verifiedInviteRecipient } from "./invite-eligibility";
 import { queueOrgInviteMail } from "./mail";
+import { stopTimeEntryValues } from "./time";
 
 /**
  * Claims live invitations for a verified address without changing existing roles.
@@ -322,6 +324,11 @@ export async function removeOrgMember(
       // The other half is the composite FK `project_member(orgId,userId) ->
       // org_member(orgId,userId) ON DELETE CASCADE`, so their project_member
       // rows go with this one. Not repeated here; test/org.test.ts asserts it.
+      // Their running timer in this organization stops with their membership.
+      ctx.db
+        .update(timeEntry)
+        .set(stopTimeEntryValues(Date.now()))
+        .where(and(eq(timeEntry.userId, input.userId), eq(timeEntry.orgId, input.orgId), isNull(timeEntry.endedAt))),
       ctx.db
         .delete(orgMember)
         .where(and(memberRow, notLastOwner(input.orgId), untouchableBy(actor))),

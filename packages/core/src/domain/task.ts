@@ -29,6 +29,8 @@ import { TASK_PRIORITIES, type Comment, type CommentMention, type Task, type Tas
 import { resolveCommentMentions } from "./comment-mentions";
 import { queueAssignmentMail, queueCommentMentionMail, queueTaskEditMail } from "./mail";
 import { queueSlackTaskEvent } from "./slack";
+import { timeEntry } from "../schema/time";
+import { stopTimeEntryValues } from "./time";
 
 /**
  * §3: the display key is derived at read time from `project.key` and
@@ -1448,6 +1450,13 @@ export async function archiveTask(
       type: "task.archived",
       data: {},
     }),
+    // After the activity row, which reads `changes()` from the update above.
+    // Stops every running timer on the task, but only if it is now archived.
+    ctx.db.update(timeEntry).set(stopTimeEntryValues(now.getTime())).where(and(
+      eq(timeEntry.taskId, row.id),
+      isNull(timeEntry.endedAt),
+      exists(ctx.db.select({ id: task.id }).from(task).where(and(eq(task.id, row.id), isNotNull(task.archivedAt)))),
+    )),
   ]);
   if (!updated.length) await loadEditableTask(ctx, { taskId: row.id, projectId: row.projectId, number: row.number });
 

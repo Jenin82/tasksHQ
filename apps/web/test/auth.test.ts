@@ -17,6 +17,7 @@ it("created the four Better Auth tables with the generated columns", async () =>
     "id",
     "image",
     "name",
+    "timezone",
     "updated_at",
   ]);
   expect(await columns("session")).toEqual([

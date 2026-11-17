@@ -3,6 +3,8 @@ import type { DrizzleD1Database } from "drizzle-orm/d1";
 import { type DomainContext, writeActivitySelect } from "../activity";
 import { project } from "../schema/project";
 import { task } from "../schema/task";
+import { timeEntry } from "../schema/time";
+import { stopTimeEntryValues } from "./time";
 
 /** The actor automatic archives are attributed to; seeded in migration 0017. */
 export const SYSTEM_USER_ID = "system-automation";
@@ -45,6 +47,11 @@ export async function autoArchiveDoneTasks(
   const ctx: DomainContext = { db, actorUserId: SYSTEM_USER_ID, source: "web" };
   const archivedAt = new Date(now);
   const results = await db.batch([
+    // Before the archive, while the eligible set still selects these tasks.
+    db
+      .update(timeEntry)
+      .set(stopTimeEntryValues(now))
+      .where(sql`${timeEntry.endedAt} is null and ${timeEntry.taskId} in (${eligibleTaskIds(now, limit)})`),
     writeActivitySelect(
       ctx,
       {
@@ -61,5 +68,5 @@ export async function autoArchiveDoneTasks(
       .where(sql`${task.id} in (${eligibleTaskIds(now, limit)})`)
       .returning({ id: task.id }),
   ]);
-  return results[1].length;
+  return results[2].length;
 }

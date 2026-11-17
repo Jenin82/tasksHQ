@@ -5,3 +5,4 @@ export * from "./task";
 export * from "./activity";
 export * from "./mail";
 export * from "./slack";
+export * from "./time";
