@@ -3,7 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Archive, Briefcase, Layers, ListTodo, PanelLeft, Settings, Users } from "lucide-react";
+import { Archive, Briefcase, Clock, Layers, ListTodo, PanelLeft, Settings, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "./ui/dialog";
@@ -74,6 +74,9 @@ export function WorkspaceShell({ org, projects, canManageWorkspace, hasReports, 
         </SidebarLink>
         <SidebarLink href={`${workspaceSettings}/your-tasks`} current={pathname === `${workspaceSettings}/your-tasks`} onNavigate={onNavigate}>
           <ListTodo aria-hidden /> Your Tasks
+        </SidebarLink>
+        <SidebarLink href={`${workspaceSettings}/your-time`} current={pathname === `${workspaceSettings}/your-time`} onNavigate={onNavigate}>
+          <Clock aria-hidden /> Your Time
         </SidebarLink>
         {hasReports && (
           <SidebarLink href={`${workspaceSettings}/your-team`} current={pathname === `${workspaceSettings}/your-team`} onNavigate={onNavigate}>

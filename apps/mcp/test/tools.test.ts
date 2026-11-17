@@ -553,3 +553,38 @@ it("rejects a parent from another project or a nested one", async () => {
   expect(await call(MEMBER, "update_task", { task: ops.data.key, parent: "OPS-999" }))
     .toEqual({ isError: true, data: "No such parent task." });
 });
+
+describe("time tracking", () => {
+  it("starts, reads, and stops a timer, then logs and lists time", async () => {
+    const started = await call(BYSTANDER, "start_timer", { task: "ENG-1", note: "Pairing" });
+    expect(started).toMatchObject({ isError: false, data: { task: "ENG-1", entryId: expect.any(String) } });
+
+    const running = await call(BYSTANDER, "get_running_timer");
+    expect(running.data.running).toMatchObject({ entryId: started.data.entryId, task: "ENG-1", title: expect.any(String), elapsedMinutes: 0 });
+
+    const stopped = await call(BYSTANDER, "stop_timer");
+    expect(stopped.data).toMatchObject({ entryId: started.data.entryId, durationMinutes: 0, autoStopped: false });
+    expect((await call(BYSTANDER, "get_running_timer")).data).toEqual({ running: null });
+
+    const end = new Date(Date.now() - 60 * 60 * 1000);
+    const start = new Date(end.getTime() - 90 * 60 * 1000);
+    const logged = await call(BYSTANDER, "log_time", { task: "ENG-2", start: start.toISOString(), end: end.toISOString() });
+    expect(logged.data).toMatchObject({ task: "ENG-2", durationMinutes: 90 });
+
+    const from = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const to = new Date(Date.now() + 60 * 1000).toISOString();
+    const listed = await call(BYSTANDER, "list_my_time_entries", { org: "mc-acme", from, to });
+    expect(listed.data.totalMinutes).toBe(90);
+    expect(listed.data.entries).toMatchObject([
+      { id: started.data.entryId, task: "ENG-1", project: "engineering", kind: "timer", source: "mcp", note: "Pairing", edited: false },
+      { id: logged.data.entryId, task: "ENG-2", kind: "manual", durationMinutes: 90 },
+    ]);
+
+    expect((await call(BYSTANDER, "list_my_time_entries", { org: "mc-other", from, to })).data).toBe("No such organization.");
+    expect((await call(BYSTANDER, "list_my_time_entries", { org: "mc-acme", from: "2026-01-01T00:00:00Z", to: "2026-06-01T00:00:00Z" })).data)
+      .toBe("The range can be at most 92 days.");
+
+    expect((await call(BYSTANDER, "delete_time_entry", { id: logged.data.entryId })).isError).toBe(false);
+    expect((await call(BYSTANDER, "list_my_time_entries", { org: "mc-acme", from, to })).data.entries).toHaveLength(1);
+  });
+});

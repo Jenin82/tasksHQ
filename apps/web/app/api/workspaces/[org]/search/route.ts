@@ -49,7 +49,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ org:
       ...result, href: `/${org.slug}/${projectSlug}`,
     })),
     tasks: tasks.map(({ slug: projectSlug, ...result }) => ({
-      ...result, href: `/${org.slug}/${projectSlug}/${result.key}`,
+      ...result, projectSlug, href: `/${org.slug}/${projectSlug}/${result.key}`,
     })),
   }, { headers });
 }

@@ -27,6 +27,7 @@ import {
   TypeField,
 } from "./task-fields";
 import { ShareTaskButton } from "./share-task-button";
+import { TaskTime } from "./task-time";
 
 /** §7.2: a section rule, not a card. The hairline is the only boundary. */
 function Section({
@@ -325,6 +326,9 @@ export function TaskDetailContent({
               </span>
             </Property>
           </dl>
+          {!detail.archivedAt && (
+            <TaskTime key={ids.taskId} orgSlug={ids.orgSlug} projectSlug={ids.projectSlug} taskKey={detail.key} />
+          )}
           {canEdit && (
             <div className={cn("mt-6 pt-2", movable && "grid grid-cols-2 items-start gap-2")}>
               {movable && <MoveTaskButton ids={ids} targets={moveTargets} />}

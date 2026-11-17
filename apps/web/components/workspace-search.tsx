@@ -45,7 +45,7 @@ export function WorkspaceSearch({ org }: { org: string }) {
           aria-label="Search workspace"
         >
           <Search aria-hidden className="size-4 shrink-0" />
-          <span className="hidden sm:inline">Search workspace</span>
+          <span className="hidden truncate sm:inline">Search workspace</span>
           <kbd className="ml-auto hidden text-xs lg:inline">⌘ / Ctrl K</kbd>
         </DialogTrigger>
         <DialogContent

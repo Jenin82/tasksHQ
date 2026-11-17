@@ -4,11 +4,13 @@ import { useContext, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowUpRight, Check, ChevronsUpDown } from "lucide-react";
+import type { RunningTimer } from "@tasks/core/domain";
 import { AccountMenu, type AccountUser } from "@/components/account-menu";
 import { DocsLink } from "@/components/docs-link";
 import { Mark } from "@/components/mark";
 import { ThemeButton } from "@/components/theme-toggle";
 import { ProjectViewHref } from "@/components/project-view-link";
+import { RunningTimerChip } from "@/components/time-tracking";
 import { WorkspaceSearch } from "@/components/workspace-search";
 import {
   Command,
@@ -38,12 +40,14 @@ export function TopBar({
   orgs,
   projects,
   user,
+  runningTimer,
 }: {
   org: Crumb;
   role: string;
   orgs: Crumb[];
   projects: (Crumb & { key: string })[];
   user: AccountUser;
+  runningTimer?: RunningTimer | null;
 }) {
   const params = useParams<{ project?: string }>();
   const project = projects.find((p) => p.slug === params.project);
@@ -81,11 +85,16 @@ export function TopBar({
         </div>
       ) : null}
 
-      <div className="ml-auto flex min-w-0 justify-center sm:flex-1">
+      {/* min-w-9 keeps the search icon from collapsing under the timer chip; the org name truncates instead. */}
+      <div className="ml-auto flex min-w-9 justify-center sm:flex-1">
         <WorkspaceSearch key={org.slug} org={org.slug} />
       </div>
       <div className="flex shrink-0 items-center gap-2">
-        <DocsLink />
+        {runningTimer && <RunningTimerChip timer={runningTimer} />}
+        {/* A running timer takes Docs' place on narrow screens. */}
+        <div className={runningTimer ? "hidden lg:contents" : "contents"}>
+          <DocsLink />
+        </div>
         <ThemeButton size="icon" />
         <AccountMenu user={user} />
       </div>

@@ -1,5 +1,6 @@
 import { and, asc, eq } from "drizzle-orm";
 import { can, canProject } from "@tasks/core/access";
+import { getRunningTimer } from "@tasks/core/domain";
 import { orgReportingLine, project, projectMember } from "@tasks/core/schema";
 import { TopBar } from "@/components/top-bar";
 import { WorkspaceShell } from "@/components/workspace-shell";
@@ -16,7 +17,7 @@ export default async function OrgLayout({
   const { org: slug } = await params;
   const { org, member, user } = await getOrgContext(slug);
 
-  const [orgs, projectRows, reports] = await Promise.all([
+  const [orgs, projectRows, reports, runningTimer] = await Promise.all([
     listUserOrganizations(user.id),
     db.select({ slug: project.slug, name: project.name, key: project.key, role: projectMember.role })
       .from(project)
@@ -32,6 +33,7 @@ export default async function OrgLayout({
       .from(orgReportingLine)
       .where(and(eq(orgReportingLine.orgId, org.id), eq(orgReportingLine.leadUserId, user.id)))
       .limit(1),
+    getRunningTimer({ db, actorUserId: user.id, source: "web" }),
   ]);
   const projects = projectRows.map(({ role, ...item }) => ({
     ...item,
@@ -53,6 +55,7 @@ export default async function OrgLayout({
           orgs={orgs.map(({ slug, name }) => ({ slug, name }))}
           projects={projects}
           user={{ name: user.name, email: user.email, image: user.image }}
+          runningTimer={runningTimer}
         />
       }
     >
