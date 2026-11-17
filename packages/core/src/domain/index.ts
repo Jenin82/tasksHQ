@@ -11,3 +11,4 @@ export * from "./profile";
 export { disconnectProjectSlack, queueSlackTest, readProjectSlack, saveProjectSlack } from "./slack";
 export * from "./time";
 export * from "./time-report";
+export * from "./work-summary";

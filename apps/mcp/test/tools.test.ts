@@ -624,4 +624,27 @@ describe("time tracking", () => {
     expect(await report(MEMBER, { org: "mc-other" })).toBe("No such organization.");
     expect(await report(MEMBER, { from: "2026-01-01T00:00:00Z", to: "2026-06-01T00:00:00Z" })).toBe("The range can be at most 92 days.");
   });
+
+  it("returns work summary data for a range and validates it", async () => {
+    const created = await call(MEMBER, "create_task", { project: "ENG", title: "Summarized work" });
+    const key = created.data.key;
+    // A fixed past day that no other test logs time in.
+    const logged = await call(MEMBER, "log_time", {
+      task: key, start: "2026-01-12T09:00:00Z", end: "2026-01-12T10:30:00Z", note: "Wrote the spec",
+    });
+    expect(logged.isError).toBe(false);
+    const range = { org: "mc-acme", from: "2026-01-12T00:00:00Z", to: "2026-01-13T00:00:00Z" };
+    const summary = async (extra = {}) => (await call(MEMBER, "get_work_summary_data", { ...range, ...extra })).data;
+
+    expect(await summary()).toEqual({
+      totalMinutes: 90,
+      tasks: [{
+        key, title: "Summarized work", project: "engineering", projectName: "Engineering", status: "Todo", archived: false, minutes: 90,
+        notes: ["Wrote the spec"], created: null, statusChanges: [], comments: [],
+      }],
+    });
+    expect(await summary({ org: "mc-other" })).toBe("No such organization.");
+    expect(await summary({ from: "2026-01-01T00:00:00Z", to: "2026-06-01T00:00:00Z" })).toBe("The range can be at most 92 days.");
+    expect(await summary({ to: range.from })).toBe("to must be after from.");
+  });
 });

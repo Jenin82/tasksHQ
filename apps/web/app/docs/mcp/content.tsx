@@ -74,11 +74,13 @@ export const sections: GuideSection[] = [
     <p><code>list_projects</code> returns the types available for each project with their colors and icons and marks the default. Pass a type name as <code>type</code> when calling <code>create_task</code> or <code>update_task</code>. Omit it when creating to use the project’s default, or when updating to keep the current type. <code>list_tasks</code> and <code>get_task</code> return the current type name.</p>
     <p>Task descriptions support Markdown. To embed an image, call <code>upload_project_image</code> with the project and the file as raw <code>base64</code>, then include the returned Markdown in the task description. The tool accepts PNG, JPEG, WebP, GIF, and AVIF files up to 5 MB and stores a still WebP image. Use <code>get_project_image</code> with the project and image ID to read it back.</p>
   </> },
-  { id: "time-tools", title: "Time tracking", content: <>
+  { id: "time-tools", title: "Time tracking", searchTerms: ["work summary", "standup", "timesheet"], content: <>
     <p><code>start_timer</code> starts a timer on a task and stops any timer you already have running. <code>stop_timer</code> stops it, and <code>get_running_timer</code> shows what is running.</p>
     <p><code>log_time</code> records a finished span with ISO 8601 <code>start</code> and <code>end</code> times that include an offset, such as <code>2026-11-17T09:00:00+05:30</code>. An entry can be up to 24 hours, can’t end in the future, and can’t be logged on an archived task.</p>
     <p><code>list_my_time_entries</code> returns your entries in an organization between <code>from</code> and <code>to</code>, up to 92 days, with a total in minutes. Use <code>delete_time_entry</code> with an entry ID to remove one of your own entries.</p>
-    <p><code>get_time_report</code> totals time in an organization per person, project, and task between <code>from</code> and <code>to</code>, up to 92 days. Owners and admins see everyone, including former members. Leads see themselves and their direct reports, and everyone else sees only themselves. Pass an email as <code>user</code> to limit it to one person. Ask your assistant to summarize the result as a timesheet or a work summary.</p>
+    <p><code>get_time_report</code> totals time in an organization per person, project, and task between <code>from</code> and <code>to</code>, up to 92 days. Owners and admins see everyone, including former members. Leads see themselves and their direct reports, and everyone else sees only themselves. Pass an email as <code>user</code> to limit it to one person.</p>
+    <p><code>get_work_summary_data</code> returns your own work in an organization between <code>from</code> and <code>to</code>, up to 92 days: each task you logged time on, created, moved, or commented on, with your minutes, time-entry notes, status changes, and comments. Archived tasks are included. Ask your assistant to summarize it as a timesheet, standup, or work summary.</p>
+    <CodeBlock>Summarize my work in Acme from 1–15 Nov.</CodeBlock>
   </> },
 ];
 

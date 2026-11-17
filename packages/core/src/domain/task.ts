@@ -439,7 +439,7 @@ export async function getTask(
  * table definition and selecting it is not needed — so it is reached with a
  * raw `sql` fragment, table-qualified because these reads join `user`.
  */
-const ACTIVITY_ROWID = sql`"activity"."rowid"`;
+export const ACTIVITY_ROWID = sql`"activity"."rowid"`;
 const COMMENT_ROWID = sql`"comment"."rowid"`;
 
 /**

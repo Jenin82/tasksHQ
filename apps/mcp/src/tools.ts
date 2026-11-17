@@ -7,6 +7,7 @@ import {
   deleteTimeEntry,
   getRunningTimer,
   getTaskDetail,
+  getWorkSummaryData,
   listMyTimeEntries,
   listTimeReportEntries,
   listTasks,
@@ -76,6 +77,16 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_IMAGE_BASE64_LENGTH = 4 * Math.ceil(MAX_TASK_IMAGE_BYTES / 3);
 // Allow room for the JSON-RPC envelope around a maximum-size encoded image.
 export const MAX_MCP_REQUEST_BYTES = MAX_IMAGE_BASE64_LENGTH + 128 * 1024;
+
+function parseRange(args: { from: string; to: string }) {
+  const from = new Date(args.from);
+  const to = new Date(args.to);
+  if (to <= from) throw new DomainError("to must be after from.");
+  if (to.getTime() - from.getTime() > MAX_LIST_DAYS * DAY_MS) {
+    throw new DomainError(`The range can be at most ${MAX_LIST_DAYS} days.`);
+  }
+  return { from, to };
+}
 
 type ImageBindings = Pick<Env, "TASK_IMAGES" | "IMAGES">;
 
@@ -618,12 +629,7 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
     },
     (args) =>
       run(async () => {
-        const from = new Date(args.from);
-        const to = new Date(args.to);
-        if (to <= from) throw new DomainError("to must be after from.");
-        if (to.getTime() - from.getTime() > MAX_LIST_DAYS * DAY_MS) {
-          throw new DomainError(`The range can be at most ${MAX_LIST_DAYS} days.`);
-        }
+        const { from, to } = parseRange(args);
         const o = await resolveOrg(db, props.userId, args.org);
         const now = Date.now();
         const entries = (await listMyTimeEntries(ctx, { orgId: o.id, from, to })).map((e) => ({
@@ -661,12 +667,7 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
     },
     (args) =>
       run(async () => {
-        const from = new Date(args.from);
-        const to = new Date(args.to);
-        if (to <= from) throw new DomainError("to must be after from.");
-        if (to.getTime() - from.getTime() > MAX_LIST_DAYS * DAY_MS) {
-          throw new DomainError(`The range can be at most ${MAX_LIST_DAYS} days.`);
-        }
+        const { from, to } = parseRange(args);
         const o = await resolveOrg(db, props.userId, args.org);
         const entries = await listTimeReportEntries(ctx, {
           orgId: o.id,
@@ -716,6 +717,25 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
           })),
           totalMinutes: minutes(totalMs),
         };
+      }),
+  );
+
+  server.registerTool(
+    "get_work_summary_data",
+    {
+      description: `Your own work in an organization over [from, to), for writing a work summary, timesheet or standup: each task you logged time on, created, moved or commented on, with its current status, archived flag, your minutes clipped to the range, your time-entry notes, and your status changes and comments in the range. Each task gives its project slug and name. Statuses are project-defined names, so a status like "Done" means completed. Minutes are rounded down per task, so they may not add up to totalMinutes exactly. Running time counts up to now, capped at 12 hours. The range can be at most ${MAX_LIST_DAYS} days.`,
+      inputSchema: z.object({
+        org: z.string().min(1).describe("Organization slug, as list_projects returns it."),
+        from: DATETIME.describe("ISO 8601 date-time with offset, inclusive."),
+        to: DATETIME.describe("ISO 8601 date-time with offset, exclusive."),
+      }),
+      annotations: { readOnlyHint: true },
+    },
+    (args) =>
+      run(async () => {
+        const { from, to } = parseRange(args);
+        const o = await resolveOrg(db, props.userId, args.org);
+        return getWorkSummaryData(ctx, { orgId: o.id, from, to });
       }),
   );
 
