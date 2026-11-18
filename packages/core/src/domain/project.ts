@@ -1,5 +1,6 @@
 import { and, desc, eq, exists, inArray, ne, notExists, or, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
+import type { DrizzleD1Database } from "drizzle-orm/d1";
 import { generateKeyBetween, generateNKeysBetween } from "fractional-indexing";
 import {
   AccessError,
@@ -26,16 +27,18 @@ import {
 import { placeAfter } from "../position";
 import { assertValidProjectKey, assertValidSlug } from "../slug";
 import { user } from "../schema/auth";
-import { orgMember } from "../schema/org";
+import { org, orgMember } from "../schema/org";
 import {
   type Project,
   type ProjectRole,
   type Status,
   project,
   projectMember,
+  projectSlugAlias,
   status,
 } from "../schema/project";
 import { task } from "../schema/task";
+import { taskImagePath } from "../task-images";
 
 const DEFAULT_STATUSES = [
   { name: "Todo", color: "gray" },
@@ -65,6 +68,15 @@ function requireStatusColor(color: NonNullable<Status["color"]>) {
     throw new DomainError("Pick a status color.");
   }
   return color;
+}
+
+function projectName(input: string): string {
+  const name = input.trim();
+  if (!name) {
+    throw new DomainError("Project name is required.");
+  }
+  assertMaxLength("Project name", name, MAX_LENGTH.name);
+  return name;
 }
 
 function statusName(input: string): string {
@@ -114,11 +126,7 @@ export async function createProject(
   assertValidSlug("Project slug", input.slug);
   assertValidProjectKey(input.key);
 
-  const name = input.name.trim();
-  if (!name) {
-    throw new DomainError("Project name is required.");
-  }
-  assertMaxLength("Project name", name, MAX_LENGTH.name);
+  const name = projectName(input.name);
 
   // unique(orgId,slug) and unique(orgId,key) both exist; checked here so the
   // caller gets a sentence instead of a SQLite constraint message.
@@ -159,6 +167,12 @@ export async function createProject(
   const positions = generateNKeysBetween(null, null, DEFAULT_STATUSES.length);
   try {
     await ctx.db.batch([
+      // The live slug wins over a former slug of another project, so that
+      // project's old links stop redirecting there.
+      ctx.db.delete(projectSlugAlias).where(and(
+        eq(projectSlugAlias.orgId, input.orgId),
+        eq(projectSlugAlias.slug, input.slug),
+      )),
       // Inserted with a null auto-archive status: it references a status row the
       // next statement creates, so the final update below sets it within the
       // same batch once that row exists.
@@ -197,6 +211,110 @@ export async function createProject(
   }
 
   return row;
+}
+
+/**
+ * Renames a project and/or changes its slug. The key never changes. A changed
+ * slug leaves an alias from the old slug to the project, so old links redirect
+ * (`getProjectContext`); renaming back to a former slug removes its alias, so
+ * every alias points at a project ID and redirects never chain.
+ */
+export async function renameProject(
+  ctx: DomainContext,
+  input: { projectId: string; name: string; slug: string },
+): Promise<{ slug: string }> {
+  const capability = "project:rename";
+  const { db, actorUserId } = ctx;
+  const { project: row, member } = await requireProjectMember(db, input.projectId, actorUserId);
+  requireCapability(member.role, capability);
+  const name = projectName(input.name);
+  const slug = input.slug;
+  assertValidSlug("Project slug", slug);
+  if (name === row.name && slug === row.slug) return { slug };
+
+  const slugTaken = new DomainError(`A project with the slug "${slug}" already exists.`);
+  const slugChanged = slug !== row.slug;
+  if (slugChanged) {
+    const [clash] = await db.select({ id: project.id }).from(project)
+      .where(and(eq(project.orgId, row.orgId), eq(project.slug, slug)));
+    if (clash) throw slugTaken;
+  }
+
+  const permittedRoles = orgMember.role.enumValues.filter((role) => can(role, capability));
+  const stillPermitted = exists(db.select({ userId: orgMember.userId }).from(orgMember)
+    .where(and(
+      eq(orgMember.orgId, row.orgId),
+      eq(orgMember.userId, actorUserId),
+      inArray(orgMember.role, permittedRoles),
+    )));
+  const writes: BatchWrites = [
+    // Matches the name and slug read above, so a concurrent rename makes this
+    // one fail instead of silently overwriting it.
+    db.update(project).set({ name, slug })
+      .where(and(eq(project.id, row.id), eq(project.slug, row.slug), eq(project.name, row.name), stillPermitted))
+      .returning({ id: project.id }),
+    // Directly after the update, whose `changes()` it reads.
+    writeActivityIfChanged(ctx, {
+      projectId: row.id,
+      type: "project.renamed",
+      data: { from: { name: row.name, slug: row.slug }, to: { name, slug } },
+    }),
+  ];
+  if (slugChanged) {
+    // Gated on the rename having landed, not on `changes()`, which the
+    // activity insert above has already reset.
+    const renamed = exists(db.select({ id: project.id }).from(project)
+      .where(and(eq(project.id, row.id), eq(project.slug, slug))));
+    const now = new Date();
+    const [{ slug: orgSlug }] = await db.select({ slug: org.slug }).from(org).where(eq(org.id, row.orgId));
+    writes.push(
+      db.delete(projectSlugAlias).where(and(
+        eq(projectSlugAlias.orgId, row.orgId),
+        eq(projectSlugAlias.slug, slug),
+        renamed,
+      )),
+      // Columns in `projectSlugAlias` table order. The WHERE also lets SQLite parse the upsert.
+      db.insert(projectSlugAlias)
+        .select(sql`select ${row.orgId}, ${row.slug}, ${row.id}, ${now.getTime()} where ${renamed}`)
+        .onConflictDoUpdate({
+          target: [projectSlugAlias.orgId, projectSlugAlias.slug],
+          set: { projectId: row.id, createdAt: now },
+        }),
+      // Descriptions store image paths under the project slug, and the editor
+      // renders only the current project's path. Rewriting them keeps images
+      // showing (and copying on a move) without touching updated_at or activity.
+      db.update(task)
+        .set({ description: sql`replace(${task.description}, ${taskImagePath(orgSlug, row.slug, "")}, ${taskImagePath(orgSlug, slug, "")})` })
+        .where(and(eq(task.projectId, row.id), sql`instr(${task.description}, ${taskImagePath(orgSlug, row.slug, "")}) > 0`, renamed)),
+    );
+  }
+
+  let updated: unknown[];
+  try {
+    [updated] = await db.batch(writes);
+  } catch (error) {
+    // Another project took the slug after the check above.
+    if (isConstraintError(error, "UNIQUE", "project.slug")) throw slugTaken;
+    throw error;
+  }
+  if (!updated.length) {
+    const { member: latest } = await requireProjectMember(db, row.id, actorUserId);
+    requireCapability(latest.role, capability);
+    throw new DomainError("This project changed. Reload and try again.");
+  }
+  return { slug };
+}
+
+/**
+ * The project a former slug in `orgId` now points at, or null. No access
+ * check: it only maps a name, and every caller checks access to the project.
+ */
+export async function findProjectByAlias(db: DrizzleD1Database, orgId: string, slug: string) {
+  const [row] = await db.select({ projectId: project.id, projectSlug: project.slug })
+    .from(projectSlugAlias)
+    .innerJoin(project, and(eq(project.id, projectSlugAlias.projectId), eq(project.orgId, projectSlugAlias.orgId)))
+    .where(and(eq(projectSlugAlias.orgId, orgId), eq(projectSlugAlias.slug, slug)));
+  return row ?? null;
 }
 
 export async function setProjectTaskEditRestriction(

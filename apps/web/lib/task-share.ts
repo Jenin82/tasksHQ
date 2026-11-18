@@ -1,8 +1,8 @@
 import { Buffer } from "node:buffer";
 import { env } from "cloudflare:workers";
-import { and, eq, isNull, or } from "drizzle-orm";
+import { and, eq, exists, isNull, or, type SQL } from "drizzle-orm";
 import { isTaskShareCode, parseTaskKey, taskKey } from "@tasks/core/domain";
-import { org, project, projectTaskType, status, task, taskShare, user } from "@tasks/core/schema";
+import { org, project, projectSlugAlias, projectTaskType, status, task, taskShare, user } from "@tasks/core/schema";
 import { db } from "@/lib/db";
 import { taskPreviewPath, type TaskPreviewParams } from "@/lib/task-preview";
 
@@ -40,6 +40,22 @@ export function shortTaskSharePath(code: string, image = false) {
   return `/s/${code}${image ? "/preview.png" : ""}`;
 }
 
+/**
+ * The project's live slug, or a former slug of it in the same org, so links
+ * copied before a rename keep working. Taking a slug for another project
+ * removes its alias, so the live slug always wins.
+ */
+function projectSlugMatches(slug: string): SQL {
+  return or(
+    eq(project.slug, slug),
+    exists(db.select({ slug: projectSlugAlias.slug }).from(projectSlugAlias).where(and(
+      eq(projectSlugAlias.orgId, org.id),
+      eq(projectSlugAlias.slug, slug),
+      eq(projectSlugAlias.projectId, project.id),
+    ))),
+  )!;
+}
+
 export async function findCanonicalTaskShareCode(route: TaskPreviewParams) {
   const key = parseTaskKey(route.task);
   if (!key) return null;
@@ -53,7 +69,7 @@ export async function findCanonicalTaskShareCode(route: TaskPreviewParams) {
     ))
     .where(and(
       eq(org.slug, route.org),
-      eq(project.slug, route.project),
+      projectSlugMatches(route.project),
       eq(project.key, key.projectKey),
       eq(task.number, key.number),
       eq(taskShare.canonicalPreview, true),
@@ -102,7 +118,7 @@ function sharedTaskScope(location: SharedTaskLocation) {
     eq(task.id, location.taskId),
     eq(task.projectId, location.projectId),
     eq(task.number, location.number),
-    eq(project.slug, location.route.project),
+    projectSlugMatches(location.route.project),
     eq(org.slug, location.route.org),
   );
 }

@@ -11,6 +11,7 @@ import {
   org,
   orgMember,
   project,
+  projectSlugAlias,
   projectTaskType,
   status,
   task,
@@ -91,7 +92,11 @@ function pickOne<T extends { orgSlug: string }>(
   );
 }
 
-/** `project` is a key (`ENG`) or a slug (`web`), case-insensitive, optionally `org/`-qualified. */
+/**
+ * `project` is a key (`ENG`) or a slug (`web`), case-insensitive, optionally
+ * `org/`-qualified. A former slug from a rename still resolves when nothing
+ * live matches.
+ */
 export async function resolveProject(
   db: DrizzleD1Database,
   userId: string,
@@ -107,7 +112,17 @@ export async function resolveProject(
   // A key in one project and the same word as another's slug: the key wins,
   // since it is the more specific identifier.
   const byKey = matches.filter((p) => p.key.toLowerCase() === wanted);
-  return pickOne(byKey.length > 0 ? byKey : matches, rest, NO_PROJECT);
+  if (matches.length > 0) return pickOne(byKey.length > 0 ? byKey : matches, rest, NO_PROJECT);
+
+  const aliased = await db
+    .select({ project, orgSlug: org.slug })
+    .from(projectSlugAlias)
+    .innerJoin(project, and(eq(project.id, projectSlugAlias.projectId), eq(project.orgId, projectSlugAlias.orgId)))
+    .innerJoin(org, eq(org.id, project.orgId))
+    .innerJoin(orgMember, and(eq(orgMember.orgId, project.orgId), eq(orgMember.userId, userId)))
+    .where(and(eq(projectSlugAlias.slug, wanted), orgSlug ? eq(org.slug, orgSlug) : undefined))
+    .orderBy(asc(org.slug), asc(project.id));
+  return pickOne(aliased.map((r) => ({ ...r.project, orgSlug: r.orgSlug })), rest, NO_PROJECT);
 }
 
 /**

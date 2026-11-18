@@ -134,6 +134,13 @@
       "when": 1794905717050,
       "tag": "0018_time_tracking",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1794993222882,
+      "tag": "0019_project_slug_alias",
+      "breakpoints": true
     }
   ]
 }

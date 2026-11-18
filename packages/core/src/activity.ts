@@ -23,6 +23,7 @@ export type BatchWrites = [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]];
 /** The project- and status-level types from §3's table. `taskId` is null for every one. */
 export type ProjectActivityType =
   | "project.created"
+  | "project.renamed"
   | "project.member_added"
   | "project.member_removed"
   | "project.invite_created"
