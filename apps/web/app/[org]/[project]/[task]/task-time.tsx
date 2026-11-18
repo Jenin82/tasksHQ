@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { Play, Plus, Square } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { STALE_MS } from "@tasks/core/schema";
 import { notifyTimeChange, RunningClock, TimeEntryItem, TimeEntryPopover, useNow, useTimeChange } from "@/components/time-tracking";
@@ -83,48 +83,46 @@ export function TaskTime({ orgSlug, projectSlug, taskKey }: TimeTaskTarget) {
   const target = { orgSlug, projectSlug, taskKey };
 
   return (
-    <div className="mt-6 border-t border-border pt-5">
-      <div className="flex items-baseline justify-between gap-3">
-        <h3 className="stutter">Time</h3>
-        <p className="text-xs text-muted-foreground">
-          {data ? <TimeTotals data={data} /> : failed ? "Couldn’t load time." : "Loading…"}
-        </p>
-      </div>
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          aria-label={data?.runningSince ? "Stop timer" : undefined}
-          disabled={!data || pending}
-          onClick={() => startTransition(async () => {
-            const result = data?.runningSince ? await stopTimerAction() : await startTimerAction(target);
-            setError(result.error);
-            notifyTimeChange();
-          })}
-        >
-          {data?.runningSince ? <>Stop <span aria-hidden><RunningClock since={data.runningSince} /></span></> : "Start timer"}
-        </Button>
-        <TimeEntryPopover
-          label="Add time"
-          trigger={
-            <Button type="button" variant="ghost" size="sm" disabled={!data}>
-              <Plus aria-hidden /> Add time
-            </Button>
-          }
-          timeZone={timeZone}
-          submitLabel="Add time"
-          onSubmit={(values) => createTimeEntryAction(target, { ...values, startedAt: values.startedAt!, endedAt: values.endedAt! })}
-        />
-      </div>
-      {error && <p role="alert" className="mt-2 text-sm text-destructive">{error}</p>}
+    <div className="flex flex-col gap-2">
+      <p className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+        {data ? <TimeTotals data={data} /> : failed ? "Couldn’t load time." : "Loading…"}
+      </p>
+      <Button
+        type="button"
+        variant="secondary"
+        className="w-full"
+        aria-label={data?.runningSince ? "Stop timer" : undefined}
+        disabled={!data || pending}
+        onClick={() => startTransition(async () => {
+          const result = data?.runningSince ? await stopTimerAction() : await startTimerAction(target);
+          setError(result.error);
+          notifyTimeChange();
+        })}
+      >
+        {data?.runningSince
+          ? <><Square aria-hidden className="size-3 fill-current" /> Stop <RunningClock aria-hidden since={data.runningSince} /></>
+          : <><Play aria-hidden className="size-3 fill-current" /> Start timer</>}
+      </Button>
+      <TimeEntryPopover
+        label="Add time"
+        align="start"
+        trigger={
+          <Button type="button" variant="ghost" size="sm" className="-ml-3 self-start" disabled={!data}>
+            <Plus aria-hidden /> Add time
+          </Button>
+        }
+        timeZone={timeZone}
+        submitLabel="Add time"
+        onSubmit={(values) => createTimeEntryAction(target, { ...values, startedAt: values.startedAt!, endedAt: values.endedAt! })}
+      />
+      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       {data && data.entries.length > 0 && (
-        <ul className="mt-2 divide-y divide-border/50">
+        <ul className="divide-y divide-border/50">
           {data.entries.map((entry) => <TimeEntryItem key={entry.id} entry={entry} timeZone={timeZone} />)}
         </ul>
       )}
       {data?.more && (
-        <Link href={`/${orgSlug}/settings/your-time`} prefetch={false} className="mt-2 inline-block rounded-sm text-sm text-muted-foreground outline-none hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring">
+        <Link href={`/${orgSlug}/settings/your-time`} prefetch={false} className="self-start rounded-sm text-sm text-muted-foreground outline-none hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring">
           See all in Your Time
         </Link>
       )}
@@ -140,8 +138,8 @@ function TimeTotals({ data }: { data: TaskTimeData }) {
     : Math.max(0, Math.min(now, since + STALE_MS) - Math.min(data.loadedAt, since + STALE_MS));
   return (
     <>
-      Logged <span suppressHydrationWarning className="numeral text-foreground">{formatDuration(data.totalMs + live)}</span>
-      {" · "}You <span suppressHydrationWarning className="numeral text-foreground">{formatDuration(data.mineMs + live)}</span>
+      <span>Logged <span suppressHydrationWarning className="numeral text-foreground">{formatDuration(data.totalMs + live)}</span></span>
+      <span>You <span suppressHydrationWarning className="numeral text-foreground">{formatDuration(data.mineMs + live)}</span></span>
     </>
   );
 }

@@ -304,7 +304,7 @@ export function TaskDetailContent({
                 </span>
               )}
             </Property>
-            <Property label="Reporter">
+            <Property label="Reporter" className="col-span-full">
               {canEdit ? <ReporterField ids={ids} people={assignable} detached={detachedReporter} reporterUserId={reportedBy.id} /> : (
                 <span className={readOnlyValue}>
                   <ProfileAvatar name={reportedBy.displayName} image={reportedBy.image} className="size-5" />
@@ -312,7 +312,12 @@ export function TaskDetailContent({
                 </span>
               )}
             </Property>
-            <Property label="Created by">
+            {!detail.archivedAt && (
+              <Property label="Time" className="col-span-full">
+                <TaskTime key={ids.taskId} orgSlug={ids.orgSlug} projectSlug={ids.projectSlug} taskKey={detail.key} />
+              </Property>
+            )}
+            <Property label="Created by" className="col-span-full">
               <span className="text-sm wrap-anywhere">{detail.createdBy.displayName}</span>
             </Property>
             <Property label="Created">
@@ -326,9 +331,6 @@ export function TaskDetailContent({
               </span>
             </Property>
           </dl>
-          {!detail.archivedAt && (
-            <TaskTime key={ids.taskId} orgSlug={ids.orgSlug} projectSlug={ids.projectSlug} taskKey={detail.key} />
-          )}
           {canEdit && (
             <div className={cn("mt-6 pt-2", movable && "grid grid-cols-2 items-start gap-2")}>
               {movable && <MoveTaskButton ids={ids} targets={moveTargets} />}

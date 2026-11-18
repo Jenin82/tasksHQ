@@ -188,16 +188,17 @@ export function TimeEntryForm({ entry, timeZone, submitLabel, onSubmit, onDone, 
 }
 
 /** A trigger and a popover around `TimeEntryForm`, closed once the save lands. */
-export function TimeEntryPopover({ trigger, label, className, ...form }: {
+export function TimeEntryPopover({ trigger, label, className, align = "end", ...form }: {
   trigger: ReactNode;
   label: string;
   className?: string;
+  align?: "start" | "end";
 } & Omit<Parameters<typeof TimeEntryForm>[0], "onDone">) {
   const [open, setOpen] = useState(false);
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
-      <PopoverContent aria-label={label} align="end" collisionPadding={12} className={cn("z-[60] w-72 p-4", className)}>
+      <PopoverContent aria-label={label} align={align} collisionPadding={12} className={cn("z-[60] w-72 p-4", className)}>
         {open && <TimeEntryForm {...form} onDone={() => setOpen(false)} />}
       </PopoverContent>
     </Popover>
