@@ -67,7 +67,8 @@ pnpm --filter web build
 3. Describe what changed and why, and how you tested it. Include screenshots for UI changes.
 4. If the change adds a migration, say so in the description, name the file, and note any rollout order (for example, "apply before deploying either Worker").
 5. If the change affects deployment, configuration or secrets, update `README.md`, `AGENTS.md` and the `*.example` files.
-6. Make sure CI passes.
+6. If the change is user-facing, add a new entry at the top of `apps/web/lib/changelog.ts` with a new unique id (`YYYY-MM-DD-slug`), so the What's new dot shows again. Never edit a released id.
+7. Make sure CI passes.
 
 ## Documentation
 

@@ -43,6 +43,7 @@ pnpm monorepo, open source as TasksHQ (formerly Tasks). `PLAN.md` is the histori
 - Bulk task edits resolve status and type choices separately for each project, verify task access on the server, and report failures per task.
 - All My Tasks keeps each row scoped to its source organization and project. Its saved filters follow the user across workspace shells. Your Tasks and All My Tasks filter projects by ID so matching names across organizations stay distinct.
 - Workspace settings separate Members, Reporting lines, and General. Organization renames preserve the slug; organization deletion stays owner-only in General.
+- User-facing changes add a new entry at the top of `apps/web/lib/changelog.ts` with a new unique id (`YYYY-MM-DD-slug`), which re-shows the What's new dot (seen state is the `tasks:changelog-seen` localStorage key, per browser). Never edit a released id.
 - `prerender` stays off in `apps/web/vite.config.ts` — it baked authenticated HTML into public assets.
 - Visual authority is `apps/web/design.md`; PLAN §7 lists the recorded deviations. One blue (`--primary`) CTA per view.
 
