@@ -17,10 +17,11 @@ export const sections: GuideSection[] = [
   {
     id: "assignment-views",
     title: "Find work assigned to you or your team",
+    searchTerms: ["switch organization", "change organization", "organizations", "collapse sidebar", "show more organizations"],
     content: <>
       <ul className="list-disc space-y-2 pl-6 marker:text-muted-foreground">
         <li><strong>Your Tasks</strong> shows active work in the current organization. Switch between <strong>Assigned to you</strong> and <strong>Assigned by you</strong>.</li>
-        <li><strong>All My Tasks</strong> combines those views across your organizations. The sidebar shows this option when you belong to more than one organization.</li>
+        <li><strong>All My Tasks</strong> combines those views across your organizations. The sidebar shows this option when you belong to more than one organization, with your organizations listed below it. Choose one to switch to it. Use the arrow beside a sidebar heading to collapse that section.</li>
         <li><strong>Your Team</strong> shows active tasks assigned to your direct reports. See <DocLink topic="organization-settings">Organization settings</DocLink> for reporting lines.</li>
       </ul>
     </>,

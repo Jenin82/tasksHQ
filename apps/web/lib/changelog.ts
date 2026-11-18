@@ -10,6 +10,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: "2026-11-18-sidebar-organizations",
+    date: "2026-11-18",
+    title: "Organizations in the sidebar",
+    items: [
+      "If you belong to more than one organization, they're listed in the sidebar under All My Tasks. Pick one to switch to it; its projects show below.",
+      "Use + next to Organizations to create one without leaving your workspace.",
+      "Collapse the Organizations and Workspace sections with the arrow beside each heading. This browser remembers your choice.",
+      "The organization name in the top bar links to its projects page.",
+    ],
+  },
+  {
     id: "2026-11-18-project-settings",
     date: "2026-11-18",
     title: "Project settings and an easier timer",

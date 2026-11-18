@@ -26,7 +26,6 @@ function render(
       <TopBar
         org={{ slug: "acme", name: "Acme Corp" }}
         role="owner"
-        orgs={[{ slug: "acme", name: "Acme Corp" }]}
         projects={[{ slug: "web", name: "Website", key: "WEB" }]}
         user={{ name: "Ada Lovelace", email: "ada@example.test" }}
         runningTimer={runningTimer}
@@ -50,18 +49,17 @@ it("links the project name to its saved view", () => {
 
   expect(html).toContain('href="/acme/web/table"');
   expect(html).not.toContain('href="/acme/web"');
-  expect(html).not.toContain('href="/acme"');
 });
 
-it("puts the organization name and chevron in one popup button", () => {
+it("links the org crumb to /[org] without a switcher", () => {
   const html = render({ org: "acme", project: "web" });
-  const trigger = [...html.matchAll(/<button\b([^>]*)>(.*?)<\/button>/g)].find(([, attributes]) =>
-    attributes.includes('aria-label="Switch organization: Acme Corp"'),
+  const link = [...html.matchAll(/<a\b([^>]*)>(.*?)<\/a>/g)].find(([, attributes]) =>
+    attributes.includes('href="/acme"'),
   );
 
-  expect(trigger?.[1]).toContain('aria-haspopup="dialog"');
-  expect(trigger?.[2]).toContain(">Acme Corp<");
-  expect(trigger?.[2]).toContain("<svg");
+  expect(link?.[2]).toContain(">Acme Corp<");
+  expect(link?.[2]).toContain(">owner<");
+  expect(html).not.toMatch(/<button\b[^>]*aria-label="[^"]*Switch organization/);
 });
 
 it("links the project name and opens its switcher from the icon", () => {
@@ -117,32 +115,6 @@ it("ignores a project slug the server did not list", () => {
 
   expect(html).not.toContain("secret");
   expect(html).not.toContain("Website");
-});
-
-// The switcher's list is closed in static markup, so this reads the props
-// TopBar hands its org switcher: choosing an org lands on its project page
-// (`/[org]`, §26), never straight on a board.
-it("points every org in the switcher at exactly /[org]", () => {
-  route.params = { org: "acme", project: "web" };
-  const orgs = [
-    { slug: "acme", name: "Acme Corp" },
-    { slug: "globex", name: "Globex" },
-  ];
-  const tree = TopBar({
-    org: orgs[0],
-    role: "owner",
-    orgs,
-    projects: [{ slug: "web", name: "Website", key: "WEB" }],
-    user: { name: "Ada Lovelace", email: "ada@example.test" },
-  }) as React.ReactElement<{ children: React.ReactNode }>;
-  const switcher = (
-    [tree.props.children].flat(2) as React.ReactElement<{
-      label?: string;
-      items?: { href: string }[];
-    }>[]
-  ).find((child) => child?.props?.label === "Switch organization");
-
-  expect(switcher?.props.items?.map((i) => i.href)).toEqual(["/acme", "/globex"]);
 });
 
 it("links nowhere into org settings", () => {

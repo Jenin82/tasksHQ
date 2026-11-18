@@ -46,14 +46,13 @@ export default async function OrgLayout({
       org={org.slug}
       projects={projects}
       canManageWorkspace={can(member.role, "org:manage_members")}
-      hasMultipleOrganizations={orgs.length > 1}
+      orgs={orgs.map(({ slug, name }) => ({ slug, name }))}
       hasReports={reports.length > 0}
       canViewTimeReports={can(member.role, "org:view_time_reports")}
       header={
         <TopBar
           org={{ slug: org.slug, name: org.name }}
           role={member.role}
-          orgs={orgs.map(({ slug, name }) => ({ slug, name }))}
           projects={projects}
           user={{ name: user.name, email: user.email, image: user.image }}
           runningTimer={runningTimer}
