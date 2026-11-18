@@ -144,7 +144,7 @@ export async function drainSlackOutbox(
         if (!activeLease) return;
         result = await deliverWebhook(url, slackMessage(job.payload, origin, current.orgSlug, current.projectSlug), request);
       } else {
-        result = { error: "TasksHQ could not read the webhook. Replace it in project settings." };
+        result = { error: "TasksHQ could not read the webhook. Replace it in project settings → Integrations." };
       }
     }
 

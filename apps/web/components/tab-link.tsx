@@ -92,7 +92,7 @@ export function ProjectTabs({ base, projectName, createTarget, currentUser, chil
     filterView && currentUser ? JSON.stringify([currentUser.id, base, filterView]) : undefined,
     currentUser?.id,
   );
-  const section = pathname === `${base}/settings` ? "Settings" : pathname === `${base}/archived` ? "Archive" : "Work items";
+  const section = pathname === `${base}/settings` || pathname.startsWith(`${base}/settings/`) ? "Settings" : pathname === `${base}/archived` ? "Archive" : "Work items";
 
   return (
     <ProjectFiltersContext.Provider value={{ filters, setFilters, currentUser }}>

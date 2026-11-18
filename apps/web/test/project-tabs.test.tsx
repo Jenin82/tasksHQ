@@ -21,6 +21,7 @@ it("shows Board and Table in the project tabs", () => {
 
 it.each([
   ["settings", "Settings"],
+  ["settings/workflow", "Settings"],
   ["archived", "Archive"],
 ])("hides project tabs on %s while keeping the section label", (path, label) => {
   route.pathname = `/acme/web/${path}`;

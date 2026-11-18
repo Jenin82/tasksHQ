@@ -54,6 +54,6 @@ export async function updateSlackIntegrationAction(
     return toActionState(error);
   }
 
-  revalidatePath(`/${org.slug}/${project.slug}/settings`);
+  revalidatePath(`/${org.slug}/${project.slug}/settings/integrations`);
   return { notice };
 }
