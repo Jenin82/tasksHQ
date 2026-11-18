@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { ArrowUpRight, Check, ChevronsUpDown } from "lucide-react";
 import type { RunningTimer } from "@tasks/core/domain";
 import { AccountMenu, type AccountUser } from "@/components/account-menu";
+import { ChangelogButton } from "@/components/changelog";
 import { DocsLink } from "@/components/docs-link";
 import { Mark } from "@/components/mark";
 import { ThemeButton } from "@/components/theme-toggle";
@@ -91,9 +92,10 @@ export function TopBar({
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {runningTimer && <RunningTimerChip timer={runningTimer} />}
-        {/* A running timer takes Docs' place on narrow screens. */}
+        {/* A running timer takes the place of Docs and What's new on narrow screens. */}
         <div className={runningTimer ? "hidden lg:contents" : "contents"}>
           <DocsLink />
+          <ChangelogButton />
         </div>
         <ThemeButton size="icon" />
         <AccountMenu user={user} />
