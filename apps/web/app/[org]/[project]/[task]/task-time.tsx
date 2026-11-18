@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { Play, Plus, Square } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { ChevronDown, Play, Plus, Square } from "lucide-react";
+import { useCallback, useEffect, useId, useRef, useState, useTransition } from "react";
+import { cn } from "cn";
 import { STALE_MS } from "@tasks/core/schema";
 import { notifyTimeChange, RunningClock, TimeEntryItem, TimeEntryPopover, useNow, useTimeChange } from "@/components/time-tracking";
 import { Button } from "@/components/ui/button";
@@ -81,6 +82,8 @@ export function TaskTime({ orgSlug, projectSlug, taskKey }: TimeTaskTarget) {
   useTimeChange(load);
 
   const target = { orgSlug, projectSlug, taskKey };
+  const [showEntries, setShowEntries] = useState(false);
+  const entriesId = useId();
 
   return (
     <div className="flex flex-col gap-2">
@@ -103,28 +106,47 @@ export function TaskTime({ orgSlug, projectSlug, taskKey }: TimeTaskTarget) {
           ? <><Square aria-hidden className="size-3 fill-current" /> Stop <RunningClock aria-hidden since={data.runningSince} /></>
           : <><Play aria-hidden className="size-3 fill-current" /> Start timer</>}
       </Button>
-      <TimeEntryPopover
-        label="Add time"
-        align="start"
-        trigger={
-          <Button type="button" variant="ghost" size="sm" className="-ml-3 self-start" disabled={!data}>
-            <Plus aria-hidden /> Add time
+      <div className="flex items-center justify-between gap-2">
+        <TimeEntryPopover
+          label="Add time"
+          align="start"
+          trigger={
+            <Button type="button" variant="ghost" size="sm" className="-ml-3" disabled={!data}>
+              <Plus aria-hidden /> Add time
+            </Button>
+          }
+          timeZone={timeZone}
+          submitLabel="Add time"
+          onSubmit={(values) => createTimeEntryAction(target, { ...values, startedAt: values.startedAt!, endedAt: values.endedAt! })}
+        />
+        {data && data.entries.length > 0 && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="-mr-3"
+            aria-expanded={showEntries}
+            aria-controls={entriesId}
+            onClick={() => setShowEntries((shown) => !shown)}
+          >
+            Your entries
+            <ChevronDown aria-hidden className={cn("transition-transform", showEntries && "rotate-180")} />
           </Button>
-        }
-        timeZone={timeZone}
-        submitLabel="Add time"
-        onSubmit={(values) => createTimeEntryAction(target, { ...values, startedAt: values.startedAt!, endedAt: values.endedAt! })}
-      />
+        )}
+      </div>
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-      {data && data.entries.length > 0 && (
-        <ul className="divide-y divide-border/50">
-          {data.entries.map((entry) => <TimeEntryItem key={entry.id} entry={entry} timeZone={timeZone} />)}
-        </ul>
-      )}
-      {data?.more && (
-        <Link href={`/${orgSlug}/settings/your-time`} prefetch={false} className="self-start rounded-sm text-sm text-muted-foreground outline-none hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring">
-          See all in Your Time
-        </Link>
+      {/* Collapsed by default so the timer stays the focus of the block. */}
+      {showEntries && data && data.entries.length > 0 && (
+        <div id={entriesId} className="flex flex-col gap-2">
+          <ul className="divide-y divide-border/50">
+            {data.entries.map((entry) => <TimeEntryItem key={entry.id} entry={entry} timeZone={timeZone} />)}
+          </ul>
+          {data.more && (
+            <Link href={`/${orgSlug}/settings/your-time`} prefetch={false} className="self-start rounded-sm text-sm text-muted-foreground outline-none hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring">
+              See all in Your Time
+            </Link>
+          )}
+        </div>
       )}
     </div>
   );

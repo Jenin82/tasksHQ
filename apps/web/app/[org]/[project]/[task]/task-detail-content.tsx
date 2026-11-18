@@ -256,6 +256,12 @@ export function TaskDetailContent({
             "grid grid-cols-1 gap-x-4 gap-y-5",
             inDialog ? "min-[420px]:max-md:grid-cols-2" : "min-[420px]:max-lg:grid-cols-2",
           )}>
+            {/* First, so people track time without hunting for it. */}
+            {!detail.archivedAt && (
+              <Property label="Time" className="col-span-full">
+                <TaskTime key={ids.taskId} orgSlug={ids.orgSlug} projectSlug={ids.projectSlug} taskKey={detail.key} />
+              </Property>
+            )}
             {parent && (
               <Property label="Parent" className="col-span-full">
                 <TaskLink
@@ -304,7 +310,7 @@ export function TaskDetailContent({
                 </span>
               )}
             </Property>
-            <Property label="Reporter" className="col-span-full">
+            <Property label="Reporter">
               {canEdit ? <ReporterField ids={ids} people={assignable} detached={detachedReporter} reporterUserId={reportedBy.id} /> : (
                 <span className={readOnlyValue}>
                   <ProfileAvatar name={reportedBy.displayName} image={reportedBy.image} className="size-5" />
@@ -312,12 +318,7 @@ export function TaskDetailContent({
                 </span>
               )}
             </Property>
-            {!detail.archivedAt && (
-              <Property label="Time" className="col-span-full">
-                <TaskTime key={ids.taskId} orgSlug={ids.orgSlug} projectSlug={ids.projectSlug} taskKey={detail.key} />
-              </Property>
-            )}
-            <Property label="Created by" className="col-span-full">
+            <Property label="Created by">
               <span className="text-sm wrap-anywhere">{detail.createdBy.displayName}</span>
             </Property>
             <Property label="Created">
