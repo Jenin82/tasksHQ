@@ -7,7 +7,7 @@ import { getProjectContext } from "@/lib/project-context";
 export const dynamic = "force-dynamic";
 
 /** The task panel lists this many of the viewer's entries; Your Time has the rest. */
-const LISTED = 10;
+const LISTED = 5;
 
 export type TaskTimePayload = {
   totalMs: number;

@@ -256,6 +256,12 @@ export function TaskDetailContent({
             "grid grid-cols-1 gap-x-4 gap-y-5",
             inDialog ? "min-[420px]:max-md:grid-cols-2" : "min-[420px]:max-lg:grid-cols-2",
           )}>
+            {/* First, so people track time without hunting for it. */}
+            {!detail.archivedAt && (
+              <Property label="Time" className="col-span-full">
+                <TaskTime key={ids.taskId} orgSlug={ids.orgSlug} projectSlug={ids.projectSlug} taskKey={detail.key} />
+              </Property>
+            )}
             {parent && (
               <Property label="Parent" className="col-span-full">
                 <TaskLink
@@ -326,9 +332,6 @@ export function TaskDetailContent({
               </span>
             </Property>
           </dl>
-          {!detail.archivedAt && (
-            <TaskTime key={ids.taskId} orgSlug={ids.orgSlug} projectSlug={ids.projectSlug} taskKey={detail.key} />
-          )}
           {canEdit && (
             <div className={cn("mt-6 pt-2", movable && "grid grid-cols-2 items-start gap-2")}>
               {movable && <MoveTaskButton ids={ids} targets={moveTargets} />}
