@@ -10,6 +10,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: "2026-11-18-project-settings",
+    date: "2026-11-18",
+    title: "Project settings and an easier timer",
+    items: [
+      "Owners and admins can rename a project and change its URL. Old links keep working.",
+      "Project settings is split into General, Workflow, Admins and Integrations pages.",
+      "The task timer sits at the top of the task panel, with your saved time behind Your entries.",
+      "This What's new button shows what changed.",
+    ],
+  },
+  {
     id: "2026-11-17-time-tracking",
     date: "2026-11-17",
     title: "Time tracking",
