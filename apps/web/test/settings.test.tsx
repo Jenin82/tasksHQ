@@ -37,16 +37,18 @@ const {
   recolorStatusAction,
   reorderStatusAction,
 } = await import("@/app/[org]/[project]/settings/actions");
-const SettingsPage = (
-  await import("@/app/[org]/[project]/settings/page")
-).default;
+const GeneralPage = (await import("@/app/[org]/[project]/settings/page")).default;
+const WorkflowPage = (await import("@/app/[org]/[project]/settings/workflow/page")).default;
+const AdminsPage = (await import("@/app/[org]/[project]/settings/admins/page")).default;
+const IntegrationsPage = (await import("@/app/[org]/[project]/settings/integrations/page")).default;
+const settingsPages = [GeneralPage, WorkflowPage, AdminsPage, IntegrationsPage];
 const { updateSlackIntegrationAction } = await import("@/app/[org]/[project]/settings/slack-actions");
 
 const db = drizzle(env.DB);
 const now = new Date();
 
 // Shared storage (§12: no per-test isolation), so every id and slug is `st-`.
-const IDS = ["st-owner", "st-member", "st-stranger"];
+const IDS = ["st-owner", "st-member", "st-plain", "st-stranger"];
 await db.insert(user).values(
   IDS.map((id) => ({
     id,
@@ -61,12 +63,12 @@ const ownerCtx = { db, actorUserId: "st-owner", source: "web" as const };
 
 actor.id = "st-owner";
 const acme = await createOrg(ownerCtx, { slug: "st-acme", name: "ST Acme" });
-await db.insert(orgMember).values({
+await db.insert(orgMember).values(["st-member", "st-plain"].map((userId) => ({
   orgId: acme.id,
-  userId: "st-member",
-  role: "member",
+  userId,
+  role: "member" as const,
   createdAt: now,
-});
+})));
 
 /** vinext's navigation errors carry Next's digest; 404 and 403 differ only there. */
 const digest = (code: number) => ({
@@ -100,8 +102,8 @@ function form(projectSlug: string, fields: Record<string, string>) {
   return data;
 }
 
-function render(projectSlug: string) {
-  return SettingsPage({
+function render(Page: (typeof settingsPages)[number], projectSlug: string) {
+  return Page({
     params: Promise.resolve({ org: "st-acme", project: projectSlug }),
   }).then(renderToStaticMarkup);
 }
@@ -111,7 +113,9 @@ it("denies project settings and settings mutations to a regular member", async (
   const { statuses: [todo] } = await freshProject("st-readonly", "STR");
 
   actor.id = "st-member";
-  await expect(render("st-readonly")).rejects.toMatchObject(digest(403));
+  for (const Page of settingsPages) {
+    await expect(render(Page, "st-readonly")).rejects.toMatchObject(digest(403));
+  }
   await expect(
     createStatusAction(
       {},
@@ -122,10 +126,13 @@ it("denies project settings and settings mutations to a regular member", async (
     recolorStatusAction({}, form("st-readonly", { statusId: todo.id, color: "green" })),
   ).rejects.toMatchObject(digest(403));
   actor.id = "st-owner";
-  const editable = await render("st-readonly");
+  const editable = await render(WorkflowPage, "st-readonly");
   expect(editable).toContain("Add status");
-  expect(editable).toContain("Project admins");
+  const admins = await render(AdminsPage, "st-readonly");
+  expect(admins).toContain("Project admins");
   expect(editable).not.toContain("Invite");
+  // Legacy project invitations stay inert: no invite UI on the admins page either.
+  expect(admins).not.toContain("Invite");
   expect(editable).toContain('aria-label="Color of Todo: Grey"');
   expect(editable).not.toContain('name="category"');
   expect(editable).not.toContain("Category of Todo");
@@ -139,7 +146,7 @@ it("gives Slack managers a webhook setup link and keeps the saved credential out
   await addProjectMember(ownerCtx, { projectId: project.id, userId: "st-member" });
   const submit = (fields: Record<string, string>) => updateSlackIntegrationAction("st-acme", slug, {}, form(slug, fields));
 
-  const initial = await render(slug);
+  const initial = await render(IntegrationsPage, slug);
   const help = initial.match(/<a\b[^>]*aria-label="How to get a Slack webhook URL[^>]*>\?<\/a>/)?.[0];
   expect(help).toContain('href="https://docs.slack.dev/messaging/sending-messages-using-incoming-webhooks/');
   expect(help).toContain('target="_blank"');
@@ -147,13 +154,13 @@ it("gives Slack managers a webhook setup link and keeps the saved credential out
 
   const webhook = "https://hooks.slack.com/services/T00000000/B00000000/settingsFixture00000000000";
   await expect(submit({ operation: "save", webhook })).resolves.toMatchObject({ notice: expect.any(String) });
-  const configured = await render(slug);
+  const configured = await render(IntegrationsPage, slug);
   expect(configured).toContain("Replace webhook");
   expect(configured).toContain("Send test message");
   expect(configured).not.toContain(webhook);
 
   actor.id = "st-member";
-  await expect(render(slug)).rejects.toMatchObject(digest(403));
+  await expect(render(IntegrationsPage, slug)).rejects.toMatchObject(digest(403));
   await expect(submit({ operation: "disconnect" })).rejects.toMatchObject(digest(403));
 });
 
@@ -165,7 +172,7 @@ it("the color action saves only explicit palette colors, including for a legacy 
     recolorStatusAction({}, form(slug, { statusId: todo.id, ...fields }));
 
   await db.update(status).set({ color: null }).where(eq(status.id, todo.id));
-  expect(await render(slug)).toContain('aria-label="Color of Todo: Grey"');
+  expect(await render(WorkflowPage, slug)).toContain('aria-label="Color of Todo: Grey"');
   expect(await submit({ color: "gray" })).toEqual({});
   expect((await columns(project.id))[0].color).toBe("gray");
 
@@ -177,7 +184,7 @@ it("the color action saves only explicit palette colors, including for a legacy 
   ]) {
     expect(await submit({ color })).toEqual({});
     expect((await columns(project.id))[0]).toEqual({ ...todo, color });
-    expect(await render(slug)).toContain(`aria-label="Color of Todo: ${label}"`);
+    expect(await render(WorkflowPage, slug)).toContain(`aria-label="Color of Todo: ${label}"`);
   }
 
   const invalid: Record<string, string>[] = [{}, { color: "" }, { color: "rainbow" }];
@@ -238,24 +245,54 @@ it("lets org managers grant and revoke scoped project administration without cha
   const submit = (userId: string, role: string) =>
     setProjectMemberRoleAction({}, form(project.slug, { userId, role }));
 
-  expect(await render(project.slug)).toContain("Grant admin access");
+  expect(await render(AdminsPage, project.slug)).toContain("Grant admin access");
   expect(await submit("st-stranger", "admin")).toMatchObject({ error: expect.stringMatching(/organization/i) });
   expect(await submit("st-member", "admin")).toEqual({});
-  expect(await render(project.slug)).toContain("Revoke admin access");
+  const managed = await render(AdminsPage, project.slug);
+  expect(managed).toContain("Revoke admin access");
+  expect(managed).toContain("ST-PLAIN");
 
   actor.id = "st-member";
-  const scoped = await render(project.slug);
-  expect(scoped).toContain("Add status");
+  expect(await render(WorkflowPage, project.slug)).toContain("Add status");
+  // A project admin sees who administers the project, read-only, with no one to grant.
+  const scoped = await render(AdminsPage, project.slug);
+  expect(scoped).toContain("ST-MEMBER");
   expect(scoped).not.toContain("Grant admin access");
   expect(scoped).not.toContain("Revoke admin access");
-  await expect(render(other.project.slug)).rejects.toMatchObject(digest(403));
+  expect(scoped).not.toContain("Choose a member");
+  expect(scoped).not.toContain("ST-PLAIN");
+  // General keeps project details and deletion for org owners and admins.
+  const general = await render(GeneralPage, project.slug);
+  expect(general).toContain("Task editing");
+  expect(general).toContain("Auto-archive");
+  expect(general).not.toContain("Project details");
+  expect(general).not.toContain("Delete project");
+  await expect(render(WorkflowPage, other.project.slug)).rejects.toMatchObject(digest(403));
   await expect(submit("st-member", "member")).rejects.toMatchObject(digest(403));
 
   actor.id = "st-owner";
   expect(await submit("st-member", "member")).toEqual({});
   actor.id = "st-member";
-  await expect(render(project.slug)).rejects.toMatchObject(digest(403));
+  await expect(render(AdminsPage, project.slug)).rejects.toMatchObject(digest(403));
   actor.id = "st-owner";
+});
+
+it("keeps statuses, types, admins and Slack off the General page", async () => {
+  actor.id = "st-owner";
+  const { project } = await freshProject("st-general", "STG");
+
+  const general = await render(GeneralPage, project.slug);
+  expect(general).toContain("Project details");
+  expect(general).toContain("Task editing");
+  expect(general).toContain("Auto-archive");
+  expect(general).toContain("Delete project");
+  // The auto-archive picker still lists every status.
+  for (const name of ["Todo", "In Progress", "Done", "Blocked"]) expect(general).toContain(`>${name}</option>`);
+  expect(general).not.toContain("Statuses");
+  expect(general).not.toContain("Add status");
+  expect(general).not.toContain("Task types");
+  expect(general).not.toContain("Project admins");
+  expect(general).not.toContain("Slack");
 });
 
 it("reordering writes one row and changes the board order", async () => {
@@ -298,7 +335,7 @@ it("the up and down controls carry the neighbour each move lands behind", async 
   // What the page renders: `after` is the status the move lands behind, and
   // an empty value is "first" (§16). Moving up means landing behind the row
   // two above, which is the one piece of arithmetic the page does itself.
-  const html = await render("st-arrows");
+  const html = await render(WorkflowPage, "st-arrows");
   const moves = [...html.matchAll(/aria-label="Move ([^"]+?) (up|down)"/g)].map(
     (m) => [m[1], m[2]],
   );
@@ -352,7 +389,7 @@ it("a project with no statuses can still be given one", async () => {
 
   // The last status may be deleted. Creating tasks resumes after adding a
   // status with any name and color.
-  const html = await render("st-empty");
+  const html = await render(WorkflowPage, "st-empty");
   expect(html).toContain("This project has no statuses");
   expect(html).toContain("Add status");
   await expect(

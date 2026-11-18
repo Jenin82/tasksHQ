@@ -4,6 +4,7 @@ export const sections: GuideSection[] = [
   {
     id: "open-settings",
     title: "Open project settings",
+    searchTerms: ["workflow", "integrations", "slack settings", "project admins page"],
     content: (
       <>
         <p>
@@ -11,6 +12,13 @@ export const sections: GuideSection[] = [
           Organization owners and admins can manage any project’s settings. A project admin can manage
           settings for that project.
         </p>
+        <p>Once Settings is open, its four pages are listed beneath it in the sidebar:</p>
+        <ul className="list-disc space-y-1 pl-5">
+          <li><strong>General</strong>: project details, task editing, auto-archive, and deleting the project.</li>
+          <li><strong>Workflow</strong>: statuses and task types.</li>
+          <li><strong>Admins</strong>: project admins.</li>
+          <li><strong>Integrations</strong>: Slack.</li>
+        </ul>
         <p>To post project activity in a Slack channel, follow the <DocLink topic="integrations" section="slack">Slack setup steps</DocLink>.</p>
       </>
     ),
@@ -22,7 +30,7 @@ export const sections: GuideSection[] = [
     content: (
       <>
         <p>
-          Organization owners and admins can change a project’s name and slug under <strong>Project details</strong>,
+          Organization owners and admins can change a project’s name and slug under <strong>Settings → General → Project details</strong>,
           then select <strong>Save</strong>. The slug is the part of the project’s address after the organization,
           so changing it changes the project’s URLs.
         </p>
@@ -42,7 +50,7 @@ export const sections: GuideSection[] = [
       <>
         <p>Each status is a column on the board. Put your usual starting status first.</p>
         <Steps>
-          <li>Under <strong>Statuses</strong>, enter a name such as <strong>In Review</strong>.</li>
+          <li>Under <strong>Settings → Workflow → Statuses</strong>, enter a name such as <strong>In Review</strong>.</li>
           <li>Open the color dot beside the name, choose a color, then select <strong>Add status</strong>.</li>
           <li>Use the up and down arrows on a row to set its position on the board. Work items created without a status start in the first column.</li>
         </Steps>
@@ -70,7 +78,7 @@ export const sections: GuideSection[] = [
       <>
         <p>Types describe the kind of work, such as a bug or a feature. Statuses show its progress.</p>
         <Steps>
-          <li>Under <strong>Task types</strong>, choose a color and icon, enter a name, then select <strong>Add type</strong>.</li>
+          <li>Under <strong>Settings → Workflow → Task types</strong>, choose a color and icon, enter a name, then select <strong>Add type</strong>.</li>
           <li>To update a type, change its name, color, or icon and select <strong>Save</strong>.</li>
           <li>Select <strong>Set as default</strong> on the type to use for future work items created without an explicit type.</li>
         </Steps>
@@ -87,11 +95,24 @@ export const sections: GuideSection[] = [
     searchTerms: ["permissions", "task permissions", "restrict task editing", "read-only"],
     content: (
       <p>
-        Under <strong>Task editing</strong>, turn on <strong>Restrict task editing</strong> to limit edits to the
+        Under <strong>Settings → General → Task editing</strong>, turn on <strong>Restrict task editing</strong> to limit edits to the
         creator, reporter, current assignee, project admins, and organization owners and admins.
         Other organization members can still view tasks, create new ones, and comment.
         Anyone who can edit a task can change its reporter, which also gives the new reporter edit access.
         The rule applies in TasksHQ and through <DocLink topic="mcp">MCP</DocLink>.
+      </p>
+    ),
+  },
+  {
+    id: "auto-archive",
+    title: "Archive finished work automatically",
+    searchTerms: ["auto-archive", "auto archive", "archive done tasks"],
+    content: (
+      <p>
+        Under <strong>Settings → General → Auto-archive</strong>, choose a status and a number of days, then
+        select <strong>Save</strong>. Tasks that sit in that status for that many days are archived automatically.
+        New projects archive tasks from <strong>Done</strong> after 14 days. To turn it off, set the status
+        to <strong>Don’t auto-archive</strong>.
       </p>
     ),
   },
@@ -102,7 +123,7 @@ export const sections: GuideSection[] = [
     content: (
       <>
         <p>
-          Organization owners and admins can choose an existing organization member under <strong>Project admins</strong>,
+          Organization owners and admins can choose an existing organization member under <strong>Settings → Admins</strong>,
           then select <strong>Grant admin access</strong>. Use <strong>Revoke admin access</strong> on the person’s row to
           return them to ordinary member permissions for this project.
         </p>
@@ -118,7 +139,7 @@ export const sections: GuideSection[] = [
     title: "Delete a project",
     content: (
       <p>
-        An organization owner can select <strong>Delete project</strong> and type the project slug shown in
+        On <strong>Settings → General</strong>, an organization owner can select <strong>Delete project</strong> and type the project slug shown in
         the confirmation. This permanently deletes its tasks, comments, and project history.
       </p>
     ),

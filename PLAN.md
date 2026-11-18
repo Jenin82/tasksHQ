@@ -173,6 +173,7 @@ Owners can permanently delete an organization or project from its settings after
 8. **Board.** dnd-kit, optimistic move, Server Action persisting `{taskId, statusId, position}`.
 9. **Table.** TanStack Table — key, title, status, assignee, updated.
 10. **Project settings.** `/[org]/[project]/settings`: statuses (add / rename / recolor / reorder / delete-with-reassign) and project members (add from org members, remove). **These are the brief's two distinguishing project features** and neither exists without this step.
+    - **Split into pages (2026-11-18):** project settings is now General (`/settings`: project details, task editing, auto-archive, delete), Workflow (`/settings/workflow`: statuses, task types), Admins (`/settings/admins`) and Integrations (`/settings/integrations`: Slack), listed as a sub-menu under the project's Settings link in the sidebar. Each page re-checks `project:manage_statuses` itself, since a layout is not a security boundary (§4.6). General stays at `/settings` rather than moving to a sub-path: workspace settings has no index page, but the project's `/settings` URL is the sidebar link, the rename redirect target and likely bookmarked, so keeping General there avoids a redirect.
 11. **Task detail.** Description, comments, activity log rendering source and client.
 12. **States pass.** Empty and error states for: no orgs, empty project list, empty board column, empty table, no comments, failed Server Action, 403, 404. One named surface and one line of copy each.
 

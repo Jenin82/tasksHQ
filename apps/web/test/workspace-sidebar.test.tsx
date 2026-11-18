@@ -56,6 +56,27 @@ it("shows project Settings to authorized admins and Archive to all project reade
   expect(scopedAdmin).not.toContain('href="/acme/settings/members"');
 });
 
+it("shows the project settings pages only on settings paths, marking just the open page", () => {
+  const group = 'aria-label="Project settings"';
+  expect(renderSidebar("/acme/web", false, false, true)).not.toContain(group);
+  expect(renderSidebar("/acme/web/archived", false, false, true)).not.toContain(group);
+  expect(renderSidebar("/acme/web/settingsx", false, false, true)).not.toContain(group);
+  expect(renderSidebar("/acme/web/settings/workflow", false, false, false)).not.toContain(group);
+
+  const current = (html: string) => [...html.matchAll(/<a\b[^>]*href="([^"]+)"[^>]*aria-current="page"[^>]*>/g)].map(([, href]) => href);
+  for (const [path, label] of [["", "General"], ["/workflow", "Workflow"], ["/admins", "Admins"], ["/integrations", "Integrations"]]) {
+    const html = renderSidebar(`/acme/web/settings${path}`, false, false, true);
+    const submenu = html.split(group)[1]?.split("</div>")[0] ?? "";
+    expect(submenu).toContain('href="/acme/web/settings"');
+    expect(submenu).toContain('href="/acme/web/settings/workflow"');
+    expect(submenu).toContain('href="/acme/web/settings/admins"');
+    expect(submenu).toContain('href="/acme/web/settings/integrations"');
+    expect(submenu).toMatch(new RegExp(`<a\\b[^>]*href="/acme/web/settings${path}"[^>]*aria-current="page"[^>]*>${label}</a>`));
+    // Only the sub-item is current; the parent Settings link is not.
+    expect(current(html)).toEqual([`/acme/web/settings${path}`]);
+  }
+});
+
 it("shows Team Time to time-report viewers and leads only", () => {
   route.pathname = "/acme/settings/your-tasks";
   const render = (canViewTimeReports: boolean, hasReports: boolean) => renderToStaticMarkup(

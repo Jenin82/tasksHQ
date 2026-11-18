@@ -27,7 +27,7 @@ export function SlackIntegration({
   );
 
   return (
-    <section className="mt-8 rounded-2xl bg-card p-6 shadow-subtle">
+    <section className="rounded-2xl bg-card p-6 shadow-subtle">
       <h2 className="text-xl">Integrations</h2>
       <div className="mt-4 border-t border-border pt-4">
         <div className="flex items-baseline justify-between gap-3">

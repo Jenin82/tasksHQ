@@ -14,6 +14,13 @@ import { WorkspaceNavigationToggle } from "./workspace-navigation";
 
 type Project = { slug: string; name: string; key: string; canManageSettings: boolean };
 
+const projectSettingsPages = [
+  ["General", ""],
+  ["Workflow", "/workflow"],
+  ["Admins", "/admins"],
+  ["Integrations", "/integrations"],
+] as const;
+
 export function WorkspaceShell({ org, projects, canManageWorkspace, hasReports, canViewTimeReports, hasMultipleOrganizations, header, children }: {
   org: string;
   projects: Project[];
@@ -125,7 +132,22 @@ export function WorkspaceShell({ org, projects, canManageWorkspace, hasReports, 
               {selected && <div className="my-1 ml-4 space-y-0.5 border-l border-border pl-2">
                 <SidebarLink href={items} current={pathname === base || pathname === `${base}/table`} onNavigate={onNavigate}><ListTodo aria-hidden /> Work items</SidebarLink>
                 {project.canManageSettings && (
-                  <SidebarLink href={`${base}/settings`} current={pathname === `${base}/settings`} onNavigate={onNavigate}><Settings aria-hidden /> Settings</SidebarLink>
+                  <div>
+                    {/* Every project settings path shows the sub-menu, so the parent is never the current page. */}
+                    <SidebarLink href={`${base}/settings`} current={false} onNavigate={onNavigate}><Settings aria-hidden /> Settings</SidebarLink>
+                    {(pathname === `${base}/settings` || pathname.startsWith(`${base}/settings/`)) && (
+                      <div className="my-1 ml-4 space-y-0.5 border-l border-border pl-2" role="group" aria-label="Project settings">
+                        {projectSettingsPages.map(([label, path]) => {
+                          const href = `${base}/settings${path}`;
+                          return (
+                            <SidebarLink key={label} href={href} current={pathname === href} onNavigate={onNavigate}>
+                              {label}
+                            </SidebarLink>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 )}
                 <SidebarLink href={`${base}/archived`} current={pathname === `${base}/archived`} onNavigate={onNavigate}><Archive aria-hidden /> Archive</SidebarLink>
               </div>}

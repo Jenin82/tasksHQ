@@ -8,7 +8,7 @@ export const sections: GuideSection[] = [
       <>
         <p>Use a Slack incoming webhook to post updates from one project to a channel.</p>
         <Steps>
-          <li>Open the project’s <strong>Settings</strong>, then find <strong>Integrations → Slack</strong>.</li>
+          <li>Open the project’s <strong>Settings</strong>, then choose <strong>Integrations</strong> and find <strong>Slack</strong>.</li>
           <li>Select <strong>?</strong> beside <strong>Webhook URL</strong> for Slack’s setup instructions. Create a webhook for the channel where updates should appear.</li>
           <li>Paste the webhook URL and select <strong>Connect Slack</strong>.</li>
           <li>Select <strong>Send test message</strong> to queue a test. Check the Slack channel for the message.</li>
