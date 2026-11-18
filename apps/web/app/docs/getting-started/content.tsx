@@ -20,7 +20,7 @@ export const sections: GuideSection[] = [
     content: <>
       <p>An organization is the workspace that holds your people and projects. Members of an organization can open its projects.</p>
       <Steps>
-        <li>From the Organizations page, choose <strong>New organization</strong>.</li>
+        <li>From the Organizations page, choose <strong>New organization</strong>. If you already belong to more than one organization, you can also choose <strong>+</strong> next to Organizations in the sidebar.</li>
         <li>Enter the name your team will recognize and check the suggested slug. The slug is the part of the URL that identifies your workspace.</li>
         <li>Choose <strong>Create organization</strong>.</li>
       </Steps>

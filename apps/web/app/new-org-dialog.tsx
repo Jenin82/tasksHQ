@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -10,14 +11,13 @@ import {
 } from "@/components/ui/dialog";
 import { CreateOrgForm } from "./create-org-form";
 
-// The signed-in `/`'s one primary button. No close-on-success handling: a
-// created org redirects into itself, which leaves this page.
-export function NewOrgDialog() {
+// The signed-in `/`'s one primary button, and the sidebar's + beside
+// Organizations. No close-on-success handling: a created org redirects into
+// itself, which leaves the page (and remounts the org-keyed sidebar).
+export function NewOrgDialog({ trigger = <Button>New organization</Button> }: { trigger?: ReactNode }) {
   return (
     <Dialog>
-      <DialogTrigger asChild>
-        <Button>New organization</Button>
-      </DialogTrigger>
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent>
         <DialogTitle>New organization</DialogTitle>
         <DialogDescription>
