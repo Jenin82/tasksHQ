@@ -4,6 +4,7 @@ import {
   foreignKey,
   index,
   integer,
+  primaryKey,
   sqliteTable,
   text,
   uniqueIndex,
@@ -39,6 +40,26 @@ export const project = sqliteTable(
   (t) => [
     uniqueIndex("project_org_id_slug_unique").on(t.orgId, t.slug),
     uniqueIndex("project_org_id_key_unique").on(t.orgId, t.key),
+  ],
+);
+
+/**
+ * A former slug of a project, kept so old links redirect after a rename. Each
+ * alias names the project directly (never another alias), and the live slug
+ * always wins: renaming back to a slug, or creating a project with it, removes
+ * the alias.
+ */
+export const projectSlugAlias = sqliteTable(
+  "project_slug_alias",
+  {
+    orgId: text("org_id").notNull().references(() => org.id, { onDelete: "cascade" }),
+    slug: text("slug").notNull(),
+    projectId: text("project_id").notNull().references(() => project.id, { onDelete: "cascade" }),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.orgId, t.slug] }),
+    index("project_slug_alias_project_id_idx").on(t.projectId),
   ],
 );
 
@@ -124,3 +145,4 @@ export type NewProjectMember = typeof projectMember.$inferInsert;
 export type Status = typeof status.$inferSelect;
 export type NewStatus = typeof status.$inferInsert;
 export type ProjectTaskType = typeof projectTaskType.$inferSelect;
+export type ProjectSlugAlias = typeof projectSlugAlias.$inferSelect;

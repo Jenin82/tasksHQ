@@ -12,7 +12,8 @@ import {
 import { DeleteSettingsSection } from "@/components/delete-settings-section";
 import { db } from "@/lib/db";
 import { getProjectContext } from "@/lib/project-context";
-import { deleteProjectAction } from "./actions";
+import { deleteProjectAction, renameProjectAction } from "./actions";
+import { ProjectDetailsSettings } from "./project-details-settings";
 import { ProjectAdminList } from "./project-admin-list";
 import { SlackIntegration } from "./slack-integration";
 import { TaskEditingSettings } from "./task-editing-settings";
@@ -79,6 +80,14 @@ export default async function ProjectSettingsPage({
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-12 sm:px-10">
+      {can(member.role, "project:rename") && (
+        <ProjectDetailsSettings
+          orgSlug={org.slug}
+          name={project.name}
+          slug={project.slug}
+          action={renameProjectAction.bind(null, org.slug, project.slug, project.id)}
+        />
+      )}
       <TaskEditingSettings orgSlug={org.slug} projectSlug={project.slug} restricted={project.restrictTaskEdits} />
       <AutoArchiveSettings
         orgSlug={org.slug}

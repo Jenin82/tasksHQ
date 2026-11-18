@@ -2,6 +2,7 @@ import {
   createOrg,
   createProject,
   createTask,
+  renameProject,
   setProjectMemberRole,
   setProjectTaskEditRestriction,
   setReportingLead,
@@ -646,5 +647,25 @@ describe("time tracking", () => {
     expect(await summary({ org: "mc-other" })).toBe("No such organization.");
     expect(await summary({ from: "2026-01-01T00:00:00Z", to: "2026-06-01T00:00:00Z" })).toBe("The range can be at most 92 days.");
     expect(await summary({ to: range.from })).toBe("to must be after from.");
+  });
+});
+
+describe("renamed projects", () => {
+  it("resolves a former slug for org members only", async () => {
+    const renames = await createOrg(ctx(OWNER), { slug: "mc-renames", name: "Renames" });
+    await db.insert(orgMember).values({ orgId: renames.id, userId: MEMBER, role: "member", createdAt: now });
+    const moved = await createProject(ctx(OWNER), { orgId: renames.id, slug: "mc-before", name: "Before", key: "REN" });
+    await createTask(ctx(OWNER), { projectId: moved.id, title: "Renamed work" });
+    await renameProject(ctx(OWNER), { projectId: moved.id, name: "After", slug: "mc-after" });
+
+    for (const project of ["mc-before", "MC-Before", "mc-renames/mc-before", "mc-after"]) {
+      const { isError, data } = await call(MEMBER, "list_tasks", { project });
+      expect(isError, project).toBe(false);
+      expect(data.tasks.map((t: { key: string }) => t.key), project).toEqual(["REN-1"]);
+    }
+    expect(await call(MEMBER, "list_tasks", { project: "mc-acme/mc-before" }))
+      .toEqual({ isError: true, data: "No such project." });
+    expect(await call(OUTSIDER, "list_tasks", { project: "mc-before" }))
+      .toEqual({ isError: true, data: "No such project." });
   });
 });

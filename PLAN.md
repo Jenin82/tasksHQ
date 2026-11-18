@@ -970,7 +970,7 @@ SELECT o.slug, p.slug FROM project p JOIN org o ON o.id = p.org_id WHERE p.slug 
 - Deploy the web Worker before the MCP Worker. Both use the same D1 database. The web Worker stores OAuth data in `OAUTH_KV` and uses a separate `CONSENT_SECRET`. Both Workers need the same `INTROSPECT_SECRET`.
 - Production D1 migrations `0003_status_colors.sql` and `0004_remove_status_category.sql` were applied on 2026-11-06. Pre-deploy queries found no projects, tasks, or projects using the reserved slug. The public metadata endpoints responded, the unauthenticated introspection route returned 403, and MCP rejected an invalid bearer with 401.
 
-Core has no project rename, so any hit needs a manual `UPDATE project SET slug = … WHERE id = …`.
+Core has no project rename, so any hit needs a manual `UPDATE project SET slug = … WHERE id = …`. (2026-11-18: superseded. `renameProject` changes a project's name and slug, and migration 0019's `project_slug_alias` keeps old slugs redirecting; see CLAUDE.md.)
 
 ## 28. Product guide
 

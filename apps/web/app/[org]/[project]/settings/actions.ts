@@ -8,6 +8,7 @@ import {
   deleteProject,
   deleteStatus,
   recolorStatus,
+  renameProject,
   renameStatus,
   reorderStatus,
   setProjectAutoArchive,
@@ -43,6 +44,34 @@ export async function deleteProjectAction(
   revalidatePath("/", "page");
   revalidatePath(`/${org.slug}`, "layout");
   redirect(`/${org.slug}`);
+}
+
+export async function renameProjectAction(
+  orgSlug: string,
+  projectSlug: string,
+  projectId: string,
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const { org, project, user } = await getProjectContext(orgSlug, projectSlug);
+  if (project.id !== projectId) notFound();
+  const name = String(formData.get("name") ?? "");
+  const slug = String(formData.get("slug") ?? "").trim().toLowerCase();
+
+  let saved: { slug: string };
+  try {
+    saved = await renameProject(
+      { db, actorUserId: user.id, source: "web" },
+      { projectId, name, slug },
+    );
+  } catch (error) {
+    return toActionState(error, { name, slug });
+  }
+
+  revalidatePath("/", "page");
+  revalidatePath(`/${org.slug}`, "layout");
+  if (saved.slug !== project.slug) redirect(`/${org.slug}/${saved.slug}/settings`);
+  return { values: { name: name.trim(), slug } };
 }
 
 /**

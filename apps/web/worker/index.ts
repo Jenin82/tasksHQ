@@ -19,7 +19,18 @@ async function deliverSlack(db: DrizzleD1Database, env: Env) {
 export default {
   ...app,
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
-    return (await renderCanonicalTaskShare(request)) ?? app.fetch(request, env, ctx);
+    const share = await renderCanonicalTaskShare(request);
+    if (share) return share;
+    // `REQUEST_PATH_HEADER` in lib/project-context.ts, so the redirect from a
+    // former project slug keeps the rest of the path and the query. Set only
+    // here, so a client-sent value never survives.
+    const headers = new Headers(request.headers);
+    headers.delete("x-taskshq-path");
+    if (request.method === "GET" || request.method === "HEAD") {
+      const url = new URL(request.url);
+      headers.set("x-taskshq-path", url.pathname + url.search);
+    }
+    return app.fetch(new Request(request, { headers }), env, ctx);
   },
   async scheduled(_event: ScheduledController, env: Env) {
     const db = drizzle(env.DB);

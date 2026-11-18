@@ -16,6 +16,25 @@ export const sections: GuideSection[] = [
     ),
   },
   {
+    id: "rename-project",
+    title: "Rename a project",
+    searchTerms: ["rename project", "change slug", "project URL"],
+    content: (
+      <>
+        <p>
+          Organization owners and admins can change a project’s name and slug under <strong>Project details</strong>,
+          then select <strong>Save</strong>. The slug is the part of the project’s address after the organization,
+          so changing it changes the project’s URLs.
+        </p>
+        <p>
+          Old links, including links to work items and images, keep redirecting organization members to the new
+          address. Work item keys such as <strong>ENG-42</strong> never change. If another project later takes an
+          old slug, links using that slug open that project instead.
+        </p>
+      </>
+    ),
+  },
+  {
     id: "statuses",
     title: "Set up statuses",
     searchTerms: ["status setup", "kanban columns"],

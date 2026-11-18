@@ -40,6 +40,7 @@ export const CAPABILITIES = [
   "org:delete",
   "task:delete_archived",
   "org:view_time_reports",
+  "project:rename",
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
