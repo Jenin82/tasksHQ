@@ -18,6 +18,10 @@
     "onlyBuiltDependencies": [
       "esbuild",
       "workerd"
-    ]
+    ],
+    "overrides": {
+      "fflate@0.7.3": "0.7.5",
+      "@esbuild-kit/core-utils>esbuild": "^0.25.0"
+    }
   }
 }
