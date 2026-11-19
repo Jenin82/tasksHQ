@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Archive, Briefcase, CalendarClock, ChevronDown, ChevronRight, ChevronUp, Clock, Layers, ListTodo, PanelLeft, Plus, Settings, Users } from "lucide-react";
-import { NewOrgDialog } from "@/app/new-org-dialog";
+import { NewTeamDialog } from "@/app/new-team-dialog";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "./ui/dialog";
@@ -22,53 +22,53 @@ const projectSettingsPages = [
   ["Integrations", "/integrations"],
 ] as const;
 
-// Orgs shown before "Show more".
-const ORG_LIMIT = 3;
+// Teams shown before "Show more".
+const TEAM_LIMIT = 3;
 const SECTIONS_KEY = "tasks:sidebar-closed-sections";
 
-export function WorkspaceShell({ org, projects, canManageWorkspace, hasReports, canViewTimeReports, orgs, header, children }: {
-  org: string;
+export function WorkspaceShell({ team, projects, canManageWorkspace, hasReports, canViewTimeReports, teams, header, children }: {
+  team: string;
   projects: Project[];
   canManageWorkspace: boolean;
   hasReports: boolean;
   canViewTimeReports: boolean;
-  orgs: { slug: string; name: string }[];
+  teams: { slug: string; name: string }[];
   header: ReactNode;
   children: ReactNode;
 }) {
   const pathname = usePathname();
   const [searchPending, setSearchPending] = useState<SearchDestination | null>(null);
   const loading = searchPending?.href !== pathname ? searchPending?.view : undefined;
-  const active = projects.find(({ slug }) => pathname === `/${org}/${slug}` || pathname.startsWith(`/${org}/${slug}/`));
+  const active = projects.find(({ slug }) => pathname === `/${team}/${slug}` || pathname.startsWith(`/${team}/${slug}/`));
   const [collapsed, setCollapsed] = useState(false);
   const [drawer, setDrawer] = useState(false);
   const [lastViews, setLastViews] = useState<Record<string, "board" | "table">>({});
-  const storageKey = `tasks:project-views:${org}`;
-  const workspaceSettings = `/${org}/settings`;
+  const storageKey = `tasks:project-views:${team}`;
+  const workspaceSettings = `/${team}/settings`;
   const allTasks = `${workspaceSettings}/all-tasks`;
-  const organizationMembers = `${workspaceSettings}/members`;
-  const reportingLines = `${workspaceSettings}/team`;
-  const organizationGeneral = `${workspaceSettings}/general`;
-  const inOrganizationSettings = [organizationMembers, reportingLines, organizationGeneral].includes(pathname);
-  const multipleOrgs = orgs.length > 1;
-  const [showAllOrgs, setShowAllOrgs] = useState(false);
-  // Collapsed sidebar sections, remembered per browser across orgs.
+  const teamMembers = `${workspaceSettings}/members`;
+  const reportingLines = `${workspaceSettings}/reporting-lines`;
+  const teamGeneral = `${workspaceSettings}/general`;
+  const inTeamSettings = [teamMembers, reportingLines, teamGeneral].includes(pathname);
+  const multipleTeams = teams.length > 1;
+  const [showAllTeams, setShowAllTeams] = useState(false);
+  // Collapsed sidebar sections, remembered per browser across teams.
   const [closedSections, setClosedSections] = useState<Record<string, boolean>>({});
-  // Exactly ORG_LIMIT rows until Show more; the current org takes the last one when it falls past the limit.
-  const visibleOrgs = showAllOrgs || orgs.slice(0, ORG_LIMIT).some((o) => o.slug === org)
-    ? orgs.slice(0, showAllOrgs ? undefined : ORG_LIMIT)
-    : [...orgs.slice(0, ORG_LIMIT - 1), ...orgs.filter((o) => o.slug === org)];
+  // Exactly TEAM_LIMIT rows until Show more; the current team takes the last one when it falls past the limit.
+  const visibleTeams = showAllTeams || teams.slice(0, TEAM_LIMIT).some((o) => o.slug === team)
+    ? teams.slice(0, showAllTeams ? undefined : TEAM_LIMIT)
+    : [...teams.slice(0, TEAM_LIMIT - 1), ...teams.filter((o) => o.slug === team)];
 
   // Workspace can't collapse over the page you're on: its settings sub-menu is the only way between those pages.
-  const workspaceHasCurrent = pathname === `/${org}` || (pathname.startsWith(`${workspaceSettings}/`) && pathname !== allTasks);
+  const workspaceHasCurrent = pathname === `/${team}` || (pathname.startsWith(`${workspaceSettings}/`) && pathname !== allTasks);
 
-  // A layout effect, so a client remount (switching orgs) never paints collapsed sections open first.
+  // A layout effect, so a client remount (switching teams) never paints collapsed sections open first.
   useLayoutEffect(() => {
     try {
       const saved: unknown = JSON.parse(localStorage.getItem(SECTIONS_KEY) || "{}");
       if (saved && typeof saved === "object" && !Array.isArray(saved)) {
         const stored = saved as Record<string, unknown>;
-        setClosedSections({ organizations: stored.organizations === true, workspace: stored.workspace === true });
+        setClosedSections({ teams: stored.teams === true || stored.organizations === true, workspace: stored.workspace === true });
       }
     } catch {
       // Sections start open when browser storage is unavailable.
@@ -86,7 +86,7 @@ export function WorkspaceShell({ org, projects, canManageWorkspace, hasReports, 
   }
 
   useEffect(() => {
-    const base = active ? `/${org}/${active.slug}` : "";
+    const base = active ? `/${team}/${active.slug}` : "";
     try {
       const saved: unknown = JSON.parse(localStorage.getItem(storageKey) || "{}");
       const stored = saved && typeof saved === "object" && !Array.isArray(saved)
@@ -100,41 +100,41 @@ export function WorkspaceShell({ org, projects, canManageWorkspace, hasReports, 
     } catch {
       // Navigation works even when browser storage is unavailable.
     }
-  }, [active, org, pathname, storageKey]);
+  }, [active, team, pathname, storageKey]);
 
   function projectHref(base: string) {
-    const slug = base.slice(org.length + 2);
+    const slug = base.slice(team.length + 2);
     return lastViews[slug] === "table" ? `${base}/table` : base;
   }
 
   const nav = (onNavigate?: () => void) => (
     <nav aria-label="Workspace navigation" className="space-y-5 p-3">
-      {multipleOrgs && (
+      {multipleTeams && (
         <>
           <SidebarLink href={allTasks} current={pathname === allTasks} onNavigate={onNavigate}>
             <Layers aria-hidden /> All My Tasks
           </SidebarLink>
           <div className="space-y-1">
-            <SectionHeading label="Organizations" open={!closedSections.organizations} onToggle={() => toggleSection("organizations")}>
-              <NewOrgDialog trigger={
-                <Button type="button" size="icon-sm" variant="ghost" className={SECTION_BUTTON} aria-label="New organization">
+            <SectionHeading label="Teams" open={!closedSections.teams} onToggle={() => toggleSection("teams")}>
+              <NewTeamDialog trigger={
+                <Button type="button" size="icon-sm" variant="ghost" className={SECTION_BUTTON} aria-label="New team">
                   <Plus aria-hidden />
                 </Button>
               } />
             </SectionHeading>
-            {!closedSections.organizations && <div role="group" aria-label="Organizations" className="space-y-1">
-              {visibleOrgs.map((o) => (
-                // Highlighted, never current: the Workspace "Projects" link already marks `/${org}`.
-                <SidebarLink key={o.slug} href={`/${o.slug}`} current={false} highlighted={o.slug === org} onNavigate={onNavigate}>
+            {!closedSections.teams && <div role="group" aria-label="Teams" className="space-y-1">
+              {visibleTeams.map((o) => (
+                // Highlighted, never current: the Workspace "Projects" link already marks `/${team}`.
+                <SidebarLink key={o.slug} href={`/${o.slug}`} current={false} highlighted={o.slug === team} onNavigate={onNavigate}>
                   <span aria-hidden className="grid size-5 shrink-0 place-items-center rounded bg-muted text-[10px] font-semibold">{Array.from(o.name).slice(0, 2).join("").toUpperCase()}</span>
                   <span className="truncate">{o.name}</span>
-                  {o.slug === org && <span className="sr-only">(current organization)</span>}
+                  {o.slug === team && <span className="sr-only">(current team)</span>}
                 </SidebarLink>
               ))}
-              {orgs.length > ORG_LIMIT && (
-                <button type="button" aria-expanded={showAllOrgs} onClick={() => setShowAllOrgs(!showAllOrgs)}
+              {teams.length > TEAM_LIMIT && (
+                <button type="button" aria-expanded={showAllTeams} onClick={() => setShowAllTeams(!showAllTeams)}
                   className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-semibold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring [&_svg]:size-3.5 [&_svg]:shrink-0">
-                  {showAllOrgs ? <><ChevronUp aria-hidden /> Show less</> : <><ChevronDown aria-hidden /> Show more</>}
+                  {showAllTeams ? <><ChevronUp aria-hidden /> Show less</> : <><ChevronDown aria-hidden /> Show more</>}
                 </button>
               )}
             </div>}
@@ -144,7 +144,7 @@ export function WorkspaceShell({ org, projects, canManageWorkspace, hasReports, 
       <div className="space-y-1">
         <SectionHeading label="Workspace" open={!closedSections.workspace || workspaceHasCurrent} locked={workspaceHasCurrent} onToggle={() => toggleSection("workspace")} />
         {(!closedSections.workspace || workspaceHasCurrent) && <div className="space-y-1">
-          <SidebarLink href={`/${org}`} current={pathname === `/${org}`} onNavigate={onNavigate}>
+          <SidebarLink href={`/${team}`} current={pathname === `/${team}`} onNavigate={onNavigate}>
             <Briefcase aria-hidden /> Projects
           </SidebarLink>
           <SidebarLink href={`${workspaceSettings}/your-tasks`} current={pathname === `${workspaceSettings}/your-tasks`} onNavigate={onNavigate}>
@@ -154,8 +154,8 @@ export function WorkspaceShell({ org, projects, canManageWorkspace, hasReports, 
             <Clock aria-hidden /> Your Time
           </SidebarLink>
           {hasReports && (
-            <SidebarLink href={`${workspaceSettings}/your-team`} current={pathname === `${workspaceSettings}/your-team`} onNavigate={onNavigate}>
-              <Users aria-hidden /> Your Team
+            <SidebarLink href={`${workspaceSettings}/your-reports`} current={pathname === `${workspaceSettings}/your-reports`} onNavigate={onNavigate}>
+              <Users aria-hidden /> Your Reports
             </SidebarLink>
           )}
           {(canViewTimeReports || hasReports) && (
@@ -165,18 +165,18 @@ export function WorkspaceShell({ org, projects, canManageWorkspace, hasReports, 
           )}
           {canManageWorkspace && (
             <div>
-              <SidebarLink href={organizationMembers} current={false} onNavigate={onNavigate}>
+              <SidebarLink href={teamMembers} current={false} onNavigate={onNavigate}>
                 <Settings aria-hidden /> Settings
               </SidebarLink>
-              {inOrganizationSettings && (
-                <div className="my-1 ml-4 space-y-0.5 border-l border-border pl-2" role="group" aria-label="Organization settings">
-                  <SidebarLink href={organizationMembers} current={pathname === organizationMembers} onNavigate={onNavigate}>
+              {inTeamSettings && (
+                <div className="my-1 ml-4 space-y-0.5 border-l border-border pl-2" role="group" aria-label="Team settings">
+                  <SidebarLink href={teamMembers} current={pathname === teamMembers} onNavigate={onNavigate}>
                     Members
                   </SidebarLink>
                   <SidebarLink href={reportingLines} current={pathname === reportingLines} onNavigate={onNavigate}>
                     Reporting lines
                   </SidebarLink>
-                  <SidebarLink href={organizationGeneral} current={pathname === organizationGeneral} onNavigate={onNavigate}>
+                  <SidebarLink href={teamGeneral} current={pathname === teamGeneral} onNavigate={onNavigate}>
                     General
                   </SidebarLink>
                 </div>
@@ -188,7 +188,7 @@ export function WorkspaceShell({ org, projects, canManageWorkspace, hasReports, 
       <div className="space-y-1">
         <p className="px-2 text-xs font-semibold text-muted-foreground">Projects</p>
         {projects.map((project) => {
-          const base = `/${org}/${project.slug}`;
+          const base = `/${team}/${project.slug}`;
           const items = projectHref(base);
           const selected = active?.slug === project.slug;
           return (

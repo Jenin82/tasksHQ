@@ -156,7 +156,7 @@ Custom domains can take a few minutes to issue certificates after the first depl
 
 Tell the user:
 
-- The web app URL (`TASKSHQ_WEB_URL`). They should open it, sign in, and create an organization.
+- The web app URL (`TASKSHQ_WEB_URL`). They should open it, sign in, and create a team.
 - The MCP server URL: `<TASKSHQ_MCP_URL>/mcp`. Claude Code: `claude mcp add --transport http --scope user taskshq <TASKSHQ_MCP_URL>/mcp`. Other clients: `<TASKSHQ_WEB_URL>/docs/mcp`.
 - Manual steps still outstanding: registering the Google redirect URI (step 6), enabling R2 billing if a deploy reported R2 as unavailable, and configuring sender-domain authentication with their SMTP provider if they use email.
 - That `deploy.env` and `secrets.env` hold their configuration and secrets, are gitignored, and must not be committed or shared.
@@ -173,6 +173,8 @@ pnpm run deploy
 ```
 
 Always apply migrations before deploying either Worker. Then repeat step 9.
+
+Migration `0020_rename_org_to_team.sql` (organizations renamed to teams) renames tables that the running Workers still use, so the old Workers fail once it is applied. Run `pnpm run db:migrate:remote`, then `pnpm run deploy` (web, then MCP) immediately after, with nothing in between. Tell the user to expect errors until the deploy finishes and to reload any open browser tabs.
 
 Deployments created before the TasksHQ rename used `tasks-web`, `tasks-mcp`, `tasks-db` and `tasks-images`. If the user has one, set `TASKSHQ_WEB_WORKER`, `TASKSHQ_MCP_WORKER`, `TASKSHQ_D1_NAME`, `TASKSHQ_R2_BUCKET`, `TASKSHQ_D1_ID` and `TASKSHQ_KV_ID` to the existing names and IDs, so the deploy reuses their data instead of creating new resources. Ask the user for these values; do not guess.
 

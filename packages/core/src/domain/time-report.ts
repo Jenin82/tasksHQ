@@ -1,9 +1,9 @@
 import { and, asc, eq, gt, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
-import { can, requireOrgMember } from "../access";
+import { can, requireTeamMember } from "../access";
 import type { DomainContext } from "../activity";
 import { DomainError } from "../errors";
 import { user } from "../schema/auth";
-import { orgReportingLine } from "../schema/org";
+import { teamReportingLine } from "../schema/team";
 import { project } from "../schema/project";
 import { task } from "../schema/task";
 import { STALE_MS, type TimeEntry, timeEntry } from "../schema/time";
@@ -34,37 +34,37 @@ export type TimeReportEntry = Pick<TimeEntry, "id" | "userId" | "taskId" | "star
 };
 
 /**
- * Entries in one organization that overlap `[from, to)`, unclamped. Owners and
+ * Entries in one team that overlap `[from, to)`, unclamped. Owners and
  * admins see everyone, including former members; others see themselves and
  * their direct reports.
  */
 export async function listTimeReportEntries(
   ctx: DomainContext,
-  input: { orgId: string; from: Date; to: Date } & ({ userId: string } | { userEmail: string } | {}),
+  input: { teamId: string; from: Date; to: Date } & ({ userId: string } | { userEmail: string } | {}),
 ): Promise<TimeReportEntry[]> {
   const { db, actorUserId } = ctx;
-  const member = await requireOrgMember(db, input.orgId, actorUserId);
+  const member = await requireTeamMember(db, input.teamId, actorUserId);
   const from = input.from.getTime();
   const to = input.to.getTime();
   if (!(to > from)) throw new DomainError("The report must end after it starts.");
   if (to - from > MAX_SPAN_MS) throw new DomainError("A report can cover at most 93 days.");
 
-  const seesAll = can(member.role, "org:view_time_reports");
+  const seesAll = can(member.role, "team:view_time_reports");
   // A subquery, not an ID list, so a large team stays under D1's parameter limit.
   const scope = seesAll ? undefined : or(
     eq(timeEntry.userId, actorUserId),
-    inArray(timeEntry.userId, db.select({ userId: orgReportingLine.userId }).from(orgReportingLine)
-      .where(and(eq(orgReportingLine.orgId, input.orgId), eq(orgReportingLine.leadUserId, actorUserId)))),
+    inArray(timeEntry.userId, db.select({ userId: teamReportingLine.userId }).from(teamReportingLine)
+      .where(and(eq(teamReportingLine.teamId, input.teamId), eq(teamReportingLine.leadUserId, actorUserId)))),
   );
 
   let person;
   if ("userId" in input) {
     if (!seesAll && input.userId !== actorUserId) {
-      const [line] = await db.select({ userId: orgReportingLine.userId }).from(orgReportingLine)
+      const [line] = await db.select({ userId: teamReportingLine.userId }).from(teamReportingLine)
         .where(and(
-          eq(orgReportingLine.orgId, input.orgId),
-          eq(orgReportingLine.userId, input.userId),
-          eq(orgReportingLine.leadUserId, actorUserId),
+          eq(teamReportingLine.teamId, input.teamId),
+          eq(teamReportingLine.userId, input.userId),
+          eq(teamReportingLine.leadUserId, actorUserId),
         ));
       if (!line) throw new OutOfReportScope();
     }
@@ -98,7 +98,7 @@ export async function listTimeReportEntries(
     .innerJoin(task, eq(task.id, timeEntry.taskId))
     .innerJoin(project, eq(project.id, task.projectId))
     .where(and(
-      eq(timeEntry.orgId, input.orgId),
+      eq(timeEntry.teamId, input.teamId),
       scope,
       person,
       // No entry is longer than MAX_ENTRY_MS, so this bounds the index scan.

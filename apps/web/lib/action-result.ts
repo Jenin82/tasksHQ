@@ -19,7 +19,7 @@ export const NO_ERROR: ActionState = {};
 /**
  * PLAN §4.6 / §5's error mapping, in one place.
  *
- * `not_a_member` is 404 so org slugs stay non-enumerable; `forbidden` is a
+ * `not_a_member` is 404 so team slugs stay non-enumerable; `forbidden` is a
  * real 403 (`app/forbidden.tsx`), which only a hand-made request can reach
  * since the UI hides controls a role cannot use. A `DomainError` — duplicate
  * slug, last-owner refusal — is the caller's own input and comes back as an

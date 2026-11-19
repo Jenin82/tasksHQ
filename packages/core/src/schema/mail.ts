@@ -3,7 +3,7 @@ import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 export const mailOutbox = sqliteTable("mail_outbox", {
   id: text("id").primaryKey(),
   kind: text("kind", {
-    enum: ["assignment", "task_update", "org_invite", "project_invite", "project_added", "comment_mention"],
+    enum: ["assignment", "task_update", "team_invite", "project_invite", "project_added", "comment_mention"],
   }).notNull(),
   targetId: text("target_id").notNull(),
   recipient: text("recipient").notNull(),

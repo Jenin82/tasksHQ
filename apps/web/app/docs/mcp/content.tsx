@@ -12,7 +12,7 @@ const desktopConfig = JSON.stringify({
 
 export const intro = (
   <>
-    <p>Sign in with the account you use for TasksHQ, using Google or email when available, then approve access. Your organization and project permissions apply to each tool call.</p>
+    <p>Sign in with the account you use for TasksHQ, using Google or email when available, then approve access. Your team and project permissions apply to each tool call.</p>
     <p className="stutter">Server URL · Streamable HTTP</p>
     <CodeBlock>{MCP_URL}</CodeBlock>
   </>
@@ -65,21 +65,23 @@ export const sections: GuideSection[] = [
     <p>Start a conversation with TasksHQ enabled and ask your assistant to run this prompt.</p>
     <CodeBlock>Use TasksHQ to list my projects.</CodeBlock>
     <p>The assistant should call <code>list_projects</code> and show the projects your account can access.</p>
-    <p>If your list is empty, check the account used during sign-in and your organization membership. If authentication expires, reconnect TasksHQ from your client’s MCP or connector settings.</p>
+    <p>If your list is empty, check the account used during sign-in and your team membership. If authentication expires, reconnect TasksHQ from your client’s MCP or connector settings.</p>
   </> },
   { id: "task-tools", title: "Task fields and images", content: <>
     <p><code>list_tasks</code> and <code>get_task</code> return the due date and priority. Set them with <code>create_task</code> or <code>update_task</code> using <code>dueDate</code> in <code>YYYY-MM-DD</code> format and <code>priority</code> set to <code>low</code>, <code>medium</code>, or <code>high</code>. On update, a null due date clears it and a null priority resets it to Medium.</p>
-    <p><code>list_tasks</code> and <code>get_task</code> also return the <code>reporter</code>, the person who asked for the work. Pass an organization member’s email as <code>reporter</code> to <code>create_task</code> or <code>update_task</code>. It defaults to you on create and cannot be cleared.</p>
+    <p><code>list_tasks</code> and <code>get_task</code> also return the <code>reporter</code>, the person who asked for the work. Pass a team member’s email as <code>reporter</code> to <code>create_task</code> or <code>update_task</code>. It defaults to you on create and cannot be cleared.</p>
     <p>To make a sub-task, pass a task key from the same project, such as <code>ENG-12</code>, as <code>parent</code> to <code>create_task</code> or <code>update_task</code>. Sub-tasks are one level deep: a sub-task cannot have its own sub-tasks, and a task with sub-tasks cannot get a parent. In a project that restricts task editing, you need edit access to the parent. On update, a null parent removes it. <code>get_task</code> returns the <code>parent</code> key and a <code>subtasks</code> list with each key, title, status, assignee, and whether it is archived.</p>
     <p><code>list_projects</code> returns the types available for each project with their colors and icons and marks the default. Pass a type name as <code>type</code> when calling <code>create_task</code> or <code>update_task</code>. Omit it when creating to use the project’s default, or when updating to keep the current type. <code>list_tasks</code> and <code>get_task</code> return the current type name.</p>
+    <p>Project keys and slugs are unique within a team. If one matches projects in more than one of your teams, prefix it with the team slug, such as <code>acme/ENG</code> or <code>acme/ENG-12</code>. <code>list_projects</code> returns each project’s <code>team</code>.</p>
     <p>Task descriptions support Markdown. To embed an image, call <code>upload_project_image</code> with the project and the file as raw <code>base64</code>, then include the returned Markdown in the task description. The tool accepts PNG, JPEG, WebP, GIF, and AVIF files up to 5 MB and stores a still WebP image. Use <code>get_project_image</code> with the project and image ID to read it back.</p>
   </> },
   { id: "time-tools", title: "Time tracking", searchTerms: ["work summary", "standup", "timesheet"], content: <>
     <p><code>start_timer</code> starts a timer on a task and stops any timer you already have running. <code>stop_timer</code> stops it, and <code>get_running_timer</code> shows what is running.</p>
     <p><code>log_time</code> records a finished span with ISO 8601 <code>start</code> and <code>end</code> times that include an offset, such as <code>2026-11-17T09:00:00+05:30</code>. An entry can be up to 24 hours, can’t end in the future, and can’t be logged on an archived task.</p>
-    <p><code>list_my_time_entries</code> returns your entries in an organization between <code>from</code> and <code>to</code>, up to 92 days, with a total in minutes. Use <code>delete_time_entry</code> with an entry ID to remove one of your own entries.</p>
-    <p><code>get_time_report</code> totals time in an organization per person, project, and task between <code>from</code> and <code>to</code>, up to 92 days. Owners and admins see everyone, including former members. Leads see themselves and their direct reports, and everyone else sees only themselves. Pass an email as <code>user</code> to limit it to one person.</p>
-    <p><code>get_work_summary_data</code> returns your own work in an organization between <code>from</code> and <code>to</code>, up to 92 days: each task you logged time on, created, moved, or commented on, with your minutes, time-entry notes, status changes, and comments. Archived tasks are included. Ask your assistant to summarize it as a timesheet, standup, or work summary.</p>
+    <p><code>list_my_time_entries</code> returns your entries in a team between <code>from</code> and <code>to</code>, up to 92 days, with a total in minutes. Use <code>delete_time_entry</code> with an entry ID to remove one of your own entries.</p>
+    <p><code>get_time_report</code> totals time in a team per person, project, and task between <code>from</code> and <code>to</code>, up to 92 days. Owners and admins see everyone, including former members. Leads see themselves and their direct reports, and everyone else sees only themselves. Pass an email as <code>user</code> to limit it to one person.</p>
+    <p><code>get_work_summary_data</code> returns your own work in a team between <code>from</code> and <code>to</code>, up to 92 days: each task you logged time on, created, moved, or commented on, with your minutes, time-entry notes, status changes, and comments. Archived tasks are included. Ask your assistant to summarize it as a timesheet, standup, or work summary.</p>
+    <p>These three tools take the team slug as <code>team</code>, as <code>list_projects</code> returns it. The older <code>org</code> argument is still accepted for now but will be removed in a later release.</p>
     <CodeBlock>Summarize my work in Acme from 1–15 Nov.</CodeBlock>
   </> },
 ];

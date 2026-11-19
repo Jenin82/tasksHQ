@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { asc, count, eq } from "drizzle-orm";
-import { org, orgMember, project } from "@tasks/core/schema";
+import { team, teamMember, project } from "@tasks/core/schema";
 import { AccountMenu } from "@/components/account-menu";
 import { DocsLink } from "@/components/docs-link";
 import { GoogleSignIn } from "@/components/google-sign-in";
@@ -15,7 +15,7 @@ import { db } from "@/lib/db";
 import { getUser } from "@/lib/session";
 import { emailEnabled } from "@/lib/smtp";
 import { taskSignInDestination, taskSignInUrl } from "@/lib/task-sign-in";
-import { NewOrgDialog } from "./new-org-dialog";
+import { NewTeamDialog } from "./new-team-dialog";
 
 // Reads the session, so it is per-user by definition. Stated explicitly so
 // that a prerender pass (e.g. `deploy --prerender-all`) can never bake it.
@@ -38,23 +38,23 @@ export default async function Home({ searchParams }: {
   await claimInvitesForSignIn(user.id, user.email);
   if (taskPath) redirect(taskPath);
   const memberships = await db
-    .select({ id: org.id, slug: org.slug, name: org.name, role: orgMember.role })
-    .from(orgMember)
-    .innerJoin(org, eq(org.id, orgMember.orgId))
-    .where(eq(orgMember.userId, user.id))
-    .orderBy(asc(org.name));
-  const orgs = await Promise.all(
+    .select({ id: team.id, slug: team.slug, name: team.name, role: teamMember.role })
+    .from(teamMember)
+    .innerJoin(team, eq(team.id, teamMember.teamId))
+    .where(eq(teamMember.userId, user.id))
+    .orderBy(asc(team.name));
+  const teams = await Promise.all(
     memberships.map(async (o) => {
       const [row] = await db
         .select({ projects: count() })
         .from(project)
-        .where(eq(project.orgId, o.id));
+        .where(eq(project.teamId, o.id));
       return { ...o, projects: row.projects };
     }),
   );
 
-  // `/` is where orgs are listed and made, whatever the count,
-  // and `/[org]` lists its projects. Creating one is the dialog beside
+  // `/` is where teams are listed and made, whatever the count,
+  // and `/[team]` lists its projects. Creating one is the dialog beside
   // the heading — the page's single primary button — so the empty state has none.
   return (
     <WithFooter
@@ -70,23 +70,23 @@ export default async function Home({ searchParams }: {
         <div className="mx-auto max-w-[1200px] px-6 sm:px-10">
           <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
             <div>
-              <p className="stutter">Organizations</p>
+              <p className="stutter">Teams</p>
               <h1 className="mt-3 text-2xl">Where would you like to work?</h1>
             </div>
-            <NewOrgDialog />
+            <NewTeamDialog />
           </div>
 
           <ul className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {orgs.length === 0 ? (
+            {teams.length === 0 ? (
               <li className="rounded-2xl bg-card p-5 shadow-subtle">
-                <p>No organizations yet</p>
+                <p>No teams yet</p>
                 <p className="mt-1 text-sm text-muted-foreground">
                   No invite is waiting for your address. Make one with New
-                  organization, then invite the rest of the team.
+                  team, then invite everyone else.
                 </p>
               </li>
             ) : (
-              orgs.map((o) => (
+              teams.map((o) => (
                 <li key={o.slug}>
                   {/* Hover is a foreground wash over the card, not `--accent`
                       or the blue (§7.4, §7.5): the stutter lines are muted. */}

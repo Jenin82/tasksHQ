@@ -7,7 +7,7 @@ import { guideGroups, guideHref, guideTopics } from "./topics";
 
 export const metadata: Metadata = {
   title: "Product documentation · TasksHQ",
-  description: "Learn how to set up projects, track work, manage your organization, and connect integrations in TasksHQ.",
+  description: "Learn how to set up projects, track work, manage your team, and connect integrations in TasksHQ.",
   alternates: { canonical: "/docs" },
 };
 

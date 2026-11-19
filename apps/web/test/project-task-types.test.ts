@@ -4,7 +4,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { expect, it } from "vitest";
 import {
   addProjectMember,
-  createOrg,
+  createTeam,
   createProject,
   createProjectTaskType,
   createTask,
@@ -13,7 +13,7 @@ import {
   renameProjectTaskType,
   setDefaultProjectTaskType,
 } from "@tasks/core/domain";
-import { orgMember, task, user } from "@tasks/core/schema";
+import { teamMember, task, user } from "@tasks/core/schema";
 
 const db = drizzle(env.DB);
 const ownerId = "task-types-owner";
@@ -23,11 +23,11 @@ await db.insert(user).values([ownerId, memberId].map((id) => ({
   id, name: id, email: `${id}@tasks.test`, createdAt: now, updatedAt: now,
 })));
 const owner = { db, actorUserId: ownerId, source: "web" as const };
-const org = await createOrg(owner, { name: "Task type tests", slug: "task-type-tests" });
-await db.insert(orgMember).values({ orgId: org.id, userId: memberId, role: "member", createdAt: now });
+const team = await createTeam(owner, { name: "Task type tests", slug: "task-type-tests" });
+await db.insert(teamMember).values({ teamId: team.id, userId: memberId, role: "member", createdAt: now });
 
 it("seeds types, guards management, and keeps a default through invalid changes", async () => {
-  const project = await createProject(owner, { orgId: org.id, key: "TY", name: "Types", slug: "types" });
+  const project = await createProject(owner, { teamId: team.id, key: "TY", name: "Types", slug: "types" });
   const projectId = project.id;
   const types = await listProjectTaskTypes(owner, { projectId });
   expect(types.map(({ name, isDefault }) => [name, isDefault])).toEqual([

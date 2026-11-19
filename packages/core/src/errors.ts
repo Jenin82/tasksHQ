@@ -19,7 +19,7 @@ export class DomainError extends Error {
 export function isConstraintError(
   error: unknown,
   kind: "UNIQUE" | "FOREIGN KEY" | "NOT NULL",
-  // SQLite names the columns for UNIQUE, e.g. "project.org_id, project.slug".
+  // SQLite names the columns for UNIQUE, e.g. "project.team_id, project.slug".
   column?: string,
 ): boolean {
   for (let e = error; e instanceof Error; e = e.cause) {

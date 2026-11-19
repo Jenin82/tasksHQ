@@ -5,7 +5,7 @@ import { cn } from "cn"
 import { XIcon } from "lucide-react"
 import { Dialog as DialogPrimitive } from "radix-ui"
 
-// shadcn's dialog, trimmed to what the new-organization and new-project
+// shadcn's dialog, trimmed to what the new-team and new-project
 // dialogs use. Radix traps focus, closes on Esc and overlay click, and
 // returns focus to the trigger. §7.4: popover surface + inset hairline, 16px like every panel, no
 // drop shadow; text on it is foreground, never muted. 140ms settle (§7.6).

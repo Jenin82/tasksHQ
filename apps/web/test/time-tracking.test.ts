@@ -5,17 +5,17 @@ import { expect, it } from "vitest";
 import {
   archiveTask,
   autoArchiveDoneTasks,
-  createOrg,
+  createTeam,
   createProject,
   createTask,
   createTimeEntry,
   deleteArchivedTask,
-  deleteOrg,
+  deleteTeam,
   deleteProject,
   deleteTimeEntry,
   getTaskTimeTotals,
   listMyTimeEntries,
-  removeOrgMember,
+  removeTeamMember,
   setProjectTaskEditRestriction,
   setUserTimezone,
   startTimer,
@@ -25,7 +25,7 @@ import {
   updateTask,
   updateTimeEntry,
 } from "@tasks/core/domain";
-import { activity, orgMember, status, task, timeEntry, user } from "@tasks/core/schema";
+import { activity, teamMember, status, task, timeEntry, user } from "@tasks/core/schema";
 import { zonedDate, zonedMidnight, zonedTime } from "@/lib/time-zone";
 
 const db = drizzle(env.DB);
@@ -42,20 +42,20 @@ async function makeUser() {
 const ctx = (actorUserId: string, source: "web" | "mcp" = "web") => ({ db, actorUserId, source });
 const ownerId = await makeUser();
 const owner = ctx(ownerId);
-const workspace = await createOrg(owner, { slug: "tt-space", name: "Time tracking" });
-const otherWorkspace = await createOrg(owner, { slug: "tt-other", name: "Other" });
+const workspace = await createTeam(owner, { slug: "tt-space", name: "Time tracking" });
+const otherWorkspace = await createTeam(owner, { slug: "tt-other", name: "Other" });
 
-async function makeMember(orgIds = [workspace.id]) {
+async function makeMember(teamIds = [workspace.id]) {
   const id = await makeUser();
-  await db.insert(orgMember).values(orgIds.map((orgId) => ({ orgId, userId: id, role: "member" as const, createdAt: new Date() })));
+  await db.insert(teamMember).values(teamIds.map((teamId) => ({ teamId, userId: id, role: "member" as const, createdAt: new Date() })));
   return id;
 }
 
 let projectSeq = 0;
-const makeProject = (orgId = workspace.id) =>
-  createProject(owner, { orgId, slug: `tt-${projectSeq}`, key: `TT${projectSeq++}`, name: "P" });
-async function makeTask(orgId = workspace.id) {
-  const p = await makeProject(orgId);
+const makeProject = (teamId = workspace.id) =>
+  createProject(owner, { teamId, slug: `tt-${projectSeq}`, key: `TT${projectSeq++}`, name: "P" });
+async function makeTask(teamId = workspace.id) {
+  const p = await makeProject(teamId);
   const t = await createTask(owner, { projectId: p.id, title: "Track me" });
   return { p, t, target: { taskId: t.id, projectId: p.id } };
 }
@@ -70,21 +70,21 @@ async function backdate(id: string, startedAt: number) {
   await db.update(timeEntry).set({ startedAt: new Date(startedAt) }).where(eq(timeEntry.id, id));
 }
 
-it("startTimer creates a running timer entry and keeps one running entry per user across orgs", async () => {
+it("startTimer creates a running timer entry and keeps one running entry per user across teams", async () => {
   const userId = await makeMember([workspace.id, otherWorkspace.id]);
   const a = await makeTask();
   const b = await makeTask();
   const c = await makeTask(otherWorkspace.id);
 
   const first = await startTimer(ctx(userId, "mcp"), a.target);
-  expect(first).toMatchObject({ kind: "timer", source: "mcp", endedAt: null, taskId: a.t.id, orgId: workspace.id });
+  expect(first).toMatchObject({ kind: "timer", source: "mcp", endedAt: null, taskId: a.t.id, teamId: workspace.id });
 
   const second = await startTimer(ctx(userId), b.target);
   expect((await entry(first.id)).endedAt).not.toBeNull();
   expect((await running(userId)).map((r) => r.id)).toEqual([second.id]);
 
   const third = await startTimer(ctx(userId), c.target);
-  expect(third.orgId).toBe(otherWorkspace.id);
+  expect(third.teamId).toBe(otherWorkspace.id);
   expect((await entry(second.id)).endedAt).not.toBeNull();
   expect((await running(userId)).map((r) => r.id)).toEqual([third.id]);
 });
@@ -200,7 +200,7 @@ it("deleteTimeEntry deletes only own entries", async () => {
   expect(await entry(created.id)).toBeUndefined();
 });
 
-it("listMyTimeEntries returns the actor's overlapping entries in one org", async () => {
+it("listMyTimeEntries returns the actor's overlapping entries in one team", async () => {
   const userId = await makeMember([workspace.id, otherWorkspace.id]);
   const otherId = await makeMember();
   const here = await makeTask();
@@ -214,10 +214,10 @@ it("listMyTimeEntries returns the actor's overlapping entries in one org", async
   const straddling = await log(userId, here.target, 12, 9);
   const inside = await log(userId, here.target, 5, 4);
   await log(userId, here.target, 20, 11); // ends before `from`
-  await log(userId, there.target, 5, 4); // other org
+  await log(userId, there.target, 5, 4); // other team
   await log(otherId, here.target, 5, 4); // other user
 
-  const listed = await listMyTimeEntries(ctx(userId), { orgId: workspace.id, from, to });
+  const listed = await listMyTimeEntries(ctx(userId), { teamId: workspace.id, from, to });
   expect(listed.map((e) => e.id)).toEqual([inside.id, straddling.id]);
   expect(listed[0]).toMatchObject({ taskId: here.t.id, projectId: here.p.id, key: here.t.key });
 });
@@ -272,47 +272,47 @@ it("autoArchiveDoneTasks stops timers on swept tasks and returns the archived co
   expect((await entry(kept.id)).endedAt).toBeNull();
 });
 
-it("removeOrgMember stops the member's running timer in that org only", async () => {
+it("removeTeamMember stops the member's running timer in that team only", async () => {
   const leaverId = await makeMember();
   const stayerId = await makeMember();
   const { target } = await makeTask();
   const leaving = await startTimer(ctx(leaverId), target);
   const staying = await startTimer(ctx(stayerId), target);
 
-  await removeOrgMember(owner, { orgId: workspace.id, userId: leaverId });
+  await removeTeamMember(owner, { teamId: workspace.id, userId: leaverId });
   expect((await entry(leaving.id)).endedAt).not.toBeNull();
   expect((await entry(staying.id)).endedAt).toBeNull();
 
-  // A running timer in another organization survives removal from this one.
+  // A running timer in another team survives removal from this one.
   const travellerId = await makeMember([workspace.id, otherWorkspace.id]);
   const elsewhere = await makeTask(otherWorkspace.id);
   const away = await startTimer(ctx(travellerId), elsewhere.target);
-  await removeOrgMember(owner, { orgId: workspace.id, userId: travellerId });
+  await removeTeamMember(owner, { teamId: workspace.id, userId: travellerId });
   expect((await entry(away.id)).endedAt).toBeNull();
 });
 
-it("removeOrgMember refused for the last owner leaves that owner's timer running", async () => {
+it("removeTeamMember refused for the last owner leaves that owner's timer running", async () => {
   const soleId = await makeUser();
-  const space = await createOrg(ctx(soleId), { slug: "tt-sole", name: "Sole owner" });
-  const p = await createProject(ctx(soleId), { orgId: space.id, slug: "tt-sole-p", key: "TTS", name: "P" });
+  const space = await createTeam(ctx(soleId), { slug: "tt-sole", name: "Sole owner" });
+  const p = await createProject(ctx(soleId), { teamId: space.id, slug: "tt-sole-p", key: "TTS", name: "P" });
   const t = await createTask(ctx(soleId), { projectId: p.id, title: "Mine" });
   const timer = await startTimer(ctx(soleId), { taskId: t.id, projectId: p.id });
 
-  await expect(removeOrgMember(ctx(soleId), { orgId: space.id, userId: soleId })).rejects.toThrow(/owner/i);
+  await expect(removeTeamMember(ctx(soleId), { teamId: space.id, userId: soleId })).rejects.toThrow(/owner/i);
   expect((await entry(timer.id)).endedAt).toBeNull();
 });
 
-it("deleteOrg removes the organization's time entries, running or not", async () => {
+it("deleteTeam removes the team's time entries, running or not", async () => {
   const soleId = await makeUser();
-  const space = await createOrg(ctx(soleId), { slug: "tt-doomed", name: "Doomed" });
-  const p = await createProject(ctx(soleId), { orgId: space.id, slug: "tt-doomed-p", key: "TTD", name: "P" });
+  const space = await createTeam(ctx(soleId), { slug: "tt-doomed", name: "Doomed" });
+  const p = await createProject(ctx(soleId), { teamId: space.id, slug: "tt-doomed-p", key: "TTD", name: "P" });
   const t = await createTask(ctx(soleId), { projectId: p.id, title: "Gone" });
   const target = { taskId: t.id, projectId: p.id };
   const now = Date.now();
   const logged = await createTimeEntry(ctx(soleId), { ...target, startedAt: new Date(now - 2 * HOUR_MS), endedAt: new Date(now - HOUR_MS) });
   const timer = await startTimer(ctx(soleId), target);
 
-  await deleteOrg(ctx(soleId), { orgId: space.id, confirmation: space.slug });
+  await deleteTeam(ctx(soleId), { teamId: space.id, confirmation: space.slug });
   expect(await entry(logged.id)).toBeUndefined();
   expect(await entry(timer.id)).toBeUndefined();
 });
@@ -338,7 +338,7 @@ it("removes time entries with a permanently deleted task or a deleted project, a
   const destination = await makeProject();
   const movingEntry = await log(moving.target);
   await transferTask(owner, { taskId: moving.t.id, sourceProjectId: moving.p.id, destinationProjectId: destination.id });
-  expect(await entry(movingEntry.id)).toMatchObject({ taskId: moving.t.id, orgId: workspace.id });
+  expect(await entry(movingEntry.id)).toMatchObject({ taskId: moving.t.id, teamId: workspace.id });
   const totals = await getTaskTimeTotals(ctx(userId), { taskId: moving.t.id, projectId: destination.id });
   expect(totals.mineMs).toBe(HOUR_MS);
 });

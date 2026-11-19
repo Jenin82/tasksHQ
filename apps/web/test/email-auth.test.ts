@@ -3,13 +3,13 @@ import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { expect, it } from "vitest";
 import {
-  createOrg,
+  createTeam,
   createProject,
-  inviteToOrg,
+  inviteToTeam,
   listTasks,
-  revokeOrgInvite,
+  revokeTeamInvite,
 } from "@tasks/core/domain";
-import { orgInvite, orgMember, projectInvite, projectMember, user, verification } from "@tasks/core/schema";
+import { teamInvite, teamMember, projectInvite, projectMember, user, verification } from "@tasks/core/schema";
 import { createTasksAuth } from "@/lib/auth";
 
 const db = drizzle(env.DB);
@@ -107,25 +107,25 @@ it("matches exact domains and addresses at account creation and keeps existing a
   expect(await signedIn.json()).toMatchObject({ user: { id: "email-auth-existing", name: "Existing" } });
 });
 
-it("allows organization invitees outside the signup policy and gives members project access", async () => {
-  const workspace = await createOrg(owner, { slug: "email-auth-invites", name: "Email invite checks" });
-  const project = await createProject(owner, { orgId: workspace.id, slug: "deliveries", name: "Deliveries", key: "DEL" });
+it("allows team invitees outside the signup policy and gives members project access", async () => {
+  const workspace = await createTeam(owner, { slug: "email-auth-invites", name: "Email invite checks" });
+  const project = await createProject(owner, { teamId: workspace.id, slug: "deliveries", name: "Deliveries", key: "DEL" });
   const flow = fixture(3, "*@allowed.example");
   const workspaceEmail = "outside-workspace@email-auth.test";
-  await inviteToOrg(owner, { orgId: workspace.id, email: workspaceEmail, role: "member" });
+  await inviteToTeam(owner, { teamId: workspace.id, email: workspaceEmail, role: "member" });
 
-  const joinedWorkspace = await flow.verify(workspaceEmail, await flow.issueCode(workspaceEmail), "Org invitee");
+  const joinedWorkspace = await flow.verify(workspaceEmail, await flow.issueCode(workspaceEmail), "Team invitee");
   expect(joinedWorkspace.ok).toBe(true);
-  const { user: orgUser } = await joinedWorkspace.json<{ user: { id: string } }>();
-  expect(await db.select().from(orgMember).where(eq(orgMember.userId, orgUser.id)))
-    .toEqual([expect.objectContaining({ orgId: workspace.id, role: "member" })]);
-  expect(await db.select().from(projectMember).where(eq(projectMember.userId, orgUser.id))).toEqual([]);
-  expect(await listTasks({ ...owner, actorUserId: orgUser.id }, { projectId: project.id })).toEqual([]);
+  const { user: teamUser } = await joinedWorkspace.json<{ user: { id: string } }>();
+  expect(await db.select().from(teamMember).where(eq(teamMember.userId, teamUser.id)))
+    .toEqual([expect.objectContaining({ teamId: workspace.id, role: "member" })]);
+  expect(await db.select().from(projectMember).where(eq(projectMember.userId, teamUser.id))).toEqual([]);
+  expect(await listTasks({ ...owner, actorUserId: teamUser.id }, { projectId: project.id })).toEqual([]);
 });
 
 it("ignores a legacy project invitation when checking the signup allowlist", async () => {
-  const workspace = await createOrg(owner, { slug: "email-auth-legacy", name: "Legacy invitations" });
-  const project = await createProject(owner, { orgId: workspace.id, slug: "legacy", name: "Legacy", key: "LEG" });
+  const workspace = await createTeam(owner, { slug: "email-auth-legacy", name: "Legacy invitations" });
+  const project = await createProject(owner, { teamId: workspace.id, slug: "legacy", name: "Legacy", key: "LEG" });
   const email = "outside-project@email-auth.test";
   await db.insert(projectInvite).values({
     projectId: project.id, email, invitedByUserId: owner.actorUserId, createdAt: new Date(),
@@ -138,23 +138,23 @@ it("ignores a legacy project invitation when checking the signup allowlist", asy
 });
 
 it("rechecks an invite before allowing signup even if the code was already sent", async () => {
-  const workspace = await createOrg(owner, { slug: "email-auth-revoked", name: "Revoked invites" });
+  const workspace = await createTeam(owner, { slug: "email-auth-revoked", name: "Revoked invites" });
   const flow = fixture(4, "*@allowed.example");
   const email = "revoked@email-auth.test";
-  await inviteToOrg(owner, { orgId: workspace.id, email, role: "member" });
+  await inviteToTeam(owner, { teamId: workspace.id, email, role: "member" });
   const code = await flow.issueCode(email);
-  await revokeOrgInvite(owner, { orgId: workspace.id, email });
+  await revokeTeamInvite(owner, { teamId: workspace.id, email });
 
   expect((await flow.verify(email, code, "Revoked invitee")).ok).toBe(false);
   expect(await db.select().from(user).where(eq(user.email, email))).toEqual([]);
 });
 
-it("does not use an accepted org invite to bypass the signup policy", async () => {
-  const workspace = await createOrg(owner, { slug: "email-auth-accepted", name: "Accepted invites" });
+it("does not use an accepted team invite to bypass the signup policy", async () => {
+  const workspace = await createTeam(owner, { slug: "email-auth-accepted", name: "Accepted invites" });
   const email = "previous-invite@email-auth.test";
-  await inviteToOrg(owner, { orgId: workspace.id, email, role: "member" });
-  await db.update(orgInvite).set({ acceptedAt: new Date() })
-    .where(and(eq(orgInvite.orgId, workspace.id), eq(orgInvite.email, email)));
+  await inviteToTeam(owner, { teamId: workspace.id, email, role: "member" });
+  await db.update(teamInvite).set({ acceptedAt: new Date() })
+    .where(and(eq(teamInvite.teamId, workspace.id), eq(teamInvite.email, email)));
 
   const flow = fixture(5, "*@allowed.example");
   await flow.send(email);
@@ -163,21 +163,21 @@ it("does not use an accepted org invite to bypass the signup policy", async () =
 });
 
 it("lets a workspace owner revoke an owner invite and removes its signup bypass", async () => {
-  const workspace = await createOrg(owner, { slug: "email-auth-org-revoke", name: "Revoked owner invite" });
+  const workspace = await createTeam(owner, { slug: "email-auth-team-revoke", name: "Revoked owner invite" });
   const admin = { ...owner, actorUserId: "email-auth-revoke-admin" };
   await db.insert(user).values({ id: admin.actorUserId, name: "Admin", email: "revoke-admin@email-auth.test" });
-  await db.insert(orgMember).values({ orgId: workspace.id, userId: admin.actorUserId, role: "admin", createdAt: new Date() });
+  await db.insert(teamMember).values({ teamId: workspace.id, userId: admin.actorUserId, role: "admin", createdAt: new Date() });
 
   const email = "invited-owner@email-auth.test";
-  const invite = { orgId: workspace.id, email };
-  await inviteToOrg(owner, { ...invite, role: "owner" });
-  await revokeOrgInvite(admin, invite);
-  const inviteRows = () => db.select().from(orgInvite).where(and(eq(orgInvite.orgId, workspace.id), eq(orgInvite.email, email)));
+  const invite = { teamId: workspace.id, email };
+  await inviteToTeam(owner, { ...invite, role: "owner" });
+  await revokeTeamInvite(admin, invite);
+  const inviteRows = () => db.select().from(teamInvite).where(and(eq(teamInvite.teamId, workspace.id), eq(teamInvite.email, email)));
   expect(await inviteRows()).toEqual([expect.objectContaining({ role: "owner", acceptedAt: null })]);
 
   const flow = fixture(10, "*@allowed.example");
   const code = await flow.issueCode(email);
-  await revokeOrgInvite(owner, { ...invite, email: ` ${email.toUpperCase()} ` });
+  await revokeTeamInvite(owner, { ...invite, email: ` ${email.toUpperCase()} ` });
   expect(await inviteRows()).toEqual([]);
   expect((await flow.verify(email, code, "Former invitee")).ok).toBe(false);
   expect(await db.select().from(user).where(eq(user.email, email))).toEqual([]);

@@ -1,7 +1,7 @@
 // The footer's cube grid as faint lines: one rhombus per cube top, at the same
 // 2:1 isometric angle. Masked so it is strongest at the top edge and gone by
 // the time the headline starts — background, never competing with the text.
-// Behind `/` (signed in and out) and the `/[org]` project page; the parent
+// Behind `/` (signed in and out) and the `/[team]` project page; the parent
 // must be `relative`.
 export function IsoLattice() {
   return (

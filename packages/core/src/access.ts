@@ -1,15 +1,15 @@
 import { and, eq, exists, inArray, or } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import { DomainError } from "./errors";
-import { type OrgMember, orgMember } from "./schema/org";
+import { type TeamMember, teamMember } from "./schema/team";
 import { type Project, type ProjectRole, project, projectMember } from "./schema/project";
 import { task } from "./schema/task";
 
-export type OrgRole = OrgMember["role"];
+export type TeamRole = TeamMember["role"];
 
 /**
  * `not_a_member` means "you cannot see that this exists" — §4.6 renders
- * `notFound()` for it so org slugs are not enumerable. `forbidden` means the
+ * `notFound()` for it so team slugs are not enumerable. `forbidden` means the
  * caller is a member but lacks the capability, and maps to 403.
  */
 export class AccessError extends DomainError {
@@ -29,17 +29,17 @@ export class TaskEditForbidden extends AccessError {
 }
 
 export const CAPABILITIES = [
-  "org:manage_members",
-  "org:change_role",
-  "org:rename",
+  "team:manage_members",
+  "team:change_role",
+  "team:rename",
   "project:create",
   "project:delete",
   "project:manage_statuses",
   "project:manage_members",
   "project:manage_task_editing",
-  "org:delete",
+  "team:delete",
   "task:delete_archived",
-  "org:view_time_reports",
+  "team:view_time_reports",
   "project:rename",
 ] as const;
 
@@ -51,26 +51,26 @@ export type Capability = (typeof CAPABILITIES)[number];
  * The matrix's two parenthesised qualifiers — admin "(not owners)" and
  * "(cannot grant or target owner)" — depend on the *target* member, not on the
  * capability, so they cannot live in this table. They are enforced in
- * `domain/org.ts` where the target is known.
+ * `domain/team.ts` where the target is known.
  */
-const ORG_ROLE_CAPABILITIES: Record<OrgRole, readonly Capability[]> = {
+const TEAM_ROLE_CAPABILITIES: Record<TeamRole, readonly Capability[]> = {
   owner: CAPABILITIES,
-  admin: CAPABILITIES.filter((c) => c !== "org:delete" && c !== "project:delete"),
+  admin: CAPABILITIES.filter((c) => c !== "team:delete" && c !== "project:delete"),
   member: [],
 };
 
-export function can(role: OrgRole, capability: Capability): boolean {
-  return ORG_ROLE_CAPABILITIES[role].includes(capability);
+export function can(role: TeamRole, capability: Capability): boolean {
+  return TEAM_ROLE_CAPABILITIES[role].includes(capability);
 }
 
-export function canProject(role: OrgRole, projectRole: ProjectRole | null, capability: Capability): boolean {
+export function canProject(role: TeamRole, projectRole: ProjectRole | null, capability: Capability): boolean {
   return can(role, capability) || (
     projectRole === "admin" &&
     (capability === "project:manage_members" || capability === "project:manage_statuses" || capability === "project:manage_task_editing")
   );
 }
 
-export function requireCapability(role: OrgRole, capability: Capability) {
+export function requireCapability(role: TeamRole, capability: Capability) {
   if (!can(role, capability)) {
     throw new AccessError(
       "forbidden",
@@ -79,33 +79,33 @@ export function requireCapability(role: OrgRole, capability: Capability) {
   }
 }
 
-export async function requireOrgMember(
+export async function requireTeamMember(
   db: DrizzleD1Database,
-  orgId: string,
+  teamId: string,
   userId: string,
-): Promise<OrgMember> {
+): Promise<TeamMember> {
   const [member] = await db
     .select()
-    .from(orgMember)
-    .where(and(eq(orgMember.orgId, orgId), eq(orgMember.userId, userId)));
+    .from(teamMember)
+    .where(and(eq(teamMember.teamId, teamId), eq(teamMember.userId, userId)));
 
   if (!member) {
-    throw new AccessError("not_a_member", "No such organization.");
+    throw new AccessError("not_a_member", "No such team.");
   }
   return member;
 }
 
-/** All organization members can open every project in that organization. */
+/** All team members can open every project in that team. */
 export async function requireProjectMember(
   db: DrizzleD1Database,
   projectId: string,
   userId: string,
-): Promise<{ project: Project; member: OrgMember; projectRole: ProjectRole | null }> {
-  const [access] = await db.select({ project, member: orgMember, projectRole: projectMember.role })
+): Promise<{ project: Project; member: TeamMember; projectRole: ProjectRole | null }> {
+  const [access] = await db.select({ project, member: teamMember, projectRole: projectMember.role })
     .from(project)
-    .innerJoin(orgMember, and(eq(orgMember.orgId, project.orgId), eq(orgMember.userId, userId)))
+    .innerJoin(teamMember, and(eq(teamMember.teamId, project.teamId), eq(teamMember.userId, userId)))
     .leftJoin(projectMember, and(
-      eq(projectMember.orgId, project.orgId),
+      eq(projectMember.teamId, project.teamId),
       eq(projectMember.projectId, project.id),
       eq(projectMember.userId, userId),
     ))
@@ -114,15 +114,15 @@ export async function requireProjectMember(
   return access;
 }
 
-/** Recheck organization membership inside a mutation batch. */
-export function hasOrgMembership(db: DrizzleD1Database, orgId: string, userId: string) {
-  return exists(db.select({ userId: orgMember.userId }).from(orgMember)
-    .where(and(eq(orgMember.orgId, orgId), eq(orgMember.userId, userId))));
+/** Recheck team membership inside a mutation batch. */
+export function hasTeamMembership(db: DrizzleD1Database, teamId: string, userId: string) {
+  return exists(db.select({ userId: teamMember.userId }).from(teamMember)
+    .where(and(eq(teamMember.teamId, teamId), eq(teamMember.userId, userId))));
 }
 
 export function canEditAnyTask({ project, member, projectRole }: {
   project: Pick<Project, "restrictTaskEdits">;
-  member: Pick<OrgMember, "role">;
+  member: Pick<TeamMember, "role">;
   projectRole: ProjectRole | null;
 }) {
   return !project.restrictTaskEdits || canProject(member.role, projectRole, "project:manage_task_editing");
@@ -138,21 +138,21 @@ export function canEditTask(
   return canEditAny || actorUserId === creatorId || actorUserId === assigneeId || actorUserId === reporterId;
 }
 
-const taskEditingOrgRoles = orgMember.role.enumValues.filter((role) => can(role, "project:manage_task_editing"));
+const taskEditingTeamRoles = teamMember.role.enumValues.filter((role) => can(role, "project:manage_task_editing"));
 const taskEditingProjectRoles = projectMember.role.enumValues.filter((role) => canProject("member", role, "project:manage_task_editing"));
 
 /** Use the live project policy, membership, and assignment inside a task write. */
 export function hasTaskEditPermission(db: DrizzleD1Database, projectId: string, actorUserId: string) {
   return exists(db.select({ id: project.id }).from(project)
-    .innerJoin(orgMember, and(eq(orgMember.orgId, project.orgId), eq(orgMember.userId, actorUserId)))
+    .innerJoin(teamMember, and(eq(teamMember.teamId, project.teamId), eq(teamMember.userId, actorUserId)))
     .leftJoin(projectMember, and(
-      eq(projectMember.orgId, project.orgId),
+      eq(projectMember.teamId, project.teamId),
       eq(projectMember.projectId, project.id),
       eq(projectMember.userId, actorUserId),
     ))
     .where(and(eq(project.id, projectId), or(
       eq(project.restrictTaskEdits, false),
-      inArray(orgMember.role, taskEditingOrgRoles),
+      inArray(teamMember.role, taskEditingTeamRoles),
       inArray(projectMember.role, taskEditingProjectRoles),
       eq(task.createdByUserId, actorUserId),
       eq(task.assigneeUserId, actorUserId),

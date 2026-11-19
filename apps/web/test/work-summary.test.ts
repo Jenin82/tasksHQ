@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   addComment,
   archiveTask,
-  createOrg,
+  createTeam,
   createProject,
   createStatus,
   createTask,
@@ -15,7 +15,7 @@ import {
   startTimer,
   transferTask,
 } from "@tasks/core/domain";
-import { activity, orgMember, status, timeEntry, user } from "@tasks/core/schema";
+import { activity, teamMember, status, timeEntry, user } from "@tasks/core/schema";
 
 const db = drizzle(env.DB);
 const MIN_MS = 60_000;
@@ -32,36 +32,36 @@ const ctx = (actorUserId: string) => ({ db, actorUserId, source: "web" as const 
 
 const ownerId = await makeUser();
 const owner = ctx(ownerId);
-const workspace = await createOrg(owner, { slug: "ws-space", name: "Summary" });
-const otherWorkspace = await createOrg(owner, { slug: "ws-summary-other", name: "Other" });
+const workspace = await createTeam(owner, { slug: "ws-space", name: "Summary" });
+const otherWorkspace = await createTeam(owner, { slug: "ws-summary-other", name: "Other" });
 
-async function makeMember(role: "member" | "admin" = "member", orgIds = [workspace.id]) {
+async function makeMember(role: "member" | "admin" = "member", teamIds = [workspace.id]) {
   const id = await makeUser();
-  await db.insert(orgMember).values(orgIds.map((orgId) => ({ orgId, userId: id, role, createdAt: new Date() })));
+  await db.insert(teamMember).values(teamIds.map((teamId) => ({ teamId, userId: id, role, createdAt: new Date() })));
   return id;
 }
 
 let projectSeq = 0;
-const makeProject = (orgId = workspace.id) =>
-  createProject(owner, { orgId, slug: `ws-${projectSeq}`, key: `WS${projectSeq++}`, name: "P" });
-async function makeTask(orgId = workspace.id, by = owner, projectId?: string) {
-  return createTask(by, { projectId: projectId ?? (await makeProject(orgId)).id, title: "Summarize me" });
+const makeProject = (teamId = workspace.id) =>
+  createProject(owner, { teamId, slug: `ws-${projectSeq}`, key: `WS${projectSeq++}`, name: "P" });
+async function makeTask(teamId = workspace.id, by = owner, projectId?: string) {
+  return createTask(by, { projectId: projectId ?? (await makeProject(teamId)).id, title: "Summarize me" });
 }
 async function statusId(projectId: string, name: string) {
   const [row] = await db.select({ id: status.id }).from(status).where(and(eq(status.projectId, projectId), eq(status.name, name)));
   return row.id;
 }
-async function log(userId: string, taskId: string, startedAt: number, endedAt: number, note: string | null = null, orgId = workspace.id) {
+async function log(userId: string, taskId: string, startedAt: number, endedAt: number, note: string | null = null, teamId = workspace.id) {
   const now = new Date();
   await db.insert(timeEntry).values({
-    id: crypto.randomUUID(), orgId, taskId, userId, startedAt: new Date(startedAt), endedAt: new Date(endedAt), note,
+    id: crypto.randomUUID(), teamId, taskId, userId, startedAt: new Date(startedAt), endedAt: new Date(endedAt), note,
     kind: "manual", source: "web", createdAt: now, updatedAt: now,
   });
 }
 
 const now = Date.now();
 const from = now - DAY_MS;
-const range = { orgId: workspace.id, from: new Date(from), to: new Date(now + HOUR_MS) };
+const range = { teamId: workspace.id, from: new Date(from), to: new Date(now + HOUR_MS) };
 const summary = (userId: string, input = range) => getWorkSummaryData(ctx(userId), input);
 const find = async (userId: string, key: string) => (await summary(userId)).tasks.find((t) => t.key === key);
 
@@ -112,7 +112,7 @@ describe("included", () => {
 });
 
 describe("excluded", () => {
-  it("leaves out other users' activity, another org and activity before the range", async () => {
+  it("leaves out other users' activity, another team and activity before the range", async () => {
     const userId = await makeMember("member", [workspace.id, otherWorkspace.id]);
     const othersOnly = await makeTask();
     await addComment(owner, { taskId: othersOnly.id, body: "Not yours" });
@@ -127,7 +127,7 @@ describe("excluded", () => {
 
     const keys = (await summary(userId)).tasks.map((t) => t.key);
     for (const key of [othersOnly.key, elsewhere.key, old.key]) expect(keys).not.toContain(key);
-    expect((await summary(userId, { ...range, orgId: otherWorkspace.id })).tasks.map((t) => t.key)).toEqual([elsewhere.key]);
+    expect((await summary(userId, { ...range, teamId: otherWorkspace.id })).tasks.map((t) => t.key)).toEqual([elsewhere.key]);
   });
 
   it("leaves out activity at or after `to`", async () => {
@@ -140,12 +140,12 @@ describe("excluded", () => {
     expect((await summary(userId, { ...range, to })).tasks.map((x) => x.key)).not.toContain(t.key);
   });
 
-  it("leaves out the caller's own comment in another org", async () => {
+  it("leaves out the caller's own comment in another team", async () => {
     const userId = await makeMember("member", [workspace.id, otherWorkspace.id]);
     const elsewhere = await makeTask(otherWorkspace.id);
-    await addComment(ctx(userId), { taskId: elsewhere.id, body: "Other org" });
+    await addComment(ctx(userId), { taskId: elsewhere.id, body: "Other team" });
     expect((await summary(userId)).tasks.map((t) => t.key)).not.toContain(elsewhere.key);
-    expect((await summary(userId, { ...range, orgId: otherWorkspace.id })).tasks.map((t) => t.key)).toEqual([elsewhere.key]);
+    expect((await summary(userId, { ...range, teamId: otherWorkspace.id })).tasks.map((t) => t.key)).toEqual([elsewhere.key]);
   });
 
   it("keeps a member's own move from a status an admin later deletes, and drops the admin's remap", async () => {
@@ -210,7 +210,7 @@ it("counts a running timer up to now, clipped to the range", async () => {
   const timer = await startTimer(ctx(userId), { taskId: t.id, projectId: t.projectId });
   const start = Date.now();
   await db.update(timeEntry).set({ startedAt: new Date(start - 2 * HOUR_MS) }).where(eq(timeEntry.id, timer.id));
-  const result = await summary(userId, { orgId: workspace.id, from: new Date(start - HOUR_MS), to: new Date(start + HOUR_MS) });
+  const result = await summary(userId, { teamId: workspace.id, from: new Date(start - HOUR_MS), to: new Date(start + HOUR_MS) });
   expect(result.tasks.find((x) => x.key === t.key)?.minutes).toBe(60);
 });
 

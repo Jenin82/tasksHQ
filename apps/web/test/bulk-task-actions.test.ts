@@ -3,20 +3,20 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { expect, it, vi } from "vitest";
 import {
-  createOrg,
+  createTeam,
   createProject,
   createTask,
   getTaskDetail,
   setProjectMemberRole,
 } from "@tasks/core/domain";
-import { orgMember, status, user } from "@tasks/core/schema";
+import { teamMember, status, user } from "@tasks/core/schema";
 
 const actor = vi.hoisted(() => ({ id: "bulk-member" }));
 vi.mock("@/lib/session", () => ({
   requireUser: async () => ({ id: actor.id, name: actor.id, email: `${actor.id}@bulk.test` }),
 }));
 
-const { bulkUpdateTasksAction } = await import("@/app/[org]/[project]/[task]/actions");
+const { bulkUpdateTasksAction } = await import("@/app/[team]/[project]/[task]/actions");
 
 it("scopes updates to each selected task and reports failures without dropping successful changes", async () => {
   const db = drizzle(env.DB);
@@ -26,15 +26,15 @@ it("scopes updates to each selected task and reports failures without dropping s
     id, name: id, email: `${id}@bulk.test`, createdAt: now, updatedAt: now,
   })));
   const owner = { db, actorUserId: ownerId, source: "web" as const };
-  const org = await createOrg(owner, { slug: "bulk-actions", name: "Bulk actions" });
-  await db.insert(orgMember).values({
-    orgId: org.id, userId: actor.id, role: "member", createdAt: now,
+  const team = await createTeam(owner, { slug: "bulk-actions", name: "Bulk actions" });
+  await db.insert(teamMember).values({
+    teamId: team.id, userId: actor.id, role: "member", createdAt: now,
   });
-  const outsideOrg = await createOrg(owner, { slug: "bulk-outside", name: "Outside" });
+  const outsideTeam = await createTeam(owner, { slug: "bulk-outside", name: "Outside" });
   const projects = await Promise.all([
-    createProject(owner, { orgId: org.id, slug: "first", name: "First", key: "BLK" }),
-    createProject(owner, { orgId: org.id, slug: "second", name: "Second", key: "SEC" }),
-    createProject(owner, { orgId: outsideOrg.id, slug: "hidden", name: "Hidden", key: "HID" }),
+    createProject(owner, { teamId: team.id, slug: "first", name: "First", key: "BLK" }),
+    createProject(owner, { teamId: team.id, slug: "second", name: "Second", key: "SEC" }),
+    createProject(owner, { teamId: outsideTeam.id, slug: "hidden", name: "Hidden", key: "HID" }),
   ]);
   const [first, second, hidden] = await Promise.all(projects.map(async (project) => {
     const item = await createTask(owner, { projectId: project.id, title: project.name });
@@ -45,7 +45,7 @@ it("scopes updates to each selected task and reports failures without dropping s
 
   const submit = (field: Parameters<typeof bulkUpdateTasksAction>[0]["field"], changes: {
     taskId: string; projectSlug: string; value: string;
-  }[]) => bulkUpdateTasksAction({ orgSlug: org.slug, field, changes });
+  }[]) => bulkUpdateTasksAction({ teamSlug: team.slug, field, changes });
   const detail = (taskId: string) => getTaskDetail(owner, { taskId });
   await setProjectMemberRole(owner, { projectId: projects[0].id, userId: actor.id, role: "admin" });
   expect(await submit("priority", [

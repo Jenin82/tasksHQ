@@ -4,7 +4,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { expect, it } from "vitest";
 import {
   addProjectMember,
-  createOrg,
+  createTeam,
   createProject,
   createStatus,
   deleteStatus,
@@ -15,7 +15,7 @@ import {
 } from "@tasks/core/domain";
 import {
   activity,
-  orgMember,
+  teamMember,
   projectMember,
   status,
   task,
@@ -41,11 +41,11 @@ function ctxFor(userId: string) {
   return { db, actorUserId: userId, source: "web" as const };
 }
 
-/** A fresh org with `pj-owner` as owner and `pj-member` as a plain member. */
-async function freshOrg(slug: string) {
-  const o = await createOrg(ctxFor("pj-owner"), { slug, name: slug });
-  await db.insert(orgMember).values({
-    orgId: o.id,
+/** A fresh team with `pj-owner` as owner and `pj-member` as a plain member. */
+async function freshTeam(slug: string) {
+  const o = await createTeam(ctxFor("pj-owner"), { slug, name: slug });
+  await db.insert(teamMember).values({
+    teamId: o.id,
     userId: "pj-member",
     role: "member",
     createdAt: now,
@@ -70,9 +70,9 @@ function activityOf(projectId: string) {
 }
 
 it("createProject seeds four named, colored statuses in order and adds the creator", async () => {
-  const o = await freshOrg("pj-seed");
+  const o = await freshTeam("pj-seed");
   const p = await createProject(ctxFor("pj-owner"), {
-    orgId: o.id,
+    teamId: o.id,
     slug: "web",
     name: "Web",
     key: "WEB",
@@ -95,7 +95,7 @@ it("createProject seeds four named, colored statuses in order and adds the creat
       .select()
       .from(projectMember)
       .where(eq(projectMember.projectId, p.id)),
-  ).toMatchObject([{ orgId: o.id, userId: "pj-owner" }]);
+  ).toMatchObject([{ teamId: o.id, userId: "pj-owner" }]);
 
   const rows = await activityOf(p.id);
   expect(rows).toHaveLength(1);
@@ -109,9 +109,9 @@ it("createProject seeds four named, colored statuses in order and adds the creat
 });
 
 it("createProject refuses a plain member, a duplicate slug, a duplicate key and a bad key", async () => {
-  const o = await freshOrg("pj-dup");
+  const o = await freshTeam("pj-dup");
   await createProject(ctxFor("pj-owner"), {
-    orgId: o.id,
+    teamId: o.id,
     slug: "web",
     name: "Web",
     key: "WEB",
@@ -119,7 +119,7 @@ it("createProject refuses a plain member, a duplicate slug, a duplicate key and 
 
   await expect(
     createProject(ctxFor("pj-member"), {
-      orgId: o.id,
+      teamId: o.id,
       slug: "other",
       name: "O",
       key: "OTH",
@@ -128,7 +128,7 @@ it("createProject refuses a plain member, a duplicate slug, a duplicate key and 
 
   await expect(
     createProject(ctxFor("pj-owner"), {
-      orgId: o.id,
+      teamId: o.id,
       slug: "web",
       name: "W2",
       key: "WB2",
@@ -137,7 +137,7 @@ it("createProject refuses a plain member, a duplicate slug, a duplicate key and 
 
   await expect(
     createProject(ctxFor("pj-owner"), {
-      orgId: o.id,
+      teamId: o.id,
       slug: "web2",
       name: "W2",
       key: "WEB",
@@ -147,7 +147,7 @@ it("createProject refuses a plain member, a duplicate slug, a duplicate key and 
   for (const key of ["web", "W", "TOOLONGKEY", "1AB"]) {
     await expect(
       createProject(ctxFor("pj-owner"), {
-        orgId: o.id,
+        teamId: o.id,
         slug: "web3",
         name: "W3",
         key,
@@ -157,7 +157,7 @@ it("createProject refuses a plain member, a duplicate slug, a duplicate key and 
 
   await expect(
     createProject(ctxFor("pj-owner"), {
-      orgId: o.id,
+      teamId: o.id,
       slug: "settings",
       name: "S",
       key: "SET",
@@ -165,10 +165,10 @@ it("createProject refuses a plain member, a duplicate slug, a duplicate key and 
   ).rejects.toThrowError(/reserved/);
 });
 
-it("project membership requires org membership, and logs both events", async () => {
-  const o = await freshOrg("pj-members");
+it("project membership requires team membership, and logs both events", async () => {
+  const o = await freshTeam("pj-members");
   const p = await createProject(ctxFor("pj-owner"), {
-    orgId: o.id,
+    teamId: o.id,
     slug: "web",
     name: "Web",
     key: "WEB",
@@ -179,7 +179,7 @@ it("project membership requires org membership, and logs both events", async () 
       projectId: p.id,
       userId: "pj-outsider",
     }),
-  ).rejects.toThrowError(/member of the organization first/);
+  ).rejects.toThrowError(/member of the team first/);
 
   await addProjectMember(ctxFor("pj-owner"), {
     projectId: p.id,
@@ -215,9 +215,9 @@ it("project membership requires org membership, and logs both events", async () 
 });
 
 it("status create / rename / reorder write §3's payloads", async () => {
-  const o = await freshOrg("pj-status");
+  const o = await freshTeam("pj-status");
   const p = await createProject(ctxFor("pj-owner"), {
-    orgId: o.id,
+    teamId: o.id,
     slug: "web",
     name: "Web",
     key: "WEB",
@@ -286,9 +286,9 @@ it("status create / rename / reorder write §3's payloads", async () => {
 });
 
 it("recolors a status without changing its other properties and records the change", async () => {
-  const o = await freshOrg("pj-recolor");
+  const o = await freshTeam("pj-recolor");
   const p = await createProject(ctxFor("pj-owner"), {
-    orgId: o.id,
+    teamId: o.id,
     slug: "web",
     name: "Web",
     key: "WEB",
@@ -314,9 +314,9 @@ it("recolors a status without changing its other properties and records the chan
 });
 
 it("deleteStatus is blocked while tasks reference it, and moves them when given a target", async () => {
-  const o = await freshOrg("pj-delete");
+  const o = await freshTeam("pj-delete");
   const p = await createProject(ctxFor("pj-owner"), {
-    orgId: o.id,
+    teamId: o.id,
     slug: "web",
     name: "Web",
     key: "WEB",
@@ -380,9 +380,9 @@ it("deleteStatus is blocked while tasks reference it, and moves them when given 
 });
 
 it("status management needs the capability, not just project access", async () => {
-  const o = await freshOrg("pj-cap");
+  const o = await freshTeam("pj-cap");
   const p = await createProject(ctxFor("pj-owner"), {
-    orgId: o.id,
+    teamId: o.id,
     slug: "web",
     name: "Web",
     key: "WEB",

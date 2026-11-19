@@ -1,8 +1,7 @@
-import { Guide, guideMetadata } from "../guide";
-import { sections } from "./content";
+import { redirect } from "next/navigation";
 
-export const metadata = guideMetadata("organization-settings");
-
-export default function OrganizationSettingsPage() {
-  return <Guide topic="organization-settings" sections={sections} />;
+// Organization settings became Team settings when organizations were renamed to
+// teams; this keeps old links (and their #section anchors) working.
+export default function OldOrganizationSettingsPage() {
+  redirect("/docs/team-settings");
 }

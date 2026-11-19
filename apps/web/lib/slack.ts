@@ -3,7 +3,7 @@ import { and, asc, eq, exists, gt, lt, lte, notExists } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import { alias } from "drizzle-orm/sqlite-core";
 import { DomainError } from "@tasks/core/errors";
-import { org, project, projectSlack, slackOutbox, type SlackEvent } from "@tasks/core/schema";
+import { team, project, projectSlack, slackOutbox, type SlackEvent } from "@tasks/core/schema";
 
 const encoder = new TextEncoder();
 const MAX_ATTEMPTS = 5;
@@ -44,7 +44,7 @@ async function decryptWebhook(secret: string, projectId: string, encrypted: stri
   return webhookUrl(new TextDecoder().decode(plaintext));
 }
 
-function slackMessage(event: SlackEvent, origin: string, orgSlug: string, projectSlug: string) {
+function slackMessage(event: SlackEvent, origin: string, teamSlug: string, projectSlug: string) {
   const options = { unfurl_links: false, unfurl_media: false, mrkdwn: false };
   if (event.type === "test") return { ...options, text: "TasksHQ is connected to this Slack channel." };
 
@@ -52,7 +52,7 @@ function slackMessage(event: SlackEvent, origin: string, orgSlug: string, projec
     ? `${event.actor} created this work item in ${event.toStatus}.`
     : `${event.actor} moved it from ${event.fromStatus} to ${event.toStatus}.`;
   const summary = `${event.taskKey}  ${event.title}\n${transition}`;
-  const href = new URL(`/${encodeURIComponent(orgSlug)}/${encodeURIComponent(projectSlug)}/${encodeURIComponent(event.taskKey)}`, origin).href;
+  const href = new URL(`/${encodeURIComponent(teamSlug)}/${encodeURIComponent(projectSlug)}/${encodeURIComponent(event.taskKey)}`, origin).href;
   return {
     ...options,
     text: summary.replace(/[&<>]/g, (char) => char === "&" ? "&amp;" : char === "<" ? "&lt;" : "&gt;"),
@@ -123,10 +123,10 @@ export async function drainSlackOutbox(
     if (!claimed) return;
 
     const current = await db.select({
-      encryptedWebhook: projectSlack.encryptedWebhook, orgSlug: org.slug, projectSlug: project.slug,
+      encryptedWebhook: projectSlack.encryptedWebhook, teamSlug: team.slug, projectSlug: project.slug,
     }).from(projectSlack)
       .innerJoin(project, eq(project.id, projectSlack.projectId))
-      .innerJoin(org, eq(org.id, project.orgId))
+      .innerJoin(team, eq(team.id, project.teamId))
       .where(and(eq(projectSlack.projectId, job.projectId), eq(projectSlack.revision, job.revision))).get();
     if (!current) {
       await db.delete(slackOutbox).where(lease);
@@ -142,7 +142,7 @@ export async function drainSlackOutbox(
             eq(projectSlack.projectId, slackOutbox.projectId), eq(projectSlack.revision, slackOutbox.revision),
           )).where(and(lease, gt(slackOutbox.readyAt, Date.now() + REQUEST_TIMEOUT_MS))).get();
         if (!activeLease) return;
-        result = await deliverWebhook(url, slackMessage(job.payload, origin, current.orgSlug, current.projectSlug), request);
+        result = await deliverWebhook(url, slackMessage(job.payload, origin, current.teamSlug, current.projectSlug), request);
       } else {
         result = { error: "TasksHQ could not read the webhook. Replace it in project settings → Integrations." };
       }

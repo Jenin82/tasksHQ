@@ -12,7 +12,7 @@ import type { ActionState } from "@/lib/action-result";
 import { formatClock, formatDuration } from "@/lib/format";
 import { addDays, browserTimeZone, zonedTime, zonedWallTime } from "@/lib/time-zone";
 import { cn } from "@/lib/utils";
-import { deleteTimeEntryAction, stopTimerAction, updateTimeEntryAction, type TaskTimeEntry } from "@/app/[org]/time-actions";
+import { deleteTimeEntryAction, stopTimerAction, updateTimeEntryAction, type TaskTimeEntry } from "@/app/[team]/time-actions";
 
 /**
  * Timer controls live in the top bar, the task panel and Your time. Each
@@ -52,14 +52,14 @@ export function RunningClock({ since, ...props }: { since: Date } & ComponentPro
   );
 }
 
-/** The running timer, which can belong to another organization, so it links with its own slugs. */
+/** The running timer, which can belong to another team, so it links with its own slugs. */
 export function RunningTimerChip({ timer }: { timer: RunningTimer }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string>();
   return (
     <div className="relative flex h-8 shrink-0 items-center rounded-full bg-input text-sm">
       <Link
-        href={`/${timer.orgSlug}/${timer.projectSlug}/${timer.key}`}
+        href={`/${timer.teamSlug}/${timer.projectSlug}/${timer.key}`}
         prefetch={false}
         title={timer.title}
         aria-label={"Timer running on " + timer.key}

@@ -7,14 +7,14 @@ import {
   can,
   canProject,
   requireCapability,
-  requireOrgMember,
+  requireTeamMember,
   requireProjectMember,
 } from "@tasks/core/access";
-import { createStatus, removeOrgMember, removeProjectMember, setProjectMemberRole, setReportingLead } from "@tasks/core/domain";
+import { createStatus, removeTeamMember, removeProjectMember, setProjectMemberRole, setReportingLead } from "@tasks/core/domain";
 import {
-  org,
-  orgMember,
-  orgReportingLine,
+  team,
+  teamMember,
+  teamReportingLine,
   project,
   projectMember,
   user,
@@ -42,18 +42,18 @@ await db.insert(user).values(
   })),
 );
 
-await db.insert(org).values({
-  id: "ac-org",
-  slug: "ac-org",
+await db.insert(team).values({
+  id: "ac-team",
+  slug: "ac-team",
   name: "Access",
   createdAt: now,
 });
-await db.insert(orgMember).values([
-  { orgId: "ac-org", userId: USERS.owner, role: "owner", createdAt: now },
-  { orgId: "ac-org", userId: USERS.admin, role: "admin", createdAt: now },
-  { orgId: "ac-org", userId: USERS.member, role: "member", createdAt: now },
+await db.insert(teamMember).values([
+  { teamId: "ac-team", userId: USERS.owner, role: "owner", createdAt: now },
+  { teamId: "ac-team", userId: USERS.admin, role: "admin", createdAt: now },
+  { teamId: "ac-team", userId: USERS.member, role: "member", createdAt: now },
   {
-    orgId: "ac-org",
+    teamId: "ac-team",
     userId: USERS.projectMember,
     role: "member",
     createdAt: now,
@@ -61,7 +61,7 @@ await db.insert(orgMember).values([
 ]);
 await db.insert(project).values({
   id: "ac-project",
-  orgId: "ac-org",
+  teamId: "ac-team",
   slug: "ac-project",
   name: "Access",
   key: "ACC",
@@ -69,22 +69,22 @@ await db.insert(project).values({
 });
 // Only this one plain member gets an explicit row.
 await db.insert(projectMember).values({
-  orgId: "ac-org",
+  teamId: "ac-team",
   projectId: "ac-project",
   userId: USERS.projectMember,
 });
 
-it("requireOrgMember returns the member row, and hides the org from a stranger", async () => {
-  expect(await requireOrgMember(db, "ac-org", USERS.admin)).toMatchObject({
+it("requireTeamMember returns the member row, and hides the team from a stranger", async () => {
+  expect(await requireTeamMember(db, "ac-team", USERS.admin)).toMatchObject({
     role: "admin",
   });
 
   await expect(
-    requireOrgMember(db, "ac-org", USERS.stranger),
+    requireTeamMember(db, "ac-team", USERS.stranger),
   ).rejects.toMatchObject({ name: "AccessError", reason: "not_a_member" });
 });
 
-it("requireProjectMember admits an org owner and admin with no project_member row", async () => {
+it("requireProjectMember admits a team owner and admin with no project_member row", async () => {
   // §3's rule most likely to be implemented twice and diverge: implicit access
   // for owner/admin is what makes "manage project statuses/members" coherent.
   const rows = await db
@@ -101,7 +101,7 @@ it("requireProjectMember admits an org owner and admin with no project_member ro
   ).toMatchObject({ member: { role: "admin" } });
 });
 
-it("requireProjectMember admits an organization member without a project role", async () => {
+it("requireProjectMember admits a team member without a project role", async () => {
   expect(await requireProjectMember(db, "ac-project", USERS.member)).toMatchObject({
     project: { key: "ACC" }, member: { role: "member" }, projectRole: null,
   });
@@ -111,7 +111,7 @@ it("requireProjectMember admits an organization member without a project role", 
   ).toMatchObject({ project: { key: "ACC" }, member: { role: "member" } });
 });
 
-it("requireProjectMember hides a project in an org the caller is not in", async () => {
+it("requireProjectMember hides a project in a team the caller is not in", async () => {
   await expect(
     requireProjectMember(db, "ac-project", USERS.stranger),
   ).rejects.toMatchObject({ reason: "not_a_member" });
@@ -119,29 +119,29 @@ it("requireProjectMember hides a project in an org the caller is not in", async 
 
 await db.insert(project).values({
   id: "ac-second",
-  orgId: "ac-org",
+  teamId: "ac-team",
   slug: "ac-second",
   name: "Second",
   key: "SEC",
   createdAt: now,
 });
 
-it("revokes access to every project when a member leaves the organization", async () => {
+it("revokes access to every project when a member leaves the team", async () => {
   const userId = "ac-leaving";
   await db.insert(user).values({ id: userId, name: "Leaving", email: "leaving@access.test" });
-  await db.insert(orgMember).values({ orgId: "ac-org", userId, role: "member", createdAt: now });
+  await db.insert(teamMember).values({ teamId: "ac-team", userId, role: "member", createdAt: now });
   const owner = { db, actorUserId: USERS.owner, source: "web" as const };
 
   for (const id of ["ac-project", "ac-second"]) {
     await expect(requireProjectMember(db, id, userId)).resolves.toMatchObject({ member: { userId } });
   }
-  await removeOrgMember(owner, { orgId: "ac-org", userId });
+  await removeTeamMember(owner, { teamId: "ac-team", userId });
   for (const id of ["ac-project", "ac-second"]) {
     await expect(requireProjectMember(db, id, userId)).rejects.toMatchObject({ reason: "not_a_member" });
   }
 });
 
-it("grants project administration without organization or other project privileges", async () => {
+it("grants project administration without team or other project privileges", async () => {
   const owner = { db, actorUserId: USERS.owner, source: "web" as const };
   const projectAdmin = { ...owner, actorUserId: USERS.member };
   const scope = { projectId: "ac-project", userId: USERS.member };
@@ -150,7 +150,7 @@ it("grants project administration without organization or other project privileg
   const { projectRole } = await requireProjectMember(db, scope.projectId, USERS.member);
   expect(projectRole).toBe("admin");
   expect(canProject("member", projectRole, "project:manage_members")).toBe(true);
-  expect(canProject("member", projectRole, "org:manage_members")).toBe(false);
+  expect(canProject("member", projectRole, "team:manage_members")).toBe(false);
   expect(canProject("member", projectRole, "project:delete")).toBe(false);
   await expect(createStatus(projectAdmin, { projectId: scope.projectId, name: "Review" }))
     .resolves.toMatchObject({ name: "Review" });
@@ -170,24 +170,24 @@ it("grants project administration without organization or other project privileg
 
 it("prevents concurrent reporting changes from creating a cycle", async () => {
   const owner = { db, actorUserId: USERS.owner, source: "web" as const };
-  const orgId = "ac-org";
+  const teamId = "ac-team";
   const outcomes = await Promise.allSettled([
-    setReportingLead(owner, { orgId, userId: USERS.member, leadUserId: USERS.projectMember }),
-    setReportingLead(owner, { orgId, userId: USERS.projectMember, leadUserId: USERS.member }),
+    setReportingLead(owner, { teamId, userId: USERS.member, leadUserId: USERS.projectMember }),
+    setReportingLead(owner, { teamId, userId: USERS.projectMember, leadUserId: USERS.member }),
   ]);
   expect(outcomes.filter(({ status }) => status === "fulfilled")).toHaveLength(1);
   expect(outcomes.find(({ status }) => status === "rejected")).toMatchObject({
     reason: { message: "This reporting line would create a cycle." },
   });
-  expect(await db.select().from(orgReportingLine).where(eq(orgReportingLine.orgId, orgId))).toHaveLength(1);
+  expect(await db.select().from(teamReportingLine).where(eq(teamReportingLine.teamId, teamId))).toHaveLength(1);
 });
 
 it("keeps a reporting line intact when a form submits an outdated lead", async () => {
   const owner = { db, actorUserId: USERS.owner, source: "web" as const };
-  const report = { orgId: "ac-org", userId: USERS.admin };
-  const readLine = () => db.select().from(orgReportingLine).where(and(
-    eq(orgReportingLine.orgId, report.orgId),
-    eq(orgReportingLine.userId, report.userId),
+  const report = { teamId: "ac-team", userId: USERS.admin };
+  const readLine = () => db.select().from(teamReportingLine).where(and(
+    eq(teamReportingLine.teamId, report.teamId),
+    eq(teamReportingLine.userId, report.userId),
   ));
   const stale = { message: "This reporting line changed. Refresh the page and try again." };
 
@@ -207,15 +207,15 @@ it("keeps a reporting line intact when a form submits an outdated lead", async (
 });
 
 it("the role matrix matches PLAN §3", async () => {
-  for (const capability of ["org:delete", "project:delete"] as const) {
+  for (const capability of ["team:delete", "project:delete"] as const) {
     expect(can("owner", capability)).toBe(true);
     expect(can("admin", capability)).toBe(false);
     expect(can("member", capability)).toBe(false);
   }
 
   for (const capability of [
-    "org:manage_members",
-    "org:change_role",
+    "team:manage_members",
+    "team:change_role",
     "project:create",
     "project:manage_statuses",
     "project:manage_members",
@@ -228,7 +228,7 @@ it("the role matrix matches PLAN §3", async () => {
   expect(() => requireCapability("member", "project:create")).toThrow(
     AccessError,
   );
-  expect(() => requireCapability("admin", "org:delete")).toThrowError(
-    /cannot perform "org:delete"/,
+  expect(() => requireCapability("admin", "team:delete")).toThrowError(
+    /cannot perform "team:delete"/,
   );
 });

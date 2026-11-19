@@ -2,11 +2,11 @@ import { and, eq } from "drizzle-orm";
 import { marked } from "marked";
 import { AccessError } from "@tasks/core/access";
 import { getTaskSummaryByKey, parseTaskKey, type TaskTypeRef } from "@tasks/core/domain";
-import { org, project, type Status, type TaskPriority } from "@tasks/core/schema";
+import { team, project, type Status, type TaskPriority } from "@tasks/core/schema";
 import { db } from "@/lib/db";
 import { getUser } from "@/lib/session";
 
-export type TaskPreviewParams = { org: string; project: string; task: string };
+export type TaskPreviewParams = { team: string; project: string; task: string };
 
 export type TaskPreview = {
   key: string;
@@ -21,7 +21,7 @@ export type TaskPreview = {
 export const taskPreviewSize = { width: 1200, height: 630 };
 
 export function taskPreviewPath(params: TaskPreviewParams, key = params.task) {
-  return "/" + [params.org, params.project, key].map(encodeURIComponent).join("/");
+  return "/" + [params.team, params.project, key].map(encodeURIComponent).join("/");
 }
 
 export function compactPreviewText(text: string, limit: number) {
@@ -65,8 +65,8 @@ export async function readPrivateTaskPreview(params: TaskPreviewParams) {
   const [scope] = await db
     .select({ id: project.id })
     .from(project)
-    .innerJoin(org, eq(org.id, project.orgId))
-    .where(and(eq(org.slug, params.org), eq(project.slug, params.project)))
+    .innerJoin(team, eq(team.id, project.teamId))
+    .where(and(eq(team.slug, params.team), eq(project.slug, params.project)))
     .limit(1);
   if (!scope) return null;
 

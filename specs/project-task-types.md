@@ -2,7 +2,7 @@
 
 Each project starts with Task, Bug, Feature, and Knowledge Transfer (KT). Task is the initial default. Every existing work item is assigned its project's Task type during the migration.
 
-Project admins and organization admins or owners can add and rename types, set the default, and remove unused types. The default must be changed before it can be removed. Active and archived tasks both count as usage. Changing the default applies to future work items. Renaming a type keeps existing assignments intact. Each type has a color from the status palette and an icon chosen from Clipboard, Bug, Sparkles, Book, Wrench, Flag, Star, and Lightning. The icon uses the selected color.
+Project admins and team admins or owners can add and rename types, set the default, and remove unused types. The default must be changed before it can be removed. Active and archived tasks both count as usage. Changing the default applies to future work items. Renaming a type keeps existing assignments intact. Each type has a color from the status palette and an icon chosen from Clipboard, Bug, Sparkles, Book, Wrench, Flag, Star, and Lightning. The icon uses the selected color.
 
 The create dialog offers the project's types and initially selects its default. Quick creation uses the default and opens task details, where members can change the type. Board, table, and assignment views show the type. Activity records capture the names at the time of a change.
 

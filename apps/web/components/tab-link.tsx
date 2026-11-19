@@ -11,7 +11,7 @@ import { ProjectTabSkeleton } from "./project-tab-skeleton";
 import { ProjectFiltersContext, ProjectFilterSlot, type FilterView } from "./project-filters-context";
 import { WorkspaceNavigationToggle } from "./workspace-navigation";
 import { useSavedTaskFilters } from "./use-saved-task-filters";
-import { TaskTypeEditContext } from "@/app/[org]/[project]/table/inline-task-field";
+import { TaskTypeEditContext } from "@/app/[team]/[project]/table/inline-task-field";
 import { AddWorkItemButton, type CreateTarget } from "./workspace-create";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 

@@ -9,7 +9,7 @@ export default function Forbidden() {
           Not your call
         </h1>
         <p className="mt-2 text-base text-muted-foreground">
-          Your role in this organization does not allow that. An owner or an
+          Your role in this team does not allow that. An owner or an
           admin can do it for you.
         </p>
         <Link href="/" className="stutter mt-8 inline-block hover:text-foreground">

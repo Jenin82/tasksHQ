@@ -9,7 +9,7 @@ export default function NotFound() {
           Nothing here
         </h1>
         <p className="mt-2 text-base text-muted-foreground">
-          That page does not exist, or it belongs to an organization you are not
+          That page does not exist, or it belongs to a team you are not
           a member of.
         </p>
         <Link href="/" className="stutter mt-8 inline-block hover:text-foreground">

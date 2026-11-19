@@ -2,24 +2,24 @@ import { env } from "cloudflare:test";
 import { drizzle } from "drizzle-orm/d1";
 import { describe, expect, it, vi } from "vitest";
 import {
-  createOrg,
+  createTeam,
   createProject,
   createTask,
   listTimeReportEntries,
   OutOfReportScope,
   overlapMs,
-  removeOrgMember,
+  removeTeamMember,
   setReportingLead,
   type TimeReportEntry,
 } from "@tasks/core/domain";
-import { orgMember, timeEntry, user } from "@tasks/core/schema";
-import { clampEntries, csvDocument, csvField, parseReportRange } from "@/app/[org]/(org)/settings/time/range";
+import { teamMember, timeEntry, user } from "@tasks/core/schema";
+import { clampEntries, csvDocument, csvField, parseReportRange } from "@/app/[team]/(team)/settings/time/range";
 
 const actor = vi.hoisted(() => ({ id: "" }));
 vi.mock("@/lib/session", () => ({
   requireUser: async () => ({ id: actor.id, name: actor.id, email: `${actor.id}@tr.test` }),
 }));
-const { GET } = await import("@/app/[org]/(org)/settings/time/export/route");
+const { GET } = await import("@/app/[team]/(team)/settings/time/export/route");
 
 const db = drizzle(env.DB);
 const HOUR_MS = 3_600_000;
@@ -36,31 +36,31 @@ const ctx = (actorUserId: string) => ({ db, actorUserId, source: "web" as const 
 
 const ownerId = await makeUser();
 const owner = ctx(ownerId);
-const workspace = await createOrg(owner, { slug: "tr-space", name: "Reports" });
-const otherWorkspace = await createOrg(owner, { slug: "tr-other", name: "Other" });
+const workspace = await createTeam(owner, { slug: "tr-space", name: "Reports" });
+const otherWorkspace = await createTeam(owner, { slug: "tr-other", name: "Other" });
 
-async function addMember(userId: string, orgId = workspace.id, role: "member" | "admin" = "member") {
-  await db.insert(orgMember).values({ orgId, userId, role, createdAt: new Date() });
+async function addMember(userId: string, teamId = workspace.id, role: "member" | "admin" = "member") {
+  await db.insert(teamMember).values({ teamId, userId, role, createdAt: new Date() });
 }
-async function makeMember(role: "member" | "admin" = "member", orgIds = [workspace.id], name?: string, timezone?: string) {
+async function makeMember(role: "member" | "admin" = "member", teamIds = [workspace.id], name?: string, timezone?: string) {
   const id = await makeUser(name, timezone);
-  for (const orgId of orgIds) await addMember(id, orgId, role);
+  for (const teamId of teamIds) await addMember(id, teamId, role);
   return id;
 }
 
 let projectSeq = 0;
-async function makeTask(orgId = workspace.id, title = "Report me", name = "P") {
-  const p = await createProject(owner, { orgId, slug: `tr-${projectSeq}`, key: `TR${projectSeq++}`, name });
+async function makeTask(teamId = workspace.id, title = "Report me", name = "P") {
+  const p = await createProject(owner, { teamId, slug: `tr-${projectSeq}`, key: `TR${projectSeq++}`, name });
   return createTask(owner, { projectId: p.id, title });
 }
 const task = await makeTask();
 const otherTask = await makeTask(otherWorkspace.id);
 
-async function log(userId: string, startedAt: number, endedAt: number | null, t = task, orgId = workspace.id, note: string | null = null) {
+async function log(userId: string, startedAt: number, endedAt: number | null, t = task, teamId = workspace.id, note: string | null = null) {
   const id = crypto.randomUUID();
   const now = new Date();
   await db.insert(timeEntry).values({
-    id, orgId, taskId: t.id, userId, startedAt: new Date(startedAt), endedAt: endedAt === null ? null : new Date(endedAt), note,
+    id, teamId, taskId: t.id, userId, startedAt: new Date(startedAt), endedAt: endedAt === null ? null : new Date(endedAt), note,
     kind: endedAt === null ? "timer" : "manual", source: "web", createdAt: now, updatedAt: now,
   });
   return id;
@@ -70,7 +70,7 @@ async function log(userId: string, startedAt: number, endedAt: number | null, t 
 const WEEK_FROM = new Date(Date.UTC(2026, 2, 2));
 const WEEK_TO = new Date(Date.UTC(2026, 2, 9));
 const AT = Date.UTC(2026, 2, 3, 10);
-const week = { orgId: workspace.id, from: WEEK_FROM, to: WEEK_TO };
+const week = { teamId: workspace.id, from: WEEK_FROM, to: WEEK_TO };
 const ids = (entries: TimeReportEntry[]) => [...new Set(entries.map((e) => e.userId))].sort();
 
 // Team: lead ← report ← indirect; plus a plain member, an admin and a leaver.
@@ -80,11 +80,11 @@ const reportId = await makeMember();
 const indirectId = await makeMember();
 const memberId = await makeMember("member", [workspace.id, otherWorkspace.id]);
 const leaverId = await makeMember();
-await setReportingLead(owner, { orgId: workspace.id, userId: reportId, leadUserId: leadId });
-await setReportingLead(owner, { orgId: workspace.id, userId: indirectId, leadUserId: reportId });
+await setReportingLead(owner, { teamId: workspace.id, userId: reportId, leadUserId: leadId });
+await setReportingLead(owner, { teamId: workspace.id, userId: indirectId, leadUserId: reportId });
 for (const id of [ownerId, adminId, leadId, reportId, indirectId, memberId, leaverId]) await log(id, AT, AT + HOUR_MS);
 await log(memberId, AT, AT + HOUR_MS, otherTask, otherWorkspace.id);
-await removeOrgMember(owner, { orgId: workspace.id, userId: leaverId });
+await removeTeamMember(owner, { teamId: workspace.id, userId: leaverId });
 
 describe("listTimeReportEntries scope", () => {
   it("shows a member only their own entries", async () => {
@@ -99,14 +99,14 @@ describe("listTimeReportEntries scope", () => {
     const lead2 = await makeMember();
     const report2 = await makeMember();
     await log(report2, AT, AT + HOUR_MS);
-    await setReportingLead(owner, { orgId: workspace.id, userId: report2, leadUserId: lead2 });
+    await setReportingLead(owner, { teamId: workspace.id, userId: report2, leadUserId: lead2 });
     expect(ids(await listTimeReportEntries(ctx(lead2), week))).toEqual([report2]);
-    await setReportingLead(owner, { orgId: workspace.id, userId: report2, leadUserId: null });
+    await setReportingLead(owner, { teamId: workspace.id, userId: report2, leadUserId: null });
     expect(await listTimeReportEntries(ctx(lead2), week)).toEqual([]);
     await expect(listTimeReportEntries(ctx(lead2), { ...week, userId: report2 })).rejects.toBeInstanceOf(OutOfReportScope);
   });
 
-  it("shows owners and admins everyone, including a removed member, and never another org", async () => {
+  it("shows owners and admins everyone, including a removed member, and never another team", async () => {
     const everyone = [ownerId, adminId, leadId, reportId, indirectId, memberId, leaverId].sort();
     for (const viewer of [ownerId, adminId]) {
       const entries = await listTimeReportEntries(ctx(viewer), week);
@@ -114,7 +114,7 @@ describe("listTimeReportEntries scope", () => {
       expect(entries.some((e) => e.taskId === otherTask.id)).toBe(false);
     }
     expect(ids(await listTimeReportEntries(ctx(adminId), { ...week, userId: leaverId }))).toEqual([leaverId]);
-    const elsewhere = await listTimeReportEntries(ctx(memberId), { ...week, orgId: otherWorkspace.id });
+    const elsewhere = await listTimeReportEntries(ctx(memberId), { ...week, teamId: otherWorkspace.id });
     expect(elsewhere.map((e) => e.taskId)).toEqual([otherTask.id]);
   });
 
@@ -145,7 +145,7 @@ describe("running entries", () => {
     const now = Date.now();
     const startedAt = now - 13 * HOUR_MS;
     await log(userId, startedAt, null);
-    const [entry] = await listTimeReportEntries(ctx(userId), { orgId: workspace.id, from: new Date(now - DAY_MS), to: new Date(now + HOUR_MS) });
+    const [entry] = await listTimeReportEntries(ctx(userId), { teamId: workspace.id, from: new Date(now - DAY_MS), to: new Date(now + HOUR_MS) });
     expect(entry.running).toBe(true);
     expect(entry.endedAt.getTime()).toBe(startedAt + 12 * HOUR_MS);
   });
@@ -157,7 +157,7 @@ describe("running entries", () => {
     for (const hoursBefore of [13, 24]) {
       const userId = await makeMember();
       await log(userId, from - hoursBefore * HOUR_MS, null);
-      const entries = await listTimeReportEntries(ctx(userId), { orgId: workspace.id, from: new Date(from), to: new Date(to) });
+      const entries = await listTimeReportEntries(ctx(userId), { teamId: workspace.id, from: new Date(from), to: new Date(to) });
       for (const e of entries) expect(overlapMs(e.startedAt.getTime(), e.endedAt.getTime(), from, to)).toBe(0);
     }
   });
@@ -242,7 +242,7 @@ describe("CSV helpers", () => {
 
 describe("export route", () => {
   const exportCsv = (slug = workspace.slug, query = "week=2026-03-02") =>
-    GET(new Request(`http://local/${slug}/settings/time/export?${query}`), { params: Promise.resolve({ org: slug }) });
+    GET(new Request(`http://local/${slug}/settings/time/export?${query}`), { params: Promise.resolve({ team: slug }) });
   const lines = async (response: Response) => (await response.text()).replace(/^﻿/, "").split("\r\n").filter(Boolean);
 
   it("gives an admin a CSV of everyone with download headers", async () => {
@@ -293,7 +293,7 @@ describe("export route", () => {
     expect(row).toContain(`,"'+1 call, follow-up",`);
   });
 
-  it("404s for a person outside scope and for an org the user is not in", async () => {
+  it("404s for a person outside scope and for a team the user is not in", async () => {
     actor.id = memberId;
     await expect(exportCsv(workspace.slug, `week=2026-03-02&person=${ownerId}`)).rejects.toMatchObject(notFound);
     actor.id = leaverId;

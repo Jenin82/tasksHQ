@@ -36,13 +36,13 @@ const CRUMB_TARGET =
  * unreachable slug never shows a name.
  */
 export function TopBar({
-  org,
+  team,
   role,
   projects,
   user,
   runningTimer,
 }: {
-  org: Crumb;
+  team: Crumb;
   role: string;
   projects: (Crumb & { key: string })[];
   user: AccountUser;
@@ -55,17 +55,17 @@ export function TopBar({
     <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center gap-1.5 border-b border-border bg-background px-3 sm:gap-3 sm:px-6">
       <Link
         href="/"
-        aria-label="All organizations"
+        aria-label="All teams"
         className="shrink-0 rounded-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <Mark className="size-4" />
       </Link>
 
-      {/* The org crumb links to the org's project page (`/[org]`, §26), never
+      {/* The team crumb links to the team's project page (`/[team]`, §26), never
           straight to a board: that page is where a project is picked and the
-          only way into the org's settings. Switching orgs moved to the sidebar. */}
-      <Link href={`/${org.slug}`} className={`flex min-w-0 items-center gap-2 px-2 py-1 ${CRUMB_TARGET}`}>
-        <span className="truncate">{org.name}</span>
+          only way into the team's settings. Switching teams moved to the sidebar. */}
+      <Link href={`/${team.slug}`} className={`flex min-w-0 items-center gap-2 px-2 py-1 ${CRUMB_TARGET}`}>
+        <span className="truncate">{team.name}</span>
         <span className="stutter hidden shrink-0 sm:inline">{role}</span>
       </Link>
 
@@ -74,13 +74,13 @@ export function TopBar({
           <span aria-hidden className="text-muted-foreground">
             /
           </span>
-          <ProjectSwitcher org={org} project={project} projects={projects} />
+          <ProjectSwitcher team={team} project={project} projects={projects} />
         </div>
       ) : null}
 
-      {/* min-w-9 keeps the search icon from collapsing under the timer chip; the org name truncates instead. */}
+      {/* min-w-9 keeps the search icon from collapsing under the timer chip; the team name truncates instead. */}
       <div className="ml-auto flex min-w-9 justify-center sm:flex-1">
-        <WorkspaceSearch key={org.slug} org={org.slug} />
+        <WorkspaceSearch key={team.slug} team={team.slug} />
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {runningTimer && <RunningTimerChip timer={runningTimer} />}
@@ -96,8 +96,8 @@ export function TopBar({
   );
 }
 
-function ProjectSwitcher({ org, project, projects }: {
-  org: Crumb;
+function ProjectSwitcher({ team, project, projects }: {
+  team: Crumb;
   project: Crumb & { key: string };
   projects: (Crumb & { key: string })[];
 }) {
@@ -105,14 +105,14 @@ function ProjectSwitcher({ org, project, projects }: {
   return (
     <Switcher
       label="Switch project"
-      href={projectHref(`/${org.slug}/${project.slug}`)}
+      href={projectHref(`/${team.slug}/${project.slug}`)}
       current={project.slug}
       items={projects.map((p) => ({
         ...p,
-        href: projectHref(`/${org.slug}/${p.slug}`),
+        href: projectHref(`/${team.slug}/${p.slug}`),
         keywords: [p.name, p.key],
       }))}
-      footer={{ label: "All projects", href: `/${org.slug}` }}
+      footer={{ label: "All projects", href: `/${team.slug}` }}
     >
       <span className="truncate">{project.name}</span>
       <span className="stutter hidden shrink-0 sm:inline">{project.key}</span>

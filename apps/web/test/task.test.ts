@@ -6,7 +6,7 @@ import {
   addComment,
   addProjectMember,
   archiveTask,
-  createOrg,
+  createTeam,
   createProject,
   createProjectTaskType,
   createStatus,
@@ -26,7 +26,7 @@ import {
 import {
   activity,
   comment,
-  orgMember,
+  teamMember,
   project,
   projectTaskType,
   status,
@@ -55,18 +55,18 @@ function ctxFor(userId: string) {
 }
 
 /**
- * A project owned by `tk-owner`, with `tk-admin` an org admin and `tk-member`
- * a plain org member — neither holding a `project_member` row unless the test
+ * A project owned by `tk-owner`, with `tk-admin` a team admin and `tk-member`
+ * a plain team member — neither holding a `project_member` row unless the test
  * adds one.
  */
 async function freshProject(slug: string, key: string) {
-  const org = await createOrg(ctxFor("tk-owner"), { slug, name: slug });
-  await db.insert(orgMember).values([
-    { orgId: org.id, userId: "tk-admin", role: "admin", createdAt: now },
-    { orgId: org.id, userId: "tk-member", role: "member", createdAt: now },
+  const team = await createTeam(ctxFor("tk-owner"), { slug, name: slug });
+  await db.insert(teamMember).values([
+    { teamId: team.id, userId: "tk-admin", role: "admin", createdAt: now },
+    { teamId: team.id, userId: "tk-member", role: "member", createdAt: now },
   ]);
   const p = await createProject(ctxFor("tk-owner"), {
-    orgId: org.id,
+    teamId: team.id,
     slug: "web",
     name: "Web",
     key,
@@ -76,7 +76,7 @@ async function freshProject(slug: string, key: string) {
     .from(status)
     .where(eq(status.projectId, p.id))
     .orderBy(asc(status.position), asc(status.id));
-  return { org, project: p, todo: statuses[0], doing: statuses[1], done: statuses[2] };
+  return { team, project: p, todo: statuses[0], doing: statuses[1], done: statuses[2] };
 }
 
 function taskActivity(taskId: string) {
@@ -94,9 +94,9 @@ function finishTaskSetup(taskId: string) {
 }
 
 it("uses the next destination key, matches project fields and keeps archived work and its history", async () => {
-  const { org, project: source } = await freshProject("tk-transfer-history", "TRH");
+  const { team, project: source } = await freshProject("tk-transfer-history", "TRH");
   const owner = ctxFor("tk-owner");
-  const target = await createProject(owner, { orgId: org.id, slug: "target", key: "TRD", name: "Target" });
+  const target = await createProject(owner, { teamId: team.id, slug: "target", key: "TRD", name: "Target" });
   const sourceStatus = await createStatus(owner, { projectId: source.id, name: "Needs Review" });
   const targetStatus = await createStatus(owner, { projectId: target.id, name: "Needs review" });
   const sourceType = await createProjectTaskType(owner, { projectId: source.id, name: "Follow-up" });
@@ -146,11 +146,11 @@ it("uses the next destination key, matches project fields and keeps archived wor
   expect((await taskActivity(created.id)).map(({ projectId }) => projectId)).toEqual(Array(4).fill(target.id));
 });
 
-it("lets an organization member transfer work and retain the assignment across projects", async () => {
-  const { org, project: source } = await freshProject("tk-transfer-access", "TRA");
+it("lets a team member transfer work and retain the assignment across projects", async () => {
+  const { team, project: source } = await freshProject("tk-transfer-access", "TRA");
   const owner = ctxFor("tk-owner");
   const member = ctxFor("tk-member");
-  const target = await createProject(owner, { orgId: org.id, slug: "target", key: "TRB", name: "Target" });
+  const target = await createProject(owner, { teamId: team.id, slug: "target", key: "TRB", name: "Target" });
   const { project: foreign } = await freshProject("tk-transfer-foreign", "TRF");
   const customStatus = await createStatus(owner, { projectId: source.id, name: "Waiting for review" });
   const customType = await createProjectTaskType(owner, { projectId: source.id, name: "Review" });
@@ -179,10 +179,10 @@ it("lets an organization member transfer work and retain the assignment across p
 });
 
 it("rejects a stale transfer and resolves old keys to the latest project after repeated moves", async () => {
-  const { org, project: source } = await freshProject("tk-transfer-aliases", "TAL");
+  const { team, project: source } = await freshProject("tk-transfer-aliases", "TAL");
   const owner = ctxFor("tk-owner");
-  const middle = await createProject(owner, { orgId: org.id, slug: "middle", key: "MID", name: "Middle" });
-  const target = await createProject(owner, { orgId: org.id, slug: "target", key: "TAT", name: "Target" });
+  const middle = await createProject(owner, { teamId: team.id, slug: "middle", key: "MID", name: "Middle" });
+  const target = await createProject(owner, { teamId: team.id, slug: "target", key: "TAT", name: "Target" });
   const created = await createTask(owner, { projectId: source.id, title: "Move me", description: "Initial" });
   const input = { taskId: created.id, sourceProjectId: source.id, destinationProjectId: middle.id };
   const originalKey = { projectId: source.id, key: created.key };
@@ -659,7 +659,7 @@ it("logs assignee changes as task.updated, with null meaningful on either side",
   });
 });
 
-it("assigns organization members without project role rows and rejects outsiders", async () => {
+it("assigns team members without project role rows and rejects outsiders", async () => {
   const { project: p } = await freshProject("tk-assignable", "ABL");
   const owner = ctxFor("tk-owner");
   const member = ctxFor("tk-member");
@@ -670,7 +670,7 @@ it("assigns organization members without project role rows and rejects outsiders
   expect(item.assignee).toEqual({ id: member.actorUserId, displayName: "TK-MEMBER" });
 
   await expect(createTask(owner, { projectId: p.id, title: "Outside", assigneeUserId: outsider }))
-    .rejects.toThrowError(/member of this organization/);
+    .rejects.toThrowError(/member of this team/);
   await expect(updateTask(owner, { taskId: item.id, assigneeUserId: outsider }))
     .rejects.toMatchObject({ name: "DomainError" });
 
@@ -702,9 +702,9 @@ it("sets a reporter on create and update, logs the change, and rejects outsiders
   expect(t.createdBy.id).toBe("tk-owner");
 
   await expect(createTask(owner, { projectId: p.id, title: "Outside", reporterUserId: "tk-outsider" }))
-    .rejects.toThrowError("That user must be a member of this organization.");
+    .rejects.toThrowError("That user must be a member of this team.");
   await expect(updateTask(owner, { taskId: t.id, reporterUserId: "tk-outsider" }))
-    .rejects.toThrowError("That user must be a member of this organization.");
+    .rejects.toThrowError("That user must be a member of this team.");
 
   await finishTaskSetup(t.id);
   const before = (await taskActivity(t.id)).length;
@@ -911,7 +911,7 @@ it("records a comment with its source, and logs comment.added", async () => {
   ).rejects.toThrowError(/cannot be empty/);
 });
 
-it("accepts a selected organization member and rejects malformed or out-of-organization mentions", async () => {
+it("accepts a selected team member and rejects malformed or out-of-team mentions", async () => {
   const { project: p } = await freshProject("tk-mentions", "TMN");
   const owner = ctxFor("tk-owner");
   const item = await createTask(owner, { projectId: p.id, title: "Mention validation" });
@@ -936,10 +936,10 @@ it("accepts a selected organization member and rejects malformed or out-of-organ
   }]);
 });
 
-it("admits an org admin with no project_member row, and refuses an outsider everywhere", async () => {
+it("admits a team admin with no project_member row, and refuses an outsider everywhere", async () => {
   const { project: p, doing } = await freshProject("tk-access", "ACC");
 
-  // §3: owner/admin reach every project in their org without a row.
+  // §3: owner/admin reach every project in their team without a row.
   const [rows] = await db
     .select({ c: sql<number>`count(*)` })
     .from(project)

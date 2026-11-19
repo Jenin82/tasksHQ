@@ -26,7 +26,8 @@ export function readFilters(key: string, previousDefaultAssignee?: string): Proj
       query: saved.query,
       status: saved.status,
       type: saved.type,
-      organization: typeof saved.organization === "string" ? saved.organization : "",
+      // Filters saved before organizations became teams stored this as `organization`.
+      team: typeof saved.team === "string" ? saved.team : typeof saved.organization === "string" ? saved.organization : "",
       projectId: typeof saved.projectId === "string" ? saved.projectId : "",
       assignees,
       creators: people(saved.creators),

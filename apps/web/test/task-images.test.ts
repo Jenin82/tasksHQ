@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { drizzle } from "drizzle-orm/d1";
 import { expect, it, vi } from "vitest";
-import { createOrg, createProject } from "@tasks/core/domain";
+import { createTeam, createProject } from "@tasks/core/domain";
 import { user } from "@tasks/core/schema";
 import {
   MAX_TASK_IMAGE_BYTES,
@@ -19,21 +19,21 @@ vi.mock("@/lib/session", () => ({
   requireUser: async () => ({ id: actor.id, name: actor.id, email: `${actor.id}@images.test` }),
 }));
 
-const { POST } = await import("@/app/[org]/[project]/images/route");
-const { GET } = await import("@/app/[org]/[project]/images/[image]/route");
+const { POST } = await import("@/app/[team]/[project]/images/route");
+const { GET } = await import("@/app/[team]/[project]/images/[image]/route");
 
 const db = drizzle(env.DB);
 await db.insert(user).values([owner, outsider].map((id) => ({
   id, name: id, email: `${id}@images.test`,
 })));
 const ctx = { db, actorUserId: owner, source: "web" as const };
-const org = await createOrg(ctx, { slug: "img-org", name: "Image test org" });
-const project = await createProject(ctx, { orgId: org.id, slug: "img-project", name: "Image test project", key: "IMG" });
-const sibling = await createProject(ctx, { orgId: org.id, slug: "img-sibling", name: "Image test sibling", key: "IMGS" });
+const team = await createTeam(ctx, { slug: "img-team", name: "Image test team" });
+const project = await createProject(ctx, { teamId: team.id, slug: "img-project", name: "Image test project", key: "IMG" });
+const sibling = await createProject(ctx, { teamId: team.id, slug: "img-sibling", name: "Image test sibling", key: "IMGS" });
 
 const origin = "http://localhost:5173";
-const endpoint = `${origin}/${org.slug}/${project.slug}/images`;
-const params = Promise.resolve({ org: org.slug, project: project.slug });
+const endpoint = `${origin}/${team.slug}/${project.slug}/images`;
+const params = Promise.resolve({ team: team.slug, project: project.slug });
 const notFound = { digest: "NEXT_HTTP_ERROR_FALLBACK;404" };
 const png = Uint8Array.fromBase64("iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKElEQVR4nO3NMQ0AAAgDsHlFOU6mgoOkSf8ms7cEAoFAIBAIBALBl6BUYRBMxBld8AAAAABJRU5ErkJggg==");
 const webp = Uint8Array.from(atob("UklGRj4AAABXRUJQVlA4IDIAAADQAQCdASoBAAEAAUAmJaACdLoB+AADsAD+6SIf+8+fufP3Pn/Rn/+U/fI4/kcf/KBAAA=="), (c) => c.charCodeAt(0));
@@ -45,8 +45,8 @@ function upload(body: BodyInit, requestOrigin: string | null = origin) {
 }
 
 function download(image: string, projectSlug = project.slug) {
-  return GET(new Request(`${origin}/${org.slug}/${projectSlug}/images/${image}`), {
-    params: Promise.resolve({ org: org.slug, project: projectSlug, image }),
+  return GET(new Request(`${origin}/${team.slug}/${projectSlug}/images/${image}`), {
+    params: Promise.resolve({ team: team.slug, project: projectSlug, image }),
   });
 }
 
@@ -55,7 +55,7 @@ it.each([null, "https://other.example"])("rejects an upload with origin %s", asy
   expect((await upload(png, requestOrigin)).status).toBe(403);
 });
 
-it("requires organization membership before reading or accepting a project image", async () => {
+it("requires team membership before reading or accepting a project image", async () => {
   const id = crypto.randomUUID();
   await env.TASK_IMAGES.put(taskImageKey(project.id, id), webp);
   actor.id = outsider;
@@ -77,7 +77,7 @@ it("rejects a streamed upload over the limit and non-image bytes claiming to be 
   expect(oversized.status).toBe(400);
   expect(await oversized.json()).toMatchObject({ error: expect.stringContaining("5 MB") });
 
-  const svg = await upload('<svg xmlns="http://www.w3.org/2000/svg"/>');
+  const svg = await upload('<svg xmlns="http://www.w3.team/2000/svg"/>');
   expect(svg.status).toBe(400);
   expect(await svg.json()).toMatchObject({ error: expect.stringContaining("PNG") });
 });
@@ -103,8 +103,8 @@ it("serves a project's image privately and cannot reuse the same ID through anot
 
 it("copies each referenced attachment once and rewrites only Markdown destinations for the source project", async () => {
   const id = crypto.randomUUID();
-  const sourcePath = taskImagePath(org.slug, project.slug, id);
-  const missingPath = taskImagePath(org.slug, project.slug, crypto.randomUUID());
+  const sourcePath = taskImagePath(team.slug, project.slug, id);
+  const missingPath = taskImagePath(team.slug, project.slug, crypto.randomUUID());
   const externalUrl = `https://example.com${sourcePath}`;
   await env.TASK_IMAGES.put(taskImageKey(project.id, id), webp, {
     httpMetadata: { contentType: "image/webp" },
@@ -119,10 +119,10 @@ it("copies each referenced attachment once and rewrites only Markdown destinatio
     `![Missing](${missingPath})`,
   ].join("\n\n");
 
-  const rewritten = await transferTaskImages(description, org.slug, project, sibling);
+  const rewritten = await transferTaskImages(description, team.slug, project, sibling);
   const [image, escaped, link, reference, code, external, missing] = rewritten.split("\n\n");
   const copiedPath = image.match(/^!\[Diagram\]\((.*)\)$/)?.[1] ?? "";
-  expect(copiedPath.startsWith(taskImagePath(org.slug, sibling.slug, ""))).toBe(true);
+  expect(copiedPath.startsWith(taskImagePath(team.slug, sibling.slug, ""))).toBe(true);
   expect(escaped).toBe(`![Escaped](${copiedPath})`);
   expect(link).toBe("[Original][diagram]");
   expect(reference).toBe(`[diagram]: ${copiedPath}`);

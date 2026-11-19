@@ -10,6 +10,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: "2026-11-19-organizations-are-teams",
+    date: "2026-11-19",
+    title: "Organizations are now teams",
+    items: [
+      "Organizations are now called teams. Your members, projects, roles and links stay the same.",
+      "Your Team is now Your Reports.",
+      "Reporting lines moved to their own settings page. Old links still take you there.",
+      "MCP tools take and return team instead of org. The old org input still works for now.",
+    ],
+  },
+  {
     id: "2026-11-18-sidebar-organizations",
     date: "2026-11-18",
     title: "Organizations in the sidebar",

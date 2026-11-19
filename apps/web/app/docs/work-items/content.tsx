@@ -19,10 +19,10 @@ export const sections: GuideSection[] = [
     searchTerms: ["reporter", "requester", "reported by"],
     content: <>
       <p>Select a work item to open its details. Choose <strong>Open full page</strong> in the dialog when you want more room. Edit the title or description, or use the properties panel to change the <strong>Status</strong>, <strong>Assignee</strong>, <strong>Reporter</strong>, <strong>Due date</strong>, <strong>Type</strong>, or <strong>Priority</strong>.</p>
-      <p>The <strong>Reporter</strong> is the person who asked for the work. It starts as the person who created the task, and you can change it to any organization member. <strong>Created by</strong> always shows who created the task.</p>
+      <p>The <strong>Reporter</strong> is the person who asked for the work. It starts as the person who created the task, and you can change it to any team member. <strong>Created by</strong> always shows who created the task.</p>
       <Screenshot name="task-detail" alt="A work item with a description, task properties including the reporter, and comments" caption="Edit task details in the properties panel and keep discussion in Comments." />
       <p>Use the description toolbar for headings, bold text, lists, checklists, or inline code. Choose <strong>Checklist</strong> to turn lines into to-do items; ticking an item requires edit access. Descriptions are stored as Markdown. To add a screenshot or other image, paste it into the editor or choose <strong>Add image</strong> in the toolbar. Images can be up to 5 MB and require project access to view.</p>
-      <Note>When a project restricts task editing, the creator, reporter, current assignee, and admins of the project or organization can edit. Other members can still view the task and comment. See <DocLink topic="project-settings" section="task-editing">Project settings</DocLink> for the toggle.</Note>
+      <Note>When a project restricts task editing, the creator, reporter, current assignee, and admins of the project or team can edit. Other members can still view the task and comment. See <DocLink topic="project-settings" section="task-editing">Project settings</DocLink> for the toggle.</Note>
     </>,
   },
   {
@@ -64,10 +64,10 @@ export const sections: GuideSection[] = [
     id: "move-and-archive",
     title: "Move, archive, or restore a task",
     content: <>
-      <p><strong>Move.</strong> Open the task, choose <strong>Move</strong> in the properties panel, select a destination project in the same organization, and choose <strong>Move work item</strong>. The task gets a key in the destination project. TasksHQ matches the old status and type by name when possible. Otherwise, it uses the destination’s first status and default type.</p>
-      <p>The <strong>Move</strong> button appears when you can edit the task and another project in the organization has at least one status.</p>
+      <p><strong>Move.</strong> Open the task, choose <strong>Move</strong> in the properties panel, select a destination project in the same team, and choose <strong>Move work item</strong>. The task gets a key in the destination project. TasksHQ matches the old status and type by name when possible. Otherwise, it uses the destination’s first status and default type.</p>
+      <p>The <strong>Move</strong> button appears when you can edit the task and another project in the team has at least one status.</p>
       <p><strong>Archive.</strong> Choose <strong>Archive</strong> in the properties panel to take the task off the active Board and Table. To restore it, open <strong>Archive</strong> under the project in the sidebar and choose <strong>Unarchive</strong>.</p>
-      <p><strong>Delete permanently.</strong> Organization owners and admins can permanently delete an archived task from the Archive view. This removes the task and its comments, activity history, and logged time.</p>
+      <p><strong>Delete permanently.</strong> Team owners and admins can permanently delete an archived task from the Archive view. This removes the task and its comments, activity history, and logged time.</p>
     </>,
   },
   {
@@ -76,7 +76,7 @@ export const sections: GuideSection[] = [
     searchTerms: ["timer", "time tracking", "timesheet", "hours", "log time", "your time"],
     content: <>
       <p>Open a task and choose <strong>Start timer</strong> under <strong>Time</strong>. The running timer shows in the top bar, where you can open its task or stop it. Starting another timer stops the one already running.</p>
-      <p>Choose <strong>Add time</strong> to log time you forgot to track. An entry can be up to 24 hours and can’t end in the future. Every organization member can track time on any active task, including tasks in projects that restrict editing.</p>
+      <p>Choose <strong>Add time</strong> to log time you forgot to track. An entry can be up to 24 hours and can’t end in the future. Every team member can track time on any active task, including tasks in projects that restrict editing.</p>
       <p><strong>Your Time</strong> in the sidebar shows your week by task and day in your time zone, with every entry. You can edit or delete your own entries.</p>
       <Note>A timer left running for 12 hours stops at 12 hours and is marked <strong>Auto-stopped</strong>, so check those entries. Archiving a task stops its timers, and permanently deleting it removes its logged time.</Note>
     </>,

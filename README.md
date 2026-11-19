@@ -10,7 +10,7 @@ Once deployed, the product guide is served at `<web origin>/docs` and MCP client
 
 ## Features
 
-- Organize work into organizations and projects, and invite teammates.
+- Organize work into teams and projects, and invite teammates.
 - Track tasks on a board or in a table with custom statuses, colors, task types, due dates and priorities.
 - Assign tasks, comment with `@` mentions, attach images to Markdown descriptions, and review the activity history.
 - Sign in with Google or, when SMTP is configured, with a one-time code sent by email. Uploaded profile photos are converted to 96 × 96 WebP avatars.
@@ -38,9 +38,9 @@ Use your `TASKSHQ_WEB_WORKER` name if you changed it, and repeat for each `SMTP_
 
 Use a provider that supports SMTP `AUTH PLAIN` or `AUTH LOGIN` over TLS, and configure sender-domain authentication with it before enabling email for users. If SMTP settings are missing or invalid, the app hides email sign-in and disables one-time codes and email notifications. Google sign-in and membership management remain available.
 
-Signup is open by default. `SIGNUP_EMAIL_ALLOWLIST=*@example.com,someone@gmail.com` allows new accounts at `example.com` and the one Gmail address. Domain matches are exact and comparisons ignore case. The policy applies to Google and email signup. A valid pending organization invitation lets the invited address sign up even if it falls outside the allowlist. Existing accounts can always sign in.
+Signup is open by default. `SIGNUP_EMAIL_ALLOWLIST=*@example.com,someone@gmail.com` allows new accounts at `example.com` and the one Gmail address. Domain matches are exact and comparisons ignore case. The policy applies to Google and email signup. A valid pending team invitation lets the invited address sign up even if it falls outside the allowlist. Existing accounts can always sign in.
 
-New email users provide a name and verify their address with a one-time code. Organization invite emails link to the app home page; the recipient signs in with the invited address and TasksHQ claims the pending invite. Administrators can revoke pending invites under organization Members. Organization membership grants access to all projects in that organization. Project settings are available to organization owners and admins and to admins of that project.
+New email users provide a name and verify their address with a one-time code. Team invite emails link to the app home page; the recipient signs in with the invited address and TasksHQ claims the pending invite. Administrators can revoke pending invites under the team's Members settings. Team membership grants access to all projects in that team. Project settings are available to team owners and admins and to admins of that project.
 
 TasksHQ emails a new assignee when someone else assigns them work. For title, description or status changes, it emails the task creator when someone else made the change and the creator is not the assignee, and it emails the assignee's direct lead. It skips the person who made the change and groups edits per task and recipient in five-minute batches. Each person mentioned in a comment receives one email with the comment and a link to the work item. Delivery runs on the web Worker's scheduled trigger.
 
@@ -82,7 +82,7 @@ cd apps/web
 pnpm dev
 ```
 
-Open <http://localhost:5173>. `pnpm --filter web seed [email]` from the repository root resets a local `acme` organization with sample data. To run the MCP server locally, run `pnpm --filter mcp dev` (it listens on `http://localhost:8787/mcp` and shares the web app's local D1, R2 and KV state).
+Open <http://localhost:5173>. `pnpm --filter web seed [email]` from the repository root resets a local `acme` team with sample data. To run the MCP server locally, run `pnpm --filter mcp dev` (it listens on `http://localhost:8787/mcp` and shares the web app's local D1, R2 and KV state).
 
 Local dev always uses the localhost URLs: the web app on port 5173 and the MCP server on port 8787, and each dev server fails to start if its port is taken. The URLs in `deploy.env` only affect builds and deploys; locally, `deploy.env` matters only for `TASKSHQ_D1_ID`, which picks the local D1 database.
 
@@ -175,7 +175,7 @@ curl <TASKSHQ_WEB_URL>/.well-known/oauth-authorization-server
 curl <TASKSHQ_MCP_URL>/.well-known/oauth-protected-resource/mcp
 ```
 
-The first returns JSON whose `issuer` is your web URL. The second returns JSON whose `resource` is `<TASKSHQ_MCP_URL>/mcp`. Then open `TASKSHQ_WEB_URL`, sign in, and create an organization.
+The first returns JSON whose `issuer` is your web URL. The second returns JSON whose `resource` is `<TASKSHQ_MCP_URL>/mcp`. Then open `TASKSHQ_WEB_URL`, sign in, and create a team.
 
 ### Upgrading an existing deployment
 
@@ -187,6 +187,8 @@ pnpm run deploy
 ```
 
 Always apply new migrations before deploying either Worker; new code may depend on new columns.
+
+Migration `0020_rename_org_to_team.sql` (organizations renamed to teams) renames tables that the running Workers still use, so the old Workers fail once it is applied. Run `pnpm run db:migrate:remote`, then `pnpm run deploy` (web, then MCP) immediately after. Expect errors in between, and reload any open browser tabs after the deploy.
 
 Deployments created before the TasksHQ rename used the resource names `tasks-web`, `tasks-mcp`, `tasks-db` and `tasks-images`. To keep using them, set `TASKSHQ_WEB_WORKER`, `TASKSHQ_MCP_WORKER`, `TASKSHQ_D1_NAME` and `TASKSHQ_R2_BUCKET` to the old names, `TASKSHQ_D1_ID` to the existing database ID, and `TASKSHQ_KV_ID` to the existing OAuth KV namespace ID, so existing data and MCP grants carry over.
 

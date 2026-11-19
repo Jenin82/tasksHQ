@@ -17,7 +17,7 @@ type Results = {
   tasks: (Result & { project: string; status: string; color: Status["color"] })[];
 };
 
-export function WorkspaceSearch({ org }: { org: string }) {
+export function WorkspaceSearch({ team }: { team: string }) {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const navigatingOnClose = useRef(false);
@@ -58,7 +58,7 @@ export function WorkspaceSearch({ org }: { org: string }) {
           className="flex max-h-[calc(100dvh-1.5rem)] max-w-xl flex-col overflow-hidden rounded-xl border border-border bg-menu-surface p-0 shadow-none"
         >
           <DialogTitle className="shrink-0 border-b border-border px-4 py-4 pr-14 text-base font-semibold">Search workspace</DialogTitle>
-          {open && <SearchResults key={org} org={org} onSelect={(destination) => {
+          {open && <SearchResults key={team} team={team} onSelect={(destination) => {
             setOpen(false);
             if (pathname !== destination.href) {
               navigatingOnClose.current = true;
@@ -72,7 +72,7 @@ export function WorkspaceSearch({ org }: { org: string }) {
   );
 }
 
-function SearchResults({ org, onSelect }: { org: string; onSelect: (destination: SearchDestination) => void }) {
+function SearchResults({ team, onSelect }: { team: string; onSelect: (destination: SearchDestination) => void }) {
   const projectHref = useContext(ProjectViewHref);
   const [input, setInput] = useState("");
   const [response, setResponse] = useState<{ query: string; results: Results | null }>();
@@ -86,7 +86,7 @@ function SearchResults({ org, onSelect }: { org: string; onSelect: (destination:
     const timer = window.setTimeout(async () => {
       try {
         const params = new URLSearchParams({ q: query });
-        const result = await fetch(`/api/workspaces/${encodeURIComponent(org)}/search?${params}`, {
+        const result = await fetch(`/api/workspaces/${encodeURIComponent(team)}/search?${params}`, {
           signal: controller.signal,
         });
         if (!result.ok || result.redirected) throw new Error("Search failed");
@@ -100,7 +100,7 @@ function SearchResults({ org, onSelect }: { org: string; onSelect: (destination:
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [org, query]);
+  }, [team, query]);
 
   const message = !query ? "Search by project name, task title, or key."
     : !current ? "Searching…"

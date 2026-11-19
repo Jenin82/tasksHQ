@@ -2,8 +2,8 @@ import { env } from "cloudflare:test";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { expect, it, vi } from "vitest";
-import { createOrg } from "@tasks/core/domain";
-import { orgMember, user } from "@tasks/core/schema";
+import { createTeam } from "@tasks/core/domain";
+import { teamMember, user } from "@tasks/core/schema";
 
 const actor = vi.hoisted(() => ({ id: "" }));
 vi.mock("@/lib/session", () => ({
@@ -20,8 +20,8 @@ const origin = "http://localhost:5173";
 const png = Uint8Array.fromBase64("iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKElEQVR4nO3NMQ0AAAgDsHlFOU6mgoOkSf8ms7cEAoFAIBAIBALBl6BUYRBMxBld8AAAAABJRU5ErkJggg==");
 
 await db.insert(user).values([owner, member, outsider].map((id) => ({ id, name: id, email: `${id}@avatar.test` })));
-const org = await createOrg({ db, actorUserId: owner, source: "web" }, { slug: "avatar-workspace", name: "Avatar workspace" });
-await db.insert(orgMember).values({ orgId: org.id, userId: member, role: "member", createdAt: new Date() });
+const team = await createTeam({ db, actorUserId: owner, source: "web" }, { slug: "avatar-workspace", name: "Avatar workspace" });
+await db.insert(teamMember).values({ teamId: team.id, userId: member, role: "member", createdAt: new Date() });
 
 function upload(body: BodyInit = png, requestOrigin = origin) {
   return POST(new Request(`${origin}/api/profile/avatar`, {

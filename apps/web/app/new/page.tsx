@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 
-// The create-org form lives on `/` now, under the org list. The route stays so
+// The create-team form lives on `/` now, under the team list. The route stays so
 // old links land somewhere, and `new` stays a reserved slug so it can.
-export default function NewOrgPage() {
+export default function NewTeamPage() {
   redirect("/");
 }

@@ -4,7 +4,7 @@ import { useState, type ReactNode } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import type { TaskTypeRef } from "@tasks/core/domain";
 import { TASK_PRIORITIES, type Status } from "@tasks/core/schema";
-import { bulkUpdateTasksAction } from "@/app/[org]/[project]/[task]/actions";
+import { bulkUpdateTasksAction } from "@/app/[team]/[project]/[task]/actions";
 import { ProfileAvatar } from "@/components/profile-avatar";
 import { TaskTypeIcon } from "@/components/task-type";
 import { statusDot } from "@/lib/status-style";
@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
-type BulkTask = { id: string; key: string; orgSlug: string; projectSlug: string };
+type BulkTask = { id: string; key: string; teamSlug: string; projectSlug: string };
 type Option = { key: string; id: string; name: string; visual?: ReactNode; appearance?: string };
 export type BulkProjectOptions = {
   statuses: { id: string; name: string; color?: Status["color"] }[];
@@ -32,8 +32,8 @@ const fields = [
   ["archive", "Archive"],
 ] as const;
 
-export function bulkProjectKey(orgSlug: string, projectSlug: string) {
-  return `${orgSlug}/${projectSlug}`;
+export function bulkProjectKey(teamSlug: string, projectSlug: string) {
+  return `${teamSlug}/${projectSlug}`;
 }
 
 export function useTaskSelection<T extends BulkTask>(visible: T[]) {
@@ -115,7 +115,7 @@ export function TaskBulkEdit({ selection, projects }: {
     if (choice) setChoice("");
     if (pickerOpen) setPickerOpen(false);
   }
-  const projectKeys = new Set(selected.map(({ orgSlug, projectSlug }) => bulkProjectKey(orgSlug, projectSlug)));
+  const projectKeys = new Set(selected.map(({ teamSlug, projectSlug }) => bulkProjectKey(teamSlug, projectSlug)));
   const choicesByProject = new Map([...projectKeys]
     .map((key) => [key, new Map(projectChoices(field, projects[key]).map((option) => [option.key, option]))]));
   const sets = [...choicesByProject.values()];
@@ -128,14 +128,14 @@ export function TaskBulkEdit({ selection, projects }: {
 
   async function apply() {
     if (busy || !selected.length || (field !== "archive" && !target)) return;
-    const changesByOrg = new Map<string, BulkChanges>();
-    for (const { id, orgSlug, projectSlug } of selected) {
-      const projectKey = bulkProjectKey(orgSlug, projectSlug);
+    const changesByTeam = new Map<string, BulkChanges>();
+    for (const { id, teamSlug, projectSlug } of selected) {
+      const projectKey = bulkProjectKey(teamSlug, projectSlug);
       const value = target ? choicesByProject.get(projectKey)!.get(target.key)!.id : "";
       const change = { taskId: id, projectSlug, value };
-      const changes = changesByOrg.get(orgSlug);
+      const changes = changesByTeam.get(teamSlug);
       if (changes) changes.push(change);
-      else changesByOrg.set(orgSlug, [change]);
+      else changesByTeam.set(teamSlug, [change]);
     }
     selection.setBusy(true);
     setMessage("");
@@ -143,10 +143,10 @@ export function TaskBulkEdit({ selection, projects }: {
     const errors: string[] = [];
     const selectedById = new Map(selected.map((item) => [item.id, item]));
     try {
-      for (const [orgSlug, changes] of changesByOrg) {
-        const prefix = changesByOrg.size > 1 ? `${orgSlug} / ` : "";
+      for (const [teamSlug, changes] of changesByTeam) {
+        const prefix = changesByTeam.size > 1 ? `${teamSlug} / ` : "";
         try {
-          const result = await bulkUpdateTasksAction({ orgSlug, field, changes });
+          const result = await bulkUpdateTasksAction({ teamSlug, field, changes });
           updatedIds.push(...result.updatedIds);
           if (result.error) errors.push(`${prefix}${result.error}`);
           for (const { taskId, error } of result.failures) {

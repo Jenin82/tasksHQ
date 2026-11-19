@@ -2,7 +2,7 @@ import { Buffer } from "node:buffer";
 import { env } from "cloudflare:workers";
 import { and, eq, exists, isNull, or, type SQL } from "drizzle-orm";
 import { isTaskShareCode, parseTaskKey, taskKey } from "@tasks/core/domain";
-import { org, project, projectSlugAlias, projectTaskType, status, task, taskShare, user } from "@tasks/core/schema";
+import { team, project, projectSlugAlias, projectTaskType, status, task, taskShare, user } from "@tasks/core/schema";
 import { db } from "@/lib/db";
 import { taskPreviewPath, type TaskPreviewParams } from "@/lib/task-preview";
 
@@ -41,7 +41,7 @@ export function shortTaskSharePath(code: string, image = false) {
 }
 
 /**
- * The project's live slug, or a former slug of it in the same org, so links
+ * The project's live slug, or a former slug of it in the same team, so links
  * copied before a rename keep working. Taking a slug for another project
  * removes its alias, so the live slug always wins.
  */
@@ -49,7 +49,7 @@ function projectSlugMatches(slug: string): SQL {
   return or(
     eq(project.slug, slug),
     exists(db.select({ slug: projectSlugAlias.slug }).from(projectSlugAlias).where(and(
-      eq(projectSlugAlias.orgId, org.id),
+      eq(projectSlugAlias.teamId, team.id),
       eq(projectSlugAlias.slug, slug),
       eq(projectSlugAlias.projectId, project.id),
     ))),
@@ -59,8 +59,8 @@ function projectSlugMatches(slug: string): SQL {
 export async function findCanonicalTaskShareCode(route: TaskPreviewParams) {
   const key = parseTaskKey(route.task);
   if (!key) return null;
-  const [row] = await db.select({ code: taskShare.code }).from(org)
-    .innerJoin(project, eq(project.orgId, org.id))
+  const [row] = await db.select({ code: taskShare.code }).from(team)
+    .innerJoin(project, eq(project.teamId, team.id))
     .innerJoin(task, eq(task.projectId, project.id))
     .innerJoin(taskShare, and(
       eq(taskShare.taskId, task.id),
@@ -68,7 +68,7 @@ export async function findCanonicalTaskShareCode(route: TaskPreviewParams) {
       eq(taskShare.number, task.number),
     ))
     .where(and(
-      eq(org.slug, route.org),
+      eq(team.slug, route.team),
       projectSlugMatches(route.project),
       eq(project.key, key.projectKey),
       eq(task.number, key.number),
@@ -81,14 +81,14 @@ export async function resolveShortTaskShare(code: string): Promise<SharedTaskLoc
   if (!isTaskShareCode(code)) return null;
   const [row] = await db.select({
     taskId: taskShare.taskId, projectId: taskShare.projectId, number: taskShare.number,
-    orgSlug: org.slug, projectSlug: project.slug, keyPrefix: project.key,
+    teamSlug: team.slug, projectSlug: project.slug, keyPrefix: project.key,
   }).from(taskShare)
     .innerJoin(project, eq(project.id, taskShare.projectId))
-    .innerJoin(org, eq(org.id, project.orgId))
+    .innerJoin(team, eq(team.id, project.teamId))
     .where(eq(taskShare.code, code));
   if (!row) return null;
-  const { taskId, projectId, number, orgSlug, projectSlug, keyPrefix } = row;
-  return { taskId, projectId, number, route: { org: orgSlug, project: projectSlug, task: taskKey(keyPrefix, number) } };
+  const { taskId, projectId, number, teamSlug, projectSlug, keyPrefix } = row;
+  return { taskId, projectId, number, route: { team: teamSlug, project: projectSlug, task: taskKey(keyPrefix, number) } };
 }
 
 /** Previously copied links still grant access to the same image. */
@@ -119,14 +119,14 @@ function sharedTaskScope(location: SharedTaskLocation) {
     eq(task.projectId, location.projectId),
     eq(task.number, location.number),
     projectSlugMatches(location.route.project),
-    eq(org.slug, location.route.org),
+    eq(team.slug, location.route.team),
   );
 }
 
 export async function hasSharedTaskImage(location: SharedTaskLocation) {
   const [current] = await db.select({ id: task.id }).from(task)
     .innerJoin(project, eq(project.id, task.projectId))
-    .innerJoin(org, eq(org.id, project.orgId))
+    .innerJoin(team, eq(team.id, project.teamId))
     .where(sharedTaskScope(location));
   return !!current;
 }
@@ -141,7 +141,7 @@ export async function readSharedTaskImage(location: SharedTaskLocation) {
   })
     .from(task)
     .innerJoin(project, eq(project.id, task.projectId))
-    .innerJoin(org, eq(org.id, project.orgId))
+    .innerJoin(team, eq(team.id, project.teamId))
     .innerJoin(status, and(eq(status.id, task.statusId), eq(status.projectId, project.id)))
     .innerJoin(projectTaskType, and(
       eq(projectTaskType.projectId, task.projectId),

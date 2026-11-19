@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server.browser";
 import { expect, it, vi } from "vitest";
 import {
   archiveTask,
-  createOrg,
+  createTeam,
   createProject,
   createTask,
   deleteArchivedTask,
@@ -18,7 +18,7 @@ import {
   unarchiveTask,
   updateTask,
 } from "@tasks/core/domain";
-import { mailOutbox, orgMember, status, taskShare, user } from "@tasks/core/schema";
+import { mailOutbox, teamMember, status, taskShare, user } from "@tasks/core/schema";
 
 const actor = vi.hoisted(() => ({ id: "" }));
 vi.mock("@/lib/session", () => {
@@ -26,12 +26,12 @@ vi.mock("@/lib/session", () => {
   return { getUser: async () => current(), requireUser: async () => current() };
 });
 
-const { default: SettingsPage } = await import("@/app/[org]/[project]/settings/page");
-const { setProjectTaskEditRestrictionAction } = await import("@/app/[org]/[project]/settings/actions");
-const { addCommentAction, editTaskAction } = await import("@/app/[org]/[project]/[task]/actions");
-const { createTaskShareLink } = await import("@/app/[org]/[project]/[task]/share-task-action");
-const { TaskDetailContent } = await import("@/app/[org]/[project]/[task]/task-detail-content");
-const { readTaskDetail } = await import("@/app/[org]/[project]/[task]/task-detail-data");
+const { default: SettingsPage } = await import("@/app/[team]/[project]/settings/page");
+const { setProjectTaskEditRestrictionAction } = await import("@/app/[team]/[project]/settings/actions");
+const { addCommentAction, editTaskAction } = await import("@/app/[team]/[project]/[task]/actions");
+const { createTaskShareLink } = await import("@/app/[team]/[project]/[task]/share-task-action");
+const { TaskDetailContent } = await import("@/app/[team]/[project]/[task]/task-detail-content");
+const { readTaskDetail } = await import("@/app/[team]/[project]/[task]/task-detail-data");
 
 const db = drizzle(env.DB);
 const ownerId = "edit-owner";
@@ -48,15 +48,15 @@ await db.insert(user).values([ownerId, adminId, projectAdminId, assigneeId, read
 
 const ctx = (actorUserId: string) => ({ db, actorUserId, source: "web" as const });
 const owner = ctx(ownerId);
-const workspace = await createOrg(owner, { slug: "edit-policy", name: "Edit policy" });
-await db.insert(orgMember).values([adminId, projectAdminId, assigneeId, readerId].map((userId) => ({
-  orgId: workspace.id,
+const workspace = await createTeam(owner, { slug: "edit-policy", name: "Edit policy" });
+await db.insert(teamMember).values([adminId, projectAdminId, assigneeId, readerId].map((userId) => ({
+  teamId: workspace.id,
   userId,
   role: userId === adminId ? "admin" as const : "member" as const,
   createdAt: new Date(),
 })));
 const makeProject = (slug: string, key: string) => createProject(owner, {
-  orgId: workspace.id,
+  teamId: workspace.id,
   slug,
   key,
   name: slug,
@@ -71,7 +71,7 @@ it("lets admins edit unrelated tasks with the setting on, scoped to the projects
   const other = await createTask(owner, { projectId: neighbor.id, title: "Other project" });
   await setProjectMemberRole(owner, { projectId: project.id, userId: projectAdminId, role: "admin" });
   const renderSettings = async () => renderToStaticMarkup(await SettingsPage({
-    params: Promise.resolve({ org: workspace.slug, project: project.slug }),
+    params: Promise.resolve({ team: workspace.slug, project: project.slug }),
   }));
   const submit = (restricted: boolean) => {
     const form = new FormData();
@@ -137,7 +137,7 @@ it("keeps read and comment access while checking current assignment for task mut
 
   actor.id = readerId;
   const form = new FormData();
-  form.set("org", workspace.slug);
+  form.set("team", workspace.slug);
   form.set("project", project.slug);
   form.set("taskId", original.id);
   form.set("title", "Direct action edit");
@@ -275,7 +275,7 @@ it("copies the task link for a reader without publishing its preview", async () 
   const project = await makeProject("share", "EDS");
   const original = await createTask(owner, { projectId: project.id, title: "Participant preview" });
   await restrict(project.id);
-  const input = { orgSlug: workspace.slug, projectSlug: project.slug, taskKey: original.key };
+  const input = { teamSlug: workspace.slug, projectSlug: project.slug, taskKey: original.key };
   const link = { ok: true, path: `/${workspace.slug}/${project.slug}/${original.key}` };
   const shares = () => db.select().from(taskShare).where(eq(taskShare.taskId, original.id));
 

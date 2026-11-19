@@ -8,8 +8,8 @@ import { AccessError } from "@tasks/core/access";
 import { parseTaskKey } from "@tasks/core/domain";
 import { DomainError } from "@tasks/core/errors";
 import {
-  org,
-  orgMember,
+  team,
+  teamMember,
   project,
   projectSlugAlias,
   projectTaskType,
@@ -23,12 +23,12 @@ import {
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 
-export type ReachableProject = Project & { orgSlug: string };
+export type ReachableProject = Project & { teamSlug: string };
 
 const NO_PROJECT = () => new AccessError("not_a_member", "No such project.");
 const NO_TASK = () => new AccessError("not_a_member", "No such task.");
 
-/** Every project the caller can reach across their organizations. */
+/** Every project the caller can reach across their teams. */
 export async function reachableProjects(
   db: DrizzleD1Database,
   userId: string,
@@ -36,65 +36,65 @@ export async function reachableProjects(
   const rows = await db
     .select({
       project,
-      orgSlug: org.slug,
+      teamSlug: team.slug,
     })
     .from(project)
-    .innerJoin(org, eq(org.id, project.orgId))
+    .innerJoin(team, eq(team.id, project.teamId))
     .innerJoin(
-      orgMember,
-      and(eq(orgMember.orgId, project.orgId), eq(orgMember.userId, userId)),
+      teamMember,
+      and(eq(teamMember.teamId, project.teamId), eq(teamMember.userId, userId)),
     )
-    .orderBy(asc(org.slug), asc(project.name), asc(project.id));
+    .orderBy(asc(team.slug), asc(project.name), asc(project.id));
 
-  return rows.map((r) => ({ ...r.project, orgSlug: r.orgSlug }));
+  return rows.map((r) => ({ ...r.project, teamSlug: r.teamSlug }));
 }
 
-/** `org` is an organization slug the caller belongs to; any other is "No such organization." */
-export async function resolveOrg(
+/** `team` is a team slug the caller belongs to; any other is "No such team." */
+export async function resolveTeam(
   db: DrizzleD1Database,
   userId: string,
   slug: string,
 ): Promise<{ id: string; slug: string }> {
   const [row] = await db
-    .select({ id: org.id, slug: org.slug })
-    .from(org)
-    .innerJoin(orgMember, and(eq(orgMember.orgId, org.id), eq(orgMember.userId, userId)))
-    .where(eq(org.slug, slug.trim().toLowerCase()));
-  if (!row) throw new AccessError("not_a_member", "No such organization.");
+    .select({ id: team.id, slug: team.slug })
+    .from(team)
+    .innerJoin(teamMember, and(eq(teamMember.teamId, team.id), eq(teamMember.userId, userId)))
+    .where(eq(team.slug, slug.trim().toLowerCase()));
+  if (!row) throw new AccessError("not_a_member", "No such team.");
   return row;
 }
 
 /**
- * Splits the optional `org/` qualifier. Project keys and slugs are unique only
- * within an org (§3), so one user in two orgs can reach two `WEB` projects;
+ * Splits the optional `team/` qualifier. Project keys and slugs are unique only
+ * within a team (§3), so one user in two teams can reach two `WEB` projects;
  * `acme/WEB` picks one.
  */
-function splitOrg(input: string): { orgSlug?: string; rest: string } {
+function splitTeam(input: string): { teamSlug?: string; rest: string } {
   const trimmed = input.trim();
   const slash = trimmed.indexOf("/");
   if (slash === -1) return { rest: trimmed };
   return {
-    orgSlug: trimmed.slice(0, slash).toLowerCase(),
+    teamSlug: trimmed.slice(0, slash).toLowerCase(),
     rest: trimmed.slice(slash + 1),
   };
 }
 
-function pickOne<T extends { orgSlug: string }>(
+function pickOne<T extends { teamSlug: string }>(
   matches: T[],
   what: string,
   notFound: () => Error,
 ): T {
   if (matches.length === 1) return matches[0];
   if (matches.length === 0) throw notFound();
-  const orgs = [...new Set(matches.map((m) => m.orgSlug))].sort().join(", ");
+  const teams = [...new Set(matches.map((m) => m.teamSlug))].sort().join(", ");
   throw new DomainError(
-    `"${what}" matches more than one project (orgs: ${orgs}). Prefix it with the org slug, e.g. "${matches[0].orgSlug}/${what}".`,
+    `"${what}" matches more than one project (teams: ${teams}). Prefix it with the team slug, e.g. "${matches[0].teamSlug}/${what}".`,
   );
 }
 
 /**
  * `project` is a key (`ENG`) or a slug (`web`), case-insensitive, optionally
- * `org/`-qualified. A former slug from a rename still resolves when nothing
+ * `team/`-qualified. A former slug from a rename still resolves when nothing
  * live matches.
  */
 export async function resolveProject(
@@ -102,11 +102,11 @@ export async function resolveProject(
   userId: string,
   input: string,
 ): Promise<ReachableProject> {
-  const { orgSlug, rest } = splitOrg(input);
+  const { teamSlug, rest } = splitTeam(input);
   const wanted = rest.toLowerCase();
   const matches = (await reachableProjects(db, userId)).filter(
     (p) =>
-      (!orgSlug || p.orgSlug === orgSlug) &&
+      (!teamSlug || p.teamSlug === teamSlug) &&
       (p.key.toLowerCase() === wanted || p.slug === wanted),
   );
   // A key in one project and the same word as another's slug: the key wins,
@@ -115,18 +115,18 @@ export async function resolveProject(
   if (matches.length > 0) return pickOne(byKey.length > 0 ? byKey : matches, rest, NO_PROJECT);
 
   const aliased = await db
-    .select({ project, orgSlug: org.slug })
+    .select({ project, teamSlug: team.slug })
     .from(projectSlugAlias)
-    .innerJoin(project, and(eq(project.id, projectSlugAlias.projectId), eq(project.orgId, projectSlugAlias.orgId)))
-    .innerJoin(org, eq(org.id, project.orgId))
-    .innerJoin(orgMember, and(eq(orgMember.orgId, project.orgId), eq(orgMember.userId, userId)))
-    .where(and(eq(projectSlugAlias.slug, wanted), orgSlug ? eq(org.slug, orgSlug) : undefined))
-    .orderBy(asc(org.slug), asc(project.id));
-  return pickOne(aliased.map((r) => ({ ...r.project, orgSlug: r.orgSlug })), rest, NO_PROJECT);
+    .innerJoin(project, and(eq(project.id, projectSlugAlias.projectId), eq(project.teamId, projectSlugAlias.teamId)))
+    .innerJoin(team, eq(team.id, project.teamId))
+    .innerJoin(teamMember, and(eq(teamMember.teamId, project.teamId), eq(teamMember.userId, userId)))
+    .where(and(eq(projectSlugAlias.slug, wanted), teamSlug ? eq(team.slug, teamSlug) : undefined))
+    .orderBy(asc(team.slug), asc(project.id));
+  return pickOne(aliased.map((r) => ({ ...r.project, teamSlug: r.teamSlug })), rest, NO_PROJECT);
 }
 
 /**
- * `task` is a task key (`ENG-42`), optionally `org/`-qualified. Unparseable,
+ * `task` is a task key (`ENG-42`), optionally `team/`-qualified. Unparseable,
  * unknown and unreachable are the identical "No such task." — the contract
  * core's `loadTask` and `getTaskByKey` keep.
  */
@@ -135,13 +135,13 @@ export async function resolveTask(
   userId: string,
   input: string,
 ): Promise<{ taskId: string; project: ReachableProject; number: number }> {
-  const { orgSlug, rest } = splitOrg(input);
+  const { teamSlug, rest } = splitTeam(input);
   const parsed = parseTaskKey(rest);
   if (!parsed) throw NO_TASK();
 
   const projects = (await reachableProjects(db, userId)).filter(
     (p) =>
-      (!orgSlug || p.orgSlug === orgSlug) &&
+      (!teamSlug || p.teamSlug === teamSlug) &&
       p.key.toUpperCase() === parsed.projectKey.toUpperCase(),
   );
   if (projects.length === 0) throw NO_TASK();
@@ -161,7 +161,7 @@ export async function resolveTask(
   const matches = rows.map((r) => ({
     taskId: r.id,
     project: projects.find((p) => p.id === r.projectId)!,
-    orgSlug: projects.find((p) => p.id === r.projectId)!.orgSlug,
+    teamSlug: projects.find((p) => p.id === r.projectId)!.teamSlug,
   }));
   const hit = pickOne(matches, rest, NO_TASK);
   return { taskId: hit.taskId, project: hit.project, number: parsed.number };
@@ -257,7 +257,7 @@ export async function resolveAssignee(
     .where(eq(sql`lower(${user.email})`, email.trim().toLowerCase()));
   if (!row) {
     throw new DomainError(
-      "That user must be a member of this organization.",
+      "That user must be a member of this team.",
     );
   }
   return row.id;

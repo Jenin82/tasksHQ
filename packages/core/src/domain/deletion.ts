@@ -1,16 +1,16 @@
 import { and, eq, exists, inArray, isNotNull, ne, sql, type SQL } from "drizzle-orm";
-import { AccessError, can, requireCapability, requireOrgMember, requireProjectMember } from "../access";
+import { AccessError, can, requireCapability, requireTeamMember, requireProjectMember } from "../access";
 import type { DomainContext } from "../activity";
 import { DomainError } from "../errors";
-import { activity, comment, org, orgInvite, orgMember, project, projectMember, status, task } from "../schema";
+import { activity, comment, team, teamInvite, teamMember, project, projectMember, status, task } from "../schema";
 import { taskKey } from "./task";
 
-function stillOwner({ db, actorUserId }: DomainContext, orgId: string) {
+function stillOwner({ db, actorUserId }: DomainContext, teamId: string) {
   return exists(
-    db.select({ userId: orgMember.userId }).from(orgMember).where(and(
-      eq(orgMember.orgId, orgId),
-      eq(orgMember.userId, actorUserId),
-      eq(orgMember.role, "owner"),
+    db.select({ userId: teamMember.userId }).from(teamMember).where(and(
+      eq(teamMember.teamId, teamId),
+      eq(teamMember.userId, actorUserId),
+      eq(teamMember.role, "owner"),
     )),
   );
 }
@@ -45,7 +45,7 @@ export async function deleteProject(
   requireCapability(member.role, "project:delete");
   requireConfirmation(row.slug, confirmation);
 
-  const scope = and(eq(project.id, projectId), stillOwner(ctx, row.orgId))!;
+  const scope = and(eq(project.id, projectId), stillOwner(ctx, row.teamId))!;
   const [, , , , , deleted] = await db.batch([
     ...projectDeletes(ctx, scope),
     db.delete(project).where(scope).returning({ id: project.id }),
@@ -53,38 +53,38 @@ export async function deleteProject(
   if (!deleted.length) throw new AccessError("forbidden", "The project could not be deleted.");
 }
 
-export async function deleteOrg(
+export async function deleteTeam(
   ctx: DomainContext,
-  { orgId, confirmation }: { orgId: string; confirmation: string },
+  { teamId, confirmation }: { teamId: string; confirmation: string },
 ) {
   const { db, actorUserId } = ctx;
-  const member = await requireOrgMember(db, orgId, actorUserId);
-  requireCapability(member.role, "org:delete");
-  const [row] = await db.select({ slug: org.slug }).from(org).where(eq(org.id, orgId));
-  if (!row) throw new AccessError("not_a_member", "No such organization.");
+  const member = await requireTeamMember(db, teamId, actorUserId);
+  requireCapability(member.role, "team:delete");
+  const [row] = await db.select({ slug: team.slug }).from(team).where(eq(team.id, teamId));
+  if (!row) throw new AccessError("not_a_member", "No such team.");
   requireConfirmation(row.slug, confirmation);
 
   // Re-check ownership inside the batch. The final delete uses changes()
   // because the preceding statement has already removed the owner.
-  const owner = stillOwner(ctx, orgId);
-  const scope = and(eq(project.orgId, orgId), owner)!;
+  const owner = stillOwner(ctx, teamId);
+  const scope = and(eq(project.teamId, teamId), owner)!;
   const [, , , , , , , , , deleted] = await db.batch([
     ...projectDeletes(ctx, scope),
     db.delete(project).where(scope),
-    db.delete(orgInvite).where(and(eq(orgInvite.orgId, orgId), owner)),
-    db.delete(orgMember).where(and(
-      eq(orgMember.orgId, orgId),
-      ne(orgMember.userId, actorUserId),
+    db.delete(teamInvite).where(and(eq(teamInvite.teamId, teamId), owner)),
+    db.delete(teamMember).where(and(
+      eq(teamMember.teamId, teamId),
+      ne(teamMember.userId, actorUserId),
       owner,
     )),
-    db.delete(orgMember).where(and(
-      eq(orgMember.orgId, orgId),
-      eq(orgMember.userId, actorUserId),
-      eq(orgMember.role, "owner"),
+    db.delete(teamMember).where(and(
+      eq(teamMember.teamId, teamId),
+      eq(teamMember.userId, actorUserId),
+      eq(teamMember.role, "owner"),
     )),
-    db.delete(org).where(and(eq(org.id, orgId), sql`changes() > 0`)).returning({ id: org.id }),
+    db.delete(team).where(and(eq(team.id, teamId), sql`changes() > 0`)).returning({ id: team.id }),
   ]);
-  if (!deleted.length) throw new AccessError("forbidden", "The organization could not be deleted.");
+  if (!deleted.length) throw new AccessError("forbidden", "The team could not be deleted.");
 }
 
 const TASK_DELETE_CAPABILITY = "task:delete_archived";
@@ -106,11 +106,11 @@ export async function deleteArchivedTask(
     throw new DomainError("Enter the task key exactly as shown to confirm deletion.");
   }
 
-  const permittedRoles = orgMember.role.enumValues.filter((role) => can(role, TASK_DELETE_CAPABILITY));
-  const stillPermitted = exists(db.select({ userId: orgMember.userId }).from(orgMember).where(and(
-    eq(orgMember.orgId, currentProject.orgId),
-    eq(orgMember.userId, actorUserId),
-    inArray(orgMember.role, permittedRoles),
+  const permittedRoles = teamMember.role.enumValues.filter((role) => can(role, TASK_DELETE_CAPABILITY));
+  const stillPermitted = exists(db.select({ userId: teamMember.userId }).from(teamMember).where(and(
+    eq(teamMember.teamId, currentProject.teamId),
+    eq(teamMember.userId, actorUserId),
+    inArray(teamMember.role, permittedRoles),
   )));
   const scope = and(identity, eq(task.number, row.number), isNotNull(task.archivedAt), stillPermitted);
   const archivedTask = db.select({ id: task.id }).from(task).where(scope);

@@ -13,7 +13,7 @@ import {
 import { Input } from "@/components/ui/input";
 
 type DeleteProps = {
-  resource: "organization" | "project";
+  resource: "team" | "project";
   name: string;
   slug: string;
   description: string;

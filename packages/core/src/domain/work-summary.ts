@@ -24,7 +24,7 @@ export type WorkSummaryTask = {
 };
 
 /**
- * The caller's own work in one organization over `[from, to)`, for an MCP
+ * The caller's own work in one team over `[from, to)`, for an MCP
  * client to write a summary from: tasks they logged time on, created, moved or
  * commented on, archived ones included. Status changes made by a transfer are
  * `task.transferred` and intentionally not listed; the task shows under its
@@ -32,12 +32,12 @@ export type WorkSummaryTask = {
  */
 export async function getWorkSummaryData(
   ctx: DomainContext,
-  input: { orgId: string; from: Date; to: Date },
+  input: { teamId: string; from: Date; to: Date },
 ): Promise<{ totalMinutes: number; tasks: WorkSummaryTask[] }> {
   const { db, actorUserId } = ctx;
-  const { orgId, from, to } = input;
+  const { teamId, from, to } = input;
   // Checks membership and the range before anything else is read.
-  const entries = await listTimeReportEntries(ctx, { orgId, from, to, userId: actorUserId });
+  const entries = await listTimeReportEntries(ctx, { teamId, from, to, userId: actorUserId });
 
   const acted = and(
     eq(activity.actorUserId, actorUserId),
@@ -45,7 +45,7 @@ export async function getWorkSummaryData(
     gte(activity.createdAt, from),
     lt(activity.createdAt, to),
   );
-  const inOrg = and(eq(project.id, task.projectId), eq(project.orgId, orgId));
+  const inTeam = and(eq(project.id, task.projectId), eq(project.teamId, teamId));
 
   // Subqueries, not ID lists, so a busy range stays under D1's parameter limit.
   // Every selected column name is unique within its statement: D1's batch
@@ -62,7 +62,7 @@ export async function getWorkSummaryData(
       excerpt: sql<string | null>`json_extract(${activity.data}, '$.excerpt')`,
     }).from(activity)
       .innerJoin(task, eq(task.id, activity.taskId))
-      .innerJoin(project, inOrg)
+      .innerJoin(project, inTeam)
       .where(acted)
       .orderBy(asc(activity.createdAt), ACTIVITY_ROWID),
     db.select({
@@ -76,12 +76,12 @@ export async function getWorkSummaryData(
       status: sql<string>`${status.name}`.as("status_name"),
       archived: sql<number>`${task.archivedAt} is not null`,
     }).from(task)
-      .innerJoin(project, inOrg)
+      .innerJoin(project, inTeam)
       .innerJoin(status, eq(status.id, task.statusId))
       .where(or(
         inArray(task.id, db.select({ id: timeEntry.taskId }).from(timeEntry).where(and(
           eq(timeEntry.userId, actorUserId),
-          eq(timeEntry.orgId, orgId),
+          eq(timeEntry.teamId, teamId),
           gte(timeEntry.startedAt, new Date(from.getTime() - MAX_ENTRY_MS)),
           lt(timeEntry.startedAt, to),
         ))),

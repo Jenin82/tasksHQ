@@ -4,8 +4,8 @@ import { drizzle } from "drizzle-orm/d1";
 import { Buffer } from "node:buffer";
 import { headersContextFromRequest, runWithHeadersContext } from "vinext/shims/headers";
 import { expect, it, vi } from "vitest";
-import { createOrg, createProject, createTask, findProjectByAlias, renameProject, setProjectMemberRole } from "@tasks/core/domain";
-import { activity, orgMember, project as projectTable, projectSlugAlias, task as taskTable, taskShare, user } from "@tasks/core/schema";
+import { createTeam, createProject, createTask, findProjectByAlias, renameProject, setProjectMemberRole } from "@tasks/core/domain";
+import { activity, teamMember, project as projectTable, projectSlugAlias, task as taskTable, taskShare, user } from "@tasks/core/schema";
 import type { TaskPreview } from "@/lib/task-preview";
 
 const viewer = vi.hoisted(() => ({ id: "" }));
@@ -18,8 +18,8 @@ vi.mock("@/lib/task-preview-image", () => ({
 }));
 
 const { getProjectContext } = await import("@/lib/project-context");
-const { createTaskShareLink } = await import("@/app/[org]/[project]/[task]/share-task-action");
-const { GET: legacyPage } = await import("@/app/share/tasks/[org]/[project]/[task]/route");
+const { createTaskShareLink } = await import("@/app/[team]/[project]/[task]/share-task-action");
+const { GET: legacyPage } = await import("@/app/share/tasks/[team]/[project]/[task]/route");
 const { renderCanonicalTaskShare } = await import("@/lib/task-share-page");
 
 const db = drizzle(env.DB);
@@ -34,15 +34,15 @@ await db.insert(user).values([OWNER, ADMIN, MEMBER, PROJECT_ADMIN, STRANGER].map
   id, name: id, email: `${id}@rename.test`, createdAt: now, updatedAt: now,
 })));
 const ctx = (actorUserId: string) => ({ db, actorUserId, source: "web" as const });
-const org = await createOrg(ctx(OWNER), { slug: "rn-acme", name: "RN Acme" });
-await db.insert(orgMember).values([ADMIN, MEMBER, PROJECT_ADMIN].map((userId) => ({
-  orgId: org.id, userId, role: userId === ADMIN ? "admin" as const : "member" as const, createdAt: now,
+const team = await createTeam(ctx(OWNER), { slug: "rn-acme", name: "RN Acme" });
+await db.insert(teamMember).values([ADMIN, MEMBER, PROJECT_ADMIN].map((userId) => ({
+  teamId: team.id, userId, role: userId === ADMIN ? "admin" as const : "member" as const, createdAt: now,
 })));
 
 let keySeq = 0;
 async function newProject(slug: string, name = slug) {
   const key = `RN${String.fromCharCode(65 + keySeq++)}`;
-  return createProject(ctx(OWNER), { orgId: org.id, slug, name, key });
+  return createProject(ctx(OWNER), { teamId: team.id, slug, name, key });
 }
 const aliasesOf = (projectId: string) => db.select({ slug: projectSlugAlias.slug }).from(projectSlugAlias)
   .where(eq(projectSlugAlias.projectId, projectId)).orderBy(projectSlugAlias.slug).then((rows) => rows.map((r) => r.slug));
@@ -68,16 +68,16 @@ it("renames a project, records activity, and only a slug change leaves an alias"
   const [row] = await db.select().from(projectTable).where(eq(projectTable.id, p.id));
   expect(row).toMatchObject({ name: "Alpha Two", slug: "rn-beta", key: p.key });
   expect(await aliasesOf(p.id)).toEqual(["rn-alpha"]);
-  expect(await findProjectByAlias(db, org.id, "rn-alpha")).toEqual({ projectId: p.id, projectSlug: "rn-beta" });
+  expect(await findProjectByAlias(db, team.id, "rn-alpha")).toEqual({ projectId: p.id, projectSlug: "rn-beta" });
 
   await renameProject(ctx(OWNER), { projectId: p.id, name: "Alpha Two", slug: "rn-gamma" });
   expect(await aliasesOf(p.id)).toEqual(["rn-alpha", "rn-beta"]);
-  expect(await findProjectByAlias(db, org.id, "rn-alpha")).toEqual({ projectId: p.id, projectSlug: "rn-gamma" });
+  expect(await findProjectByAlias(db, team.id, "rn-alpha")).toEqual({ projectId: p.id, projectSlug: "rn-gamma" });
 
   // Renaming back removes that alias, so nothing chains.
   await renameProject(ctx(OWNER), { projectId: p.id, name: "Alpha Two", slug: "rn-alpha" });
   expect(await aliasesOf(p.id)).toEqual(["rn-beta", "rn-gamma"]);
-  expect(await findProjectByAlias(db, org.id, "rn-alpha")).toBeNull();
+  expect(await findProjectByAlias(db, team.id, "rn-alpha")).toBeNull();
 
   // A no-op writes nothing.
   await renameProject(ctx(OWNER), { projectId: p.id, name: "Alpha Two", slug: "rn-alpha" });
@@ -103,7 +103,7 @@ it("refuses taken, invalid and reserved slugs and bad names", async () => {
   expect(await renames(p.id)).toEqual([]);
 });
 
-it("lets only organization owners and admins rename", async () => {
+it("lets only team owners and admins rename", async () => {
   const p = await newProject("rn-epsilon");
   await setProjectMemberRole(ctx(OWNER), { projectId: p.id, userId: PROJECT_ADMIN, role: "admin" });
   for (const actor of [MEMBER, PROJECT_ADMIN]) {
@@ -119,10 +119,10 @@ it("lets only organization owners and admins rename", async () => {
 it("hands an old slug to a new project, which ends the redirect", async () => {
   const p = await newProject("rn-zeta");
   await renameProject(ctx(OWNER), { projectId: p.id, name: "Zeta", slug: "rn-zeta-2" });
-  expect(await findProjectByAlias(db, org.id, "rn-zeta")).not.toBeNull();
+  expect(await findProjectByAlias(db, team.id, "rn-zeta")).not.toBeNull();
 
   await newProject("rn-zeta");
-  expect(await findProjectByAlias(db, org.id, "rn-zeta")).toBeNull();
+  expect(await findProjectByAlias(db, team.id, "rn-zeta")).toBeNull();
   expect(await aliasesOf(p.id)).toEqual([]);
 });
 
@@ -134,7 +134,7 @@ it("hands an old slug to another project that renames onto it", async () => {
   await renameProject(ctx(OWNER), { projectId: other.id, name: "Nu", slug: "rn-mu" });
   expect(await aliasesOf(p.id)).toEqual([]);
   expect(await aliasesOf(other.id)).toEqual(["rn-nu"]);
-  expect(await findProjectByAlias(db, org.id, "rn-mu")).toBeNull();
+  expect(await findProjectByAlias(db, team.id, "rn-mu")).toBeNull();
 });
 
 it("moves description image paths to the new slug without touching other projects", async () => {
@@ -178,7 +178,7 @@ it("fails the loser of two concurrent renames cleanly", async () => {
   expect(await aliasesOf(p.id)).toEqual(["rn-eta"]);
 });
 
-it("redirects org members from a former slug, keeping the rest of the path and query", async () => {
+it("redirects team members from a former slug, keeping the rest of the path and query", async () => {
   const p = await newProject("rn-theta");
   await renameProject(ctx(OWNER), { projectId: p.id, name: "Theta", slug: "rn-theta-2" });
   viewer.id = MEMBER;
@@ -212,7 +212,7 @@ it("keeps canonical and legacy share links working after a slug change", async (
   const item = await createTask(ctx(OWNER), { projectId: p.id, title: "Shared before rename" });
   viewer.id = OWNER;
   const oldPath = `/rn-acme/rn-iota/${item.key}`;
-  expect(await createTaskShareLink({ orgSlug: "rn-acme", projectSlug: "rn-iota", taskKey: item.key }))
+  expect(await createTaskShareLink({ teamSlug: "rn-acme", projectSlug: "rn-iota", taskKey: item.key }))
     .toEqual({ ok: true, path: oldPath });
   const [share] = await db.select({ code: taskShare.code }).from(taskShare).where(eq(taskShare.projectId, p.id));
 
@@ -233,7 +233,7 @@ it("keeps canonical and legacy share links working after a slug change", async (
 
   const legacy = await legacyPage(
     new Request(`http://localhost:5173/share/tasks${oldPath}?preview=${token}`),
-    { params: Promise.resolve({ org: "rn-acme", project: "rn-iota", task: item.key }) },
+    { params: Promise.resolve({ team: "rn-acme", project: "rn-iota", task: item.key }) },
   );
   expect(legacy.status).toBe(200);
   expect(await legacy.text()).toContain(`/share/tasks${oldPath}/preview.png?preview=${token}`);
@@ -243,7 +243,7 @@ it("keeps canonical and legacy share links working after a slug change", async (
   expect(await renderCanonicalTaskShare(new Request(`http://localhost:5173${oldPath}`))).toBeNull();
   const taken = await legacyPage(
     new Request(`http://localhost:5173/share/tasks${oldPath}?preview=${token}`),
-    { params: Promise.resolve({ org: "rn-acme", project: "rn-iota", task: item.key }) },
+    { params: Promise.resolve({ team: "rn-acme", project: "rn-iota", task: item.key }) },
   );
   expect(await taken.text()).not.toContain("og:image");
 });

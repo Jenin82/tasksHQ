@@ -1,5 +1,5 @@
 import {
-  createOrg,
+  createTeam,
   createProject,
   createTask,
   renameProject,
@@ -7,7 +7,7 @@ import {
   setProjectTaskEditRestriction,
   setReportingLead,
 } from "@tasks/core/domain";
-import { activity, comment, org, orgMember, task, user } from "@tasks/core/schema";
+import { activity, comment, team, teamMember, task, user } from "@tasks/core/schema";
 import { and, eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 import { MAX_TASK_IMAGE_BYTES } from "@tasks/core/task-images";
@@ -37,28 +37,28 @@ beforeAll(async () => {
     })),
   );
 
-  const acme = await createOrg(ctx(OWNER), { slug: "mc-acme", name: "Acme" });
-  await db.insert(orgMember).values([
-    { orgId: acme.id, userId: MEMBER, role: "member", createdAt: now },
-    { orgId: acme.id, userId: BYSTANDER, role: "member", createdAt: now },
-    { orgId: acme.id, userId: ADMIN, role: "admin", createdAt: now },
+  const acme = await createTeam(ctx(OWNER), { slug: "mc-acme", name: "Acme" });
+  await db.insert(teamMember).values([
+    { teamId: acme.id, userId: MEMBER, role: "member", createdAt: now },
+    { teamId: acme.id, userId: BYSTANDER, role: "member", createdAt: now },
+    { teamId: acme.id, userId: ADMIN, role: "admin", createdAt: now },
   ]);
   eng = await createProject(ctx(OWNER), {
-    orgId: acme.id,
+    teamId: acme.id,
     slug: "engineering",
     name: "Engineering",
     key: "ENG",
   });
   await createProject(ctx(OWNER), {
-    orgId: acme.id,
+    teamId: acme.id,
     slug: "ops",
     name: "Ops",
     key: "OPS",
   });
 
-  const other = await createOrg(ctx(OUTSIDER), { slug: "mc-other", name: "Other" });
+  const other = await createTeam(ctx(OUTSIDER), { slug: "mc-other", name: "Other" });
   await createProject(ctx(OUTSIDER), {
-    orgId: other.id,
+    teamId: other.id,
     slug: "secret",
     name: "Secret",
     key: "SEC",
@@ -71,7 +71,7 @@ beforeAll(async () => {
 });
 
 describe("list_projects", () => {
-  it("returns all organization projects with statuses and a default task type", async () => {
+  it("returns all team projects with statuses and a default task type", async () => {
     const { isError, data } = await call(MEMBER, "list_projects");
     expect(isError).toBe(false);
     expect(data).toEqual([
@@ -79,7 +79,7 @@ describe("list_projects", () => {
         key: "ENG",
         slug: "engineering",
         name: "Engineering",
-        org: "mc-acme",
+        team: "mc-acme",
         statuses: [
           { name: "Todo", color: "gray" },
           { name: "In Progress", color: "blue" },
@@ -92,11 +92,11 @@ describe("list_projects", () => {
           { id: expect.any(String), name: "Knowledge Transfer (KT)", color: "purple", icon: "book", isDefault: false },
         ]),
       },
-      expect.objectContaining({ key: "OPS", slug: "ops", org: "mc-acme" }),
+      expect.objectContaining({ key: "OPS", slug: "ops", team: "mc-acme" }),
     ]);
   });
 
-  it("gives an org admin every project in the org without a project_member row", async () => {
+  it("gives a team admin every project in the team without a project_member row", async () => {
     const admin = await call(ADMIN, "list_projects");
     expect(admin.data.map((p: any) => p.key)).toEqual(["ENG", "OPS"]);
     const outsider = await call(OUTSIDER, "list_projects");
@@ -106,8 +106,8 @@ describe("list_projects", () => {
   });
 
   it("keeps project access independent of reporting lines", async () => {
-    const [acme] = await db.select({ id: org.id }).from(org).where(eq(org.slug, "mc-acme"));
-    const reportingLine = { orgId: acme.id, userId: MEMBER };
+    const [acme] = await db.select({ id: team.id }).from(team).where(eq(team.slug, "mc-acme"));
+    const reportingLine = { teamId: acme.id, userId: MEMBER };
     await setReportingLead(ctx(OWNER), { ...reportingLine, leadUserId: BYSTANDER });
     try {
       const result = await call(BYSTANDER, "list_projects");
@@ -181,8 +181,8 @@ describe("create_task", () => {
     expect(data).toBe('No status named "Waiting" in ENG. Statuses: Todo, In Progress, Done, Blocked.');
   });
 
-  it("refuses an assignee outside the organization and uses the same error for an unknown email", async () => {
-    const offOrg = await call(MEMBER, "create_task", {
+  it("refuses an assignee outside the team and uses the same error for an unknown email", async () => {
+    const offTeam = await call(MEMBER, "create_task", {
       project: "ENG",
       title: "x",
       assignee: `${OUTSIDER}@example.test`,
@@ -192,8 +192,8 @@ describe("create_task", () => {
       title: "x",
       assignee: "nobody@example.test",
     });
-    expect(offOrg.isError).toBe(true);
-    expect(unknown).toEqual(offOrg);
+    expect(offTeam.isError).toBe(true);
+    expect(unknown).toEqual(offTeam);
   });
 });
 
@@ -401,7 +401,7 @@ describe("archive_task", () => {
 });
 
 describe("reach", () => {
-  it("answers another org's task exactly as it answers a task that does not exist", async () => {
+  it("answers another team's task exactly as it answers a task that does not exist", async () => {
     const real = await call(OUTSIDER, "get_task", { task: "ENG-2" });
     const missing = await call(OUTSIDER, "get_task", { task: "ENG-999" });
     expect(real).toEqual({ isError: true, data: "No such task." });
@@ -429,7 +429,7 @@ describe("reach", () => {
     expect(after).toHaveLength(before.length);
   });
 
-  it("lets a plain org member read and assign tasks without a project role", async () => {
+  it("lets a plain team member read and assign tasks without a project role", async () => {
     expect(await call(BYSTANDER, "get_task", { task: "ENG-2" })).toMatchObject({
       isError: false, data: { key: "ENG-2" },
     });
@@ -445,9 +445,9 @@ it("refuses a cursor it did not issue", async () => {
 });
 
 it("lets MCP members create and comment while restricting edits to task participants and admins", async () => {
-  const [workspace] = await db.select({ id: org.id }).from(org).where(eq(org.slug, "mc-acme"));
+  const [workspace] = await db.select({ id: team.id }).from(team).where(eq(team.slug, "mc-acme"));
   const project = await createProject(ctx(OWNER), {
-    orgId: workspace.id,
+    teamId: workspace.id,
     slug: "restricted",
     name: "Restricted",
     key: "MCR",
@@ -498,7 +498,7 @@ it("sets the reporter by email on create and update, and returns it from every t
   const outside = await call(MEMBER, "create_task", {
     project: "OPS", title: "x", reporter: `${OUTSIDER}@example.test`,
   });
-  expect(outside).toEqual({ isError: true, data: "That user must be a member of this organization." });
+  expect(outside).toEqual({ isError: true, data: "That user must be a member of this team." });
 
   const key = reported.data.key;
   // Another member edits, so the creator's setup window does not hide the activity row.
@@ -512,7 +512,7 @@ it("sets the reporter by email on create and update, and returns it from every t
   expect(listed.data.tasks.find((t: any) => t.key === key).reporter)
     .toEqual({ email: "mc-admin@Example.test", displayName: "MC-ADMIN" });
   expect(await call(MEMBER, "update_task", { task: key, reporter: `${OUTSIDER}@example.test` }))
-    .toEqual({ isError: true, data: "That user must be a member of this organization." });
+    .toEqual({ isError: true, data: "That user must be a member of this team." });
 });
 
 it("creates, lists and detaches sub-tasks within one project", async () => {
@@ -574,23 +574,26 @@ describe("time tracking", () => {
 
     const from = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const to = new Date(Date.now() + 60 * 1000).toISOString();
-    const listed = await call(BYSTANDER, "list_my_time_entries", { org: "mc-acme", from, to });
+    const listed = await call(BYSTANDER, "list_my_time_entries", { team: "mc-acme", from, to });
     expect(listed.data.totalMinutes).toBe(90);
     expect(listed.data.entries).toMatchObject([
       { id: started.data.entryId, task: "ENG-1", project: "engineering", kind: "timer", source: "mcp", note: "Pairing", edited: false },
       { id: logged.data.entryId, task: "ENG-2", kind: "manual", durationMinutes: 90 },
     ]);
 
-    expect((await call(BYSTANDER, "list_my_time_entries", { org: "mc-other", from, to })).data).toBe("No such organization.");
-    expect((await call(BYSTANDER, "list_my_time_entries", { org: "mc-acme", from: "2026-01-01T00:00:00Z", to: "2026-06-01T00:00:00Z" })).data)
+    expect((await call(BYSTANDER, "list_my_time_entries", { team: "mc-other", from, to })).data).toBe("No such team.");
+    expect((await call(BYSTANDER, "list_my_time_entries", { team: "mc-acme", from: "2026-01-01T00:00:00Z", to: "2026-06-01T00:00:00Z" })).data)
       .toBe("The range can be at most 92 days.");
 
     expect((await call(BYSTANDER, "delete_time_entry", { id: logged.data.entryId })).isError).toBe(false);
+    expect((await call(BYSTANDER, "list_my_time_entries", { team: "mc-acme", from, to })).data.entries).toHaveLength(1);
+    // Deprecated pre-rename input, accepted for one release.
     expect((await call(BYSTANDER, "list_my_time_entries", { org: "mc-acme", from, to })).data.entries).toHaveLength(1);
+    expect((await call(BYSTANDER, "list_my_time_entries", { from, to })).data).toBe("team is required.");
   });
 
   it("reports time by scope: self, lead plus direct reports, or everyone", async () => {
-    const [acme] = await db.select({ id: org.id }).from(org).where(eq(org.slug, "mc-acme"));
+    const [acme] = await db.select({ id: team.id }).from(team).where(eq(team.slug, "mc-acme"));
     const created = await call(MEMBER, "create_task", { project: "ENG", title: "Reported time" });
     const key = created.data.key;
     // A fixed past day that no other test logs time in.
@@ -598,7 +601,7 @@ describe("time tracking", () => {
     const at = (minutes: number) => ({ start: new Date(end.getTime() - minutes * 60 * 1000).toISOString(), end: end.toISOString() });
     expect((await call(MEMBER, "log_time", { task: key, ...at(60) })).isError).toBe(false);
     expect((await call(ADMIN, "log_time", { task: key, ...at(30) })).isError).toBe(false);
-    const range = { org: "mc-acme", from: "2026-01-05T00:00:00Z", to: "2026-01-06T00:00:00Z" };
+    const range = { team: "mc-acme", from: "2026-01-05T00:00:00Z", to: "2026-01-06T00:00:00Z" };
     const report = async (userId: string, extra = {}) => (await call(userId, "get_time_report", { ...range, ...extra })).data;
     const memberRow = {
       name: "MC-MEMBER",
@@ -610,11 +613,11 @@ describe("time tracking", () => {
     expect(await report(MEMBER)).toEqual({ people: [memberRow], totalMinutes: 60 });
     expect((await report(ADMIN)).people.map((p: any) => p.name)).toEqual(["MC-ADMIN", "MC-MEMBER"]);
     expect((await report(BYSTANDER)).people).toEqual([]);
-    await setReportingLead(ctx(OWNER), { orgId: acme.id, userId: MEMBER, leadUserId: BYSTANDER });
+    await setReportingLead(ctx(OWNER), { teamId: acme.id, userId: MEMBER, leadUserId: BYSTANDER });
     try {
       expect(await report(BYSTANDER)).toEqual({ people: [memberRow], totalMinutes: 60 });
     } finally {
-      await setReportingLead(ctx(OWNER), { orgId: acme.id, userId: MEMBER, leadUserId: null });
+      await setReportingLead(ctx(OWNER), { teamId: acme.id, userId: MEMBER, leadUserId: null });
     }
 
     expect((await report(ADMIN, { user: "MC-MEMBER@EXAMPLE.TEST" })).people).toEqual([memberRow]);
@@ -622,7 +625,7 @@ describe("time tracking", () => {
     expect(await report(ADMIN, { user: "mc-owner@example.test" })).toBe(missing);
     expect(await report(ADMIN, { user: "nobody@example.test" })).toBe(missing);
     expect(await report(MEMBER, { user: "mc-admin@example.test" })).toBe(missing);
-    expect(await report(MEMBER, { org: "mc-other" })).toBe("No such organization.");
+    expect(await report(MEMBER, { team: "mc-other" })).toBe("No such team.");
     expect(await report(MEMBER, { from: "2026-01-01T00:00:00Z", to: "2026-06-01T00:00:00Z" })).toBe("The range can be at most 92 days.");
   });
 
@@ -634,7 +637,7 @@ describe("time tracking", () => {
       task: key, start: "2026-01-12T09:00:00Z", end: "2026-01-12T10:30:00Z", note: "Wrote the spec",
     });
     expect(logged.isError).toBe(false);
-    const range = { org: "mc-acme", from: "2026-01-12T00:00:00Z", to: "2026-01-13T00:00:00Z" };
+    const range = { team: "mc-acme", from: "2026-01-12T00:00:00Z", to: "2026-01-13T00:00:00Z" };
     const summary = async (extra = {}) => (await call(MEMBER, "get_work_summary_data", { ...range, ...extra })).data;
 
     expect(await summary()).toEqual({
@@ -644,17 +647,17 @@ describe("time tracking", () => {
         notes: ["Wrote the spec"], created: null, statusChanges: [], comments: [],
       }],
     });
-    expect(await summary({ org: "mc-other" })).toBe("No such organization.");
+    expect(await summary({ team: "mc-other" })).toBe("No such team.");
     expect(await summary({ from: "2026-01-01T00:00:00Z", to: "2026-06-01T00:00:00Z" })).toBe("The range can be at most 92 days.");
     expect(await summary({ to: range.from })).toBe("to must be after from.");
   });
 });
 
 describe("renamed projects", () => {
-  it("resolves a former slug for org members only", async () => {
-    const renames = await createOrg(ctx(OWNER), { slug: "mc-renames", name: "Renames" });
-    await db.insert(orgMember).values({ orgId: renames.id, userId: MEMBER, role: "member", createdAt: now });
-    const moved = await createProject(ctx(OWNER), { orgId: renames.id, slug: "mc-before", name: "Before", key: "REN" });
+  it("resolves a former slug for team members only", async () => {
+    const renames = await createTeam(ctx(OWNER), { slug: "mc-renames", name: "Renames" });
+    await db.insert(teamMember).values({ teamId: renames.id, userId: MEMBER, role: "member", createdAt: now });
+    const moved = await createProject(ctx(OWNER), { teamId: renames.id, slug: "mc-before", name: "Before", key: "REN" });
     await createTask(ctx(OWNER), { projectId: moved.id, title: "Renamed work" });
     await renameProject(ctx(OWNER), { projectId: moved.id, name: "After", slug: "mc-after" });
 

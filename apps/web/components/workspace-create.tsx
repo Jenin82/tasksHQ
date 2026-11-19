@@ -3,20 +3,20 @@
 import { lazy, Suspense, useActionState, useRef, useState } from "react";
 import type { TaskTypeRef } from "@tasks/core/domain";
 import { Plus } from "lucide-react";
-import { createTaskAction, type CreateTaskState } from "@/app/[org]/[project]/actions";
-import { useOpenTaskDialog } from "@/app/[org]/[project]/task-dialog-context";
-import type { TaskPreview } from "@/app/[org]/[project]/task-dialog";
+import { createTaskAction, type CreateTaskState } from "@/app/[team]/[project]/actions";
+import { useOpenTaskDialog } from "@/app/[team]/[project]/task-dialog-context";
+import type { TaskPreview } from "@/app/[team]/[project]/task-dialog";
 import { NO_ERROR } from "@/lib/action-result";
 import { TaskTypeIcon } from "./task-type";
 import { Button } from "./ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "./ui/dialog";
 import { Input } from "./ui/input";
 
-const DescriptionEditor = lazy(() => import("@/app/[org]/[project]/[task]/description-editor")
+const DescriptionEditor = lazy(() => import("@/app/[team]/[project]/[task]/description-editor")
   .then(({ DescriptionEditor }) => ({ default: DescriptionEditor })));
 
 export type CreateTarget = {
-  org: string;
+  team: string;
   taskTypes: (TaskTypeRef & { isDefault: boolean })[];
   project: { slug: string; name: string; key: string };
 };
@@ -51,7 +51,7 @@ export function AddWorkItemButton(target: CreateTarget) {
   );
 }
 
-function CreateWorkItem({ org, project, taskTypes, onClose, onCreated, onClosed }: CreateTarget & {
+function CreateWorkItem({ team, project, taskTypes, onClose, onCreated, onClosed }: CreateTarget & {
   onClose: () => void;
   onCreated: (task: TaskPreview) => void;
   onClosed: () => void;
@@ -89,7 +89,7 @@ function CreateWorkItem({ org, project, taskTypes, onClose, onCreated, onClosed 
         <form action={action} className="flex min-h-0 flex-1 flex-col" onSubmit={(event) => {
           if (pending || uploadInFlight.current) event.preventDefault();
         }}>
-          <input type="hidden" name="org" value={org} />
+          <input type="hidden" name="team" value={team} />
           <input type="hidden" name="project" value={project.slug} />
           <div className="min-h-0 space-y-5 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5" inert={pending}>
             <div className="space-y-2">
@@ -126,7 +126,7 @@ function CreateWorkItem({ org, project, taskTypes, onClose, onCreated, onClosed 
                 <DescriptionEditor
                   value={description}
                   onChange={setDescription}
-                  imagesPath={`/${org}/${project.slug}/images`}
+                  imagesPath={`/${team}/${project.slug}/images`}
                   onUploadChange={(next) => {
                     uploadInFlight.current = next;
                     setUploading(next);

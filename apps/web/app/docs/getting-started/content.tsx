@@ -9,31 +9,32 @@ export const sections: GuideSection[] = [
       <Steps>
         <li>Open <Link href="/" className="underline underline-offset-4">TasksHQ</Link> and choose <strong>Continue with Google</strong>.</li>
         <li>If <strong>Continue with email</strong> is available, you can enter your address and choose <strong>Send sign-in code</strong> instead. Enter the six-digit code and add your name if prompted.</li>
-        <li>From the Organizations page, choose the workspace you want to open.</li>
+        <li>From the Teams page, choose the team you want to open.</li>
       </Steps>
       <Note>If you were invited, sign in with the email address on the invitation. TasksHQ picks up the invitation after you verify that address. If you’re already signed in with that address, open TasksHQ from the invite to pick it up.</Note>
     </>,
   },
   {
     id: "create-an-organization",
-    title: "Create an organization",
+    title: "Create a team",
+    searchTerms: ["create organization", "new organization", "new team", "create workspace"],
     content: <>
-      <p>An organization is the workspace that holds your people and projects. Members of an organization can open its projects.</p>
+      <p>A team is the workspace that holds your people and projects. Members of a team can open its projects.</p>
       <Steps>
-        <li>From the Organizations page, choose <strong>New organization</strong>. If you already belong to more than one organization, you can also choose <strong>+</strong> next to Organizations in the sidebar.</li>
+        <li>From the Teams page, choose <strong>New team</strong>. If you already belong to more than one team, you can also choose <strong>+</strong> next to Teams in the sidebar.</li>
         <li>Enter the name your team will recognize and check the suggested slug. The slug is the part of the URL that identifies your workspace.</li>
-        <li>Choose <strong>Create organization</strong>.</li>
+        <li>Choose <strong>Create team</strong>.</li>
       </Steps>
-      <p>If your team already has an organization, ask one of its admins to invite you.</p>
+      <p>If your team already uses TasksHQ, ask one of its admins to invite you.</p>
     </>,
   },
   {
     id: "create-a-project",
     title: "Create your first project",
     content: <>
-      <p>Organization owners and admins can create projects. Each project has its own work items, statuses, and task types.</p>
+      <p>Team owners and admins can create projects. Each project has its own work items, statuses, and task types.</p>
       <Steps>
-        <li>Open the organization and choose <strong>New project</strong> on its Projects page.</li>
+        <li>Open the team and choose <strong>New project</strong> on its Projects page.</li>
         <li>Enter the project name. Check the suggested slug and key. For example, a key of <code>WEB</code> gives tasks identifiers such as <code>WEB-42</code>.</li>
         <li>Choose <strong>Create project</strong> to open the new board.</li>
       </Steps>
@@ -46,11 +47,11 @@ export const sections: GuideSection[] = [
     title: "Invite teammates",
     content: <>
       <Steps>
-        <li>As an organization owner or admin, open <strong>Settings</strong> under Workspace in the sidebar.</li>
-        <li>On <strong>Members</strong>, choose <strong>Invite</strong>. Enter a teammate’s email address and choose their organization role.</li>
+        <li>As a team owner or admin, open <strong>Settings</strong> under Workspace in the sidebar.</li>
+        <li>On <strong>Members</strong>, choose <strong>Invite</strong>. Enter a teammate’s email address and choose their team role.</li>
         <li>Ask them to open TasksHQ and sign in using the invited address. If email delivery is configured, TasksHQ sends them an invitation email.</li>
       </Steps>
-      <p>Once they join, they can open the organization’s projects and be assigned work. See <DocLink topic="organization-settings">Organization settings</DocLink> for roles and pending invitations.</p>
+      <p>Once they join, they can open the team’s projects and be assigned work. See <DocLink topic="team-settings">Team settings</DocLink> for roles and pending invitations.</p>
     </>,
   },
   {

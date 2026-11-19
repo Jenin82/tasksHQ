@@ -36,7 +36,9 @@ export default defineConfig({
         // same runtime date.
         compatibilityDate: "2026-11-05",
         compatibilityFlags: ["nodejs_compat", "global_fetch_strictly_public"],
-        d1Databases: ["DB"],
+        // MIGRATION_DB stays empty until test/migration-0020.test.ts migrates it
+        // step by step, so it can observe the schema before 0020 runs.
+        d1Databases: ["DB", "MIGRATION_DB"],
         kvNamespaces: ["OAUTH_KV"],
         r2Buckets: ["TASK_IMAGES"],
         images: { binding: "IMAGES" },

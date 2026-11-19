@@ -10,7 +10,7 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 import { user } from "./auth";
-import { org, orgMember } from "./org";
+import { team, teamMember } from "./team";
 
 export const STATUS_COLORS = ["gray", "blue", "green", "red", "yellow", "orange", "purple", "pink"] as const;
 export type StatusColor = (typeof STATUS_COLORS)[number];
@@ -21,9 +21,9 @@ export const project = sqliteTable(
   "project",
   {
     id: text("id").primaryKey(),
-    orgId: text("org_id")
+    teamId: text("team_id")
       .notNull()
-      .references(() => org.id),
+      .references(() => team.id),
     slug: text("slug").notNull(),
     name: text("name").notNull(),
     // Immutable: the display key `ENG-42` is derived from it at read time.
@@ -38,8 +38,8 @@ export const project = sqliteTable(
     autoArchiveDays: integer("auto_archive_days").notNull().default(14),
   },
   (t) => [
-    uniqueIndex("project_org_id_slug_unique").on(t.orgId, t.slug),
-    uniqueIndex("project_org_id_key_unique").on(t.orgId, t.key),
+    uniqueIndex("project_team_id_slug_unique").on(t.teamId, t.slug),
+    uniqueIndex("project_team_id_key_unique").on(t.teamId, t.key),
   ],
 );
 
@@ -52,13 +52,13 @@ export const project = sqliteTable(
 export const projectSlugAlias = sqliteTable(
   "project_slug_alias",
   {
-    orgId: text("org_id").notNull().references(() => org.id, { onDelete: "cascade" }),
+    teamId: text("team_id").notNull().references(() => team.id, { onDelete: "cascade" }),
     slug: text("slug").notNull(),
     projectId: text("project_id").notNull().references(() => project.id, { onDelete: "cascade" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (t) => [
-    primaryKey({ columns: [t.orgId, t.slug] }),
+    primaryKey({ columns: [t.teamId, t.slug] }),
     index("project_slug_alias_project_id_idx").on(t.projectId),
   ],
 );
@@ -66,7 +66,7 @@ export const projectSlugAlias = sqliteTable(
 export const projectMember = sqliteTable(
   "project_member",
   {
-    orgId: text("org_id").notNull(),
+    teamId: text("team_id").notNull(),
     projectId: text("project_id")
       .notNull()
       .references(() => project.id),
@@ -81,8 +81,8 @@ export const projectMember = sqliteTable(
       t.userId,
     ),
     foreignKey({
-      columns: [t.orgId, t.userId],
-      foreignColumns: [orgMember.orgId, orgMember.userId],
+      columns: [t.teamId, t.userId],
+      foreignColumns: [teamMember.teamId, teamMember.userId],
     }).onDelete("cascade"),
   ],
 );

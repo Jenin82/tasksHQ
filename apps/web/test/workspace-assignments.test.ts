@@ -4,16 +4,16 @@ import { expect, it } from "vitest";
 import { requireProjectMember } from "@tasks/core/access";
 import {
   archiveTask,
-  createOrg,
+  createTeam,
   createProject,
   createTask,
   listWorkspaceAssignments,
   setReportingLead,
   updateTask,
 } from "@tasks/core/domain";
-import { orgMember, user } from "@tasks/core/schema";
+import { teamMember, user } from "@tasks/core/schema";
 
-it("uses organization access and limits team assignments to direct reports", async () => {
+it("uses team access and limits team assignments to direct reports", async () => {
   const db = drizzle(env.DB);
   const now = new Date();
   const ownerId = "assignments-owner";
@@ -26,23 +26,23 @@ it("uses organization access and limits team assignments to direct reports", asy
 
   const owner = { db, actorUserId: ownerId, source: "web" as const };
   const lead = { ...owner, actorUserId: leadId };
-  const org = await createOrg(owner, { name: "Assignments", slug: "assignments" });
-  const other = await createOrg(owner, { name: "Other assignments", slug: "other-assignments" });
-  await db.insert(orgMember).values([
+  const team = await createTeam(owner, { name: "Assignments", slug: "assignments" });
+  const other = await createTeam(owner, { name: "Other assignments", slug: "other-assignments" });
+  await db.insert(teamMember).values([
     ...[leadId, reportId, indirectId].map((userId) => ({
-      orgId: org.id, userId, role: "member" as const, createdAt: now,
+      teamId: team.id, userId, role: "member" as const, createdAt: now,
     })),
-    { orgId: other.id, userId: leadId, role: "member", createdAt: now },
+    { teamId: other.id, userId: leadId, role: "member", createdAt: now },
   ]);
-  const makeProject = (key: string, orgId = org.id) =>
-    createProject(owner, { orgId, name: key, slug: key.toLowerCase(), key });
+  const makeProject = (key: string, teamId = team.id) =>
+    createProject(owner, { teamId, name: key, slug: key.toLowerCase(), key });
   const directProject = await makeProject("REP");
   const indirectProject = await makeProject("IND");
   const personalProject = await makeProject("MINE");
   const otherProject = await makeProject("OUT", other.id);
   await expect(requireProjectMember(db, directProject.id, leadId)).resolves.toMatchObject({ projectRole: null });
-  await setReportingLead(owner, { orgId: org.id, userId: reportId, leadUserId: leadId });
-  await setReportingLead(owner, { orgId: org.id, userId: indirectId, leadUserId: reportId });
+  await setReportingLead(owner, { teamId: team.id, userId: reportId, leadUserId: leadId });
+  await setReportingLead(owner, { teamId: team.id, userId: indirectId, leadUserId: reportId });
   await expect(requireProjectMember(db, directProject.id, leadId)).resolves.toMatchObject({ projectRole: null });
   await expect(requireProjectMember(db, indirectProject.id, leadId)).resolves.toMatchObject({ projectRole: null });
 
@@ -55,9 +55,9 @@ it("uses organization access and limits team assignments to direct reports", asy
   const personal = await addTask(personalProject.id, leadId, "Personal assignment");
   await addTask(otherProject.id, leadId, "Outside this workspace");
 
-  expect(await listWorkspaceAssignments(lead, { orgId: org.id, view: "team" }))
+  expect(await listWorkspaceAssignments(lead, { teamId: team.id, view: "reports" }))
     .toMatchObject([{ id: reportTask.id, projectName: "REP", projectSlug: "rep" }]);
-  expect(await listWorkspaceAssignments(lead, { orgId: org.id, view: "mine" }))
+  expect(await listWorkspaceAssignments(lead, { teamId: team.id, view: "mine" }))
     .toMatchObject([{ id: personal.id, projectName: "MINE" }]);
 
   const leadAssignedAtCreation = await createTask(lead, {
@@ -76,12 +76,12 @@ it("uses organization access and limits team assignments to direct reports", asy
     title: "Assigned to myself",
   });
   const assignedByLead = async () => (await listWorkspaceAssignments(lead, {
-    orgId: org.id,
+    teamId: team.id,
     view: "assigned",
   })).map(({ id }) => id).sort();
 
   expect(await assignedByLead()).toEqual([leadAssignedAtCreation.id, leadReassigned.id].sort());
-  expect(await listWorkspaceAssignments(lead, { orgId: org.id, view: "mine" }))
+  expect(await listWorkspaceAssignments(lead, { teamId: team.id, view: "mine" }))
     .toEqual(expect.arrayContaining([expect.objectContaining({ id: selfAssigned.id })]));
 
   await updateTask(owner, { taskId: leadReassigned.id, title: "Renamed by the owner" });
@@ -93,7 +93,7 @@ it("uses organization access and limits team assignments to direct reports", asy
   expect(await assignedByLead()).toEqual([]);
 
   await expect(addTask(directProject.id, leadId, "Lead assignment")).resolves.toMatchObject({ assignee: { id: leadId } });
-  await setReportingLead(owner, { orgId: org.id, userId: reportId, leadUserId: null });
+  await setReportingLead(owner, { teamId: team.id, userId: reportId, leadUserId: null });
   await expect(requireProjectMember(db, directProject.id, leadId)).resolves.toMatchObject({ projectRole: null });
-  expect(await listWorkspaceAssignments(lead, { orgId: org.id, view: "team" })).toEqual([]);
+  expect(await listWorkspaceAssignments(lead, { teamId: team.id, view: "reports" })).toEqual([]);
 });

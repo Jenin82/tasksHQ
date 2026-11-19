@@ -12,7 +12,7 @@ export async function getUser(): Promise<SessionUser | null> {
 
 /**
  * The signed-in user, or a redirect to the sign-in screen, which is `/`.
- * Every authenticated route goes through this, directly or via getOrgContext.
+ * Every authenticated route goes through this, directly or via getTeamContext.
  */
 export async function requireUser(): Promise<SessionUser> {
   const user = await getUser();

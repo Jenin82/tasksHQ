@@ -5,12 +5,12 @@ import { renderToStaticMarkup } from "react-dom/server.browser";
 import { expect, it, vi } from "vitest";
 import {
   addProjectMember,
-  createOrg,
+  createTeam,
   createProject,
   createTask,
   removeProjectMember,
 } from "@tasks/core/domain";
-import { orgMember, user } from "@tasks/core/schema";
+import { teamMember, user } from "@tasks/core/schema";
 
 // Same seam as test/task-detail.test.tsx: the route layer reads the session
 // through this module, and the pool gives no live request context.
@@ -28,7 +28,7 @@ const AppError = (await import("@/app/error")).default;
 const NotFound = (await import("@/app/not-found")).default;
 const Forbidden = (await import("@/app/forbidden")).default;
 const TaskDetailPage = (
-  await import("@/app/[org]/[project]/[task]/page")
+  await import("@/app/[team]/[project]/[task]/page")
 ).default;
 
 const db = drizzle(env.DB);
@@ -49,9 +49,9 @@ await db.insert(user).values(
 const ownerCtx = { db, actorUserId: "es-owner", source: "web" as const };
 
 actor.id = "es-owner";
-const acme = await createOrg(ownerCtx, { slug: "es-acme", name: "ES Acme" });
-await db.insert(orgMember).values({
-  orgId: acme.id,
+const acme = await createTeam(ownerCtx, { slug: "es-acme", name: "ES Acme" });
+await db.insert(teamMember).values({
+  teamId: acme.id,
   userId: "es-member",
   role: "member",
   createdAt: now,
@@ -133,9 +133,9 @@ it("403 and 404 are two different pages, not one shared one", () => {
 // an assignee who no longer reaches the project
 // ---------------------------------------------------------------------------
 
-it("keeps an organization member assignable when their project role row is removed", async () => {
+it("keeps a team member assignable when their project role row is removed", async () => {
   const project = await createProject(ownerCtx, {
-    orgId: acme.id,
+    teamId: acme.id,
     slug: "detached",
     name: "Detached",
     key: "ESD",
@@ -147,7 +147,7 @@ it("keeps an organization member assignable when their project role row is remov
 
   const created = await createTask(ownerCtx, {
     projectId: project.id,
-    title: "Assigned to an organization member",
+    title: "Assigned to a team member",
     assigneeUserId: "es-member",
   });
 
@@ -160,7 +160,7 @@ it("keeps an organization member assignable when their project role row is remov
   const html = renderToStaticMarkup(
     await TaskDetailPage({
       params: Promise.resolve({
-        org: "es-acme",
+        team: "es-acme",
         project: "detached",
         task: created.key,
       }),

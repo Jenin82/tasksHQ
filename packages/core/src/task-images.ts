@@ -21,8 +21,8 @@ type TaskImageStorage = {
   };
 };
 
-export function taskImagePath(orgSlug: string, projectSlug: string, id: string) {
-  return `/${orgSlug}/${projectSlug}/images/${id}`;
+export function taskImagePath(teamSlug: string, projectSlug: string, id: string) {
+  return `/${teamSlug}/${projectSlug}/images/${id}`;
 }
 
 export function taskImageKey(projectId: string, id: string) {

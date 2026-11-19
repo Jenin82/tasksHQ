@@ -19,7 +19,7 @@ Include:
 
 - The affected component (web app, MCP server, OAuth flow, shared domain code) and commit.
 - Steps to reproduce or a proof of concept.
-- The impact you expect, for example data exposure across organizations or projects, privilege escalation, or token misuse.
+- The impact you expect, for example data exposure across teams or projects, privilege escalation, or token misuse.
 
 The maintainers will acknowledge the report, investigate, and coordinate a fix and disclosure with you through the advisory. Please give us reasonable time to release a fix before disclosing publicly.
 

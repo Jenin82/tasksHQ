@@ -5,14 +5,14 @@ import { renderToStaticMarkup } from "react-dom/server.browser";
 import { expect, it, vi } from "vitest";
 import {
   addProjectMember,
-  createOrg,
+  createTeam,
   createProject,
   createStatus,
   createTask,
   deleteStatus,
 } from "@tasks/core/domain";
 import {
-  orgMember,
+  teamMember,
   status,
   task,
   user,
@@ -36,13 +36,13 @@ const {
   deleteStatusAction,
   recolorStatusAction,
   reorderStatusAction,
-} = await import("@/app/[org]/[project]/settings/actions");
-const GeneralPage = (await import("@/app/[org]/[project]/settings/page")).default;
-const WorkflowPage = (await import("@/app/[org]/[project]/settings/workflow/page")).default;
-const AdminsPage = (await import("@/app/[org]/[project]/settings/admins/page")).default;
-const IntegrationsPage = (await import("@/app/[org]/[project]/settings/integrations/page")).default;
+} = await import("@/app/[team]/[project]/settings/actions");
+const GeneralPage = (await import("@/app/[team]/[project]/settings/page")).default;
+const WorkflowPage = (await import("@/app/[team]/[project]/settings/workflow/page")).default;
+const AdminsPage = (await import("@/app/[team]/[project]/settings/admins/page")).default;
+const IntegrationsPage = (await import("@/app/[team]/[project]/settings/integrations/page")).default;
 const settingsPages = [GeneralPage, WorkflowPage, AdminsPage, IntegrationsPage];
-const { updateSlackIntegrationAction } = await import("@/app/[org]/[project]/settings/slack-actions");
+const { updateSlackIntegrationAction } = await import("@/app/[team]/[project]/settings/slack-actions");
 
 const db = drizzle(env.DB);
 const now = new Date();
@@ -62,9 +62,9 @@ await db.insert(user).values(
 const ownerCtx = { db, actorUserId: "st-owner", source: "web" as const };
 
 actor.id = "st-owner";
-const acme = await createOrg(ownerCtx, { slug: "st-acme", name: "ST Acme" });
-await db.insert(orgMember).values(["st-member", "st-plain"].map((userId) => ({
-  orgId: acme.id,
+const acme = await createTeam(ownerCtx, { slug: "st-acme", name: "ST Acme" });
+await db.insert(teamMember).values(["st-member", "st-plain"].map((userId) => ({
+  teamId: acme.id,
   userId,
   role: "member" as const,
   createdAt: now,
@@ -77,7 +77,7 @@ const digest = (code: number) => ({
 
 async function freshProject(slug: string, key: string) {
   const project = await createProject(ownerCtx, {
-    orgId: acme.id,
+    teamId: acme.id,
     slug,
     name: slug,
     key,
@@ -96,7 +96,7 @@ function columns(projectId: string) {
 
 function form(projectSlug: string, fields: Record<string, string>) {
   const data = new FormData();
-  data.set("org", "st-acme");
+  data.set("team", "st-acme");
   data.set("project", projectSlug);
   for (const [key, value] of Object.entries(fields)) data.set(key, value);
   return data;
@@ -104,7 +104,7 @@ function form(projectSlug: string, fields: Record<string, string>) {
 
 function render(Page: (typeof settingsPages)[number], projectSlug: string) {
   return Page({
-    params: Promise.resolve({ org: "st-acme", project: projectSlug }),
+    params: Promise.resolve({ team: "st-acme", project: projectSlug }),
   }).then(renderToStaticMarkup);
 }
 
@@ -238,7 +238,7 @@ it("deleting a status is blocked while tasks reference it, and moves them when g
   expect(new Set(tasks.map((t) => t.id))).toEqual(new Set([one.id, two.id]));
 });
 
-it("lets org managers grant and revoke scoped project administration without changing access", async () => {
+it("lets team managers grant and revoke scoped project administration without changing access", async () => {
   actor.id = "st-owner";
   const { project } = await freshProject("st-admins", "STO");
   const other = await freshProject("st-other", "STX");
@@ -246,7 +246,7 @@ it("lets org managers grant and revoke scoped project administration without cha
     setProjectMemberRoleAction({}, form(project.slug, { userId, role }));
 
   expect(await render(AdminsPage, project.slug)).toContain("Grant admin access");
-  expect(await submit("st-stranger", "admin")).toMatchObject({ error: expect.stringMatching(/organization/i) });
+  expect(await submit("st-stranger", "admin")).toMatchObject({ error: expect.stringMatching(/team/i) });
   expect(await submit("st-member", "admin")).toEqual({});
   const managed = await render(AdminsPage, project.slug);
   expect(managed).toContain("Revoke admin access");
@@ -261,7 +261,7 @@ it("lets org managers grant and revoke scoped project administration without cha
   expect(scoped).not.toContain("Revoke admin access");
   expect(scoped).not.toContain("Choose a member");
   expect(scoped).not.toContain("ST-PLAIN");
-  // General keeps project details and deletion for org owners and admins.
+  // General keeps project details and deletion for team owners and admins.
   const general = await render(GeneralPage, project.slug);
   expect(general).toContain("Task editing");
   expect(general).toContain("Auto-archive");

@@ -3,7 +3,7 @@ import type { DrizzleD1Database } from "drizzle-orm/d1";
 import { alias } from "drizzle-orm/sqlite-core";
 import { DomainError } from "../errors";
 import { user } from "../schema/auth";
-import { orgMember } from "../schema/org";
+import { teamMember } from "../schema/team";
 import { convertImageToWebP, TASK_IMAGE_ID, type ImageBinding } from "../task-images";
 
 const avatarTransform = { width: 96, height: 96, fit: "cover" } as const;
@@ -96,15 +96,15 @@ export async function readableProfileAvatarKey(
   version: string,
 ) {
   if (!TASK_IMAGE_ID.test(version)) return null;
-  const ownerMembership = alias(orgMember, "avatar_owner_membership");
-  const sharesOrganization = db.select({ orgId: orgMember.orgId }).from(orgMember)
-    .innerJoin(ownerMembership, and(eq(ownerMembership.orgId, orgMember.orgId), eq(ownerMembership.userId, ownerId)))
-    .where(eq(orgMember.userId, viewerId));
+  const ownerMembership = alias(teamMember, "avatar_owner_membership");
+  const sharesTeam = db.select({ teamId: teamMember.teamId }).from(teamMember)
+    .innerJoin(ownerMembership, and(eq(ownerMembership.teamId, teamMember.teamId), eq(ownerMembership.userId, ownerId)))
+    .where(eq(teamMember.userId, viewerId));
 
   const [row] = await db.select({ id: user.id }).from(user).where(and(
     eq(user.id, ownerId),
     eq(user.image, `${avatarPrefix(ownerId)}${version}`),
-    viewerId === ownerId ? undefined : exists(sharesOrganization),
+    viewerId === ownerId ? undefined : exists(sharesTeam),
   ));
   return row ? avatarKey(ownerId, version) : null;
 }

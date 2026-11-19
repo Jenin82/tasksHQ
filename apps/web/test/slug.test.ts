@@ -8,24 +8,24 @@ import {
 
 it("normalizes accents and punctuation in slug suggestions", () => {
   const name = "  Déjà Vu / Ångström  ";
-  expect(suggestSlug(name, "org")).toBe("deja-vu-angstrom");
+  expect(suggestSlug(name, "team")).toBe("deja-vu-angstrom");
   expect(suggestSlug(name, "project")).toBe("deja-vu-angstrom");
 });
 
 it("gives reserved and one-character slugs a valid suffix", () => {
-  expect(suggestSlug("OAuth", "org")).toBe("oauth-org");
-  expect(suggestSlug("Docs", "org")).toBe("docs-org");
-  expect(() => assertValidSlug("Organization slug", "docs")).toThrow(/reserved/);
+  expect(suggestSlug("OAuth", "team")).toBe("oauth-team");
+  expect(suggestSlug("Docs", "team")).toBe("docs-team");
+  expect(() => assertValidSlug("Team slug", "docs")).toThrow(/reserved/);
   expect(suggestSlug("Prójects", "project")).toBe("projects-project");
-  expect(suggestSlug("É", "org")).toBe("e-org");
+  expect(suggestSlug("É", "team")).toBe("e-team");
   expect(suggestSlug("7", "project")).toBe("7-project");
 });
 
 it("fits slug suggestions within 48 characters and removes a trailing separator", () => {
   expect(suggestSlug("A".repeat(60), "project")).toBe("a".repeat(48));
-  const slug = suggestSlug(`${"A".repeat(47)} / longer`, "org");
+  const slug = suggestSlug(`${"A".repeat(47)} / longer`, "team");
   expect(slug).toBe("a".repeat(47));
-  expect(() => assertValidSlug("Organization slug", slug)).not.toThrow();
+  expect(() => assertValidSlug("Team slug", slug)).not.toThrow();
 });
 
 it("uses uppercase initials or a single-word prefix for project keys", () => {
@@ -40,7 +40,7 @@ it("uses uppercase initials or a single-word prefix for project keys", () => {
 
 it("leaves the suggestion blank when the name has no usable characters", () => {
   const name = "世界 — 💡";
-  expect(suggestSlug(name, "org")).toBe("");
+  expect(suggestSlug(name, "team")).toBe("");
   expect(suggestSlug(name, "project")).toBe("");
   expect(suggestProjectKey(name)).toBe("");
   expect(suggestProjectKey("123-456")).toBe("");

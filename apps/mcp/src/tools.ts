@@ -38,7 +38,7 @@ import {
   projectTaskTypes,
   reachableProjects,
   resolveAssignee,
-  resolveOrg,
+  resolveTeam,
   resolveProject,
   resolveStatus,
   resolveTask,
@@ -52,11 +52,11 @@ type DomainContext = Parameters<typeof createTask>[0];
 const PROJECT = z
   .string()
   .min(1)
-  .describe('Project key or slug, e.g. "ENG" or "web". Prefix "org/" if ambiguous.');
+  .describe('Project key or slug, e.g. "ENG" or "web". Prefix "team/" if ambiguous.');
 const TASK = z
   .string()
   .min(1)
-  .describe('Task key, e.g. "ENG-42". Prefix "org/" if ambiguous.');
+  .describe('Task key, e.g. "ENG-42". Prefix "team/" if ambiguous.');
 const STATUS = z.string().min(1).describe("Status name, as list_projects returns it.");
 const ASSIGNEE = z.string().min(1).describe("Assignee email address.");
 const REPORTER = z.string().min(1).describe("Reporter email address. Defaults to the task creator.");
@@ -73,6 +73,16 @@ const DESCRIPTION = z.string().describe(
 const DATETIME = z.iso.datetime({ offset: true });
 const NOTE = z.string().max(500).describe("Optional note, up to 500 characters.");
 const MAX_LIST_DAYS = 92;
+// `org` is the pre-rename input name, accepted for one release.
+const TEAM_INPUT = {
+  team: z.string().min(1).optional().describe("Team slug, as list_projects returns it. Required (the deprecated org is still accepted)."),
+  org: z.string().min(1).optional().describe("Deprecated: use team."),
+};
+function teamSlugArg(args: { team?: string; org?: string }): string {
+  const slug = args.team ?? args.org;
+  if (!slug) throw new DomainError("team is required.");
+  return slug;
+}
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_IMAGE_BASE64_LENGTH = 4 * Math.ceil(MAX_TASK_IMAGE_BYTES / 3);
 // Allow room for the JSON-RPC envelope around a maximum-size encoded image.
@@ -150,9 +160,9 @@ async function taskView(db: DrizzleD1Database, t: TaskDetail) {
   };
 }
 
-/** A parent key without an org prefix is read in the child's own org. */
+/** A parent key without a team prefix is read in the child's own team. */
 async function resolveParent(db: DrizzleD1Database, userId: string, p: ReachableProject, key: string) {
-  const qualified = key.includes("/") ? key : `${p.orgSlug}/${key}`;
+  const qualified = key.includes("/") ? key : `${p.teamSlug}/${key}`;
   let parent;
   try {
     parent = await resolveTask(db, userId, qualified);
@@ -221,7 +231,7 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
           key: p.key,
           slug: p.slug,
           name: p.name,
-          org: p.orgSlug,
+          team: p.teamSlug,
           statuses: statuses
             .filter((s) => s.projectId === p.id)
             .map((s) => ({ name: s.name, color: s.color ?? "gray" })),
@@ -494,7 +504,7 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
       run(async () => {
         const project = await resolveProject(db, props.userId, args.project);
         const imageId = await storeTaskImage(images, project.id, decodeImage(args.base64));
-        const path = taskImagePath(project.orgSlug, project.slug, imageId);
+        const path = taskImagePath(project.teamSlug, project.slug, imageId);
         return { imageId, path, markdown: `![Task image](${path})` };
       }),
   );
@@ -531,7 +541,7 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
     "start_timer",
     {
       description:
-        "Start a timer on a task. Stops any timer you already have running, in any organization. Archived tasks can't track time.",
+        "Start a timer on a task. Stops any timer you already have running, in any team. Archived tasks can't track time.",
       inputSchema: z.object({ task: TASK, note: NOTE.optional() }),
     },
     (args) =>
@@ -575,7 +585,7 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
             entryId: timer.id,
             task: timer.key,
             title: timer.title,
-            org: timer.orgSlug,
+            team: timer.teamSlug,
             startedAt: timer.startedAt,
             elapsedMinutes: durationMinutes(timer.startedAt, null, Date.now()),
             note: timer.note,
@@ -619,9 +629,9 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
   server.registerTool(
     "list_my_time_entries",
     {
-      description: `Your time entries in an organization that overlap [from, to), newest first, with totalMinutes. Entries are counted whole, and running ones count up to now. The range can be at most ${MAX_LIST_DAYS} days.`,
+      description: `Your time entries in a team that overlap [from, to), newest first, with totalMinutes. Entries are counted whole, and running ones count up to now. The range can be at most ${MAX_LIST_DAYS} days.`,
       inputSchema: z.object({
-        org: z.string().min(1).describe("Organization slug, as list_projects returns it."),
+        ...TEAM_INPUT,
         from: DATETIME.describe("ISO 8601 date-time with offset, inclusive."),
         to: DATETIME.describe("ISO 8601 date-time with offset, exclusive."),
       }),
@@ -629,10 +639,11 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
     },
     (args) =>
       run(async () => {
+        const slug = teamSlugArg(args);
         const { from, to } = parseRange(args);
-        const o = await resolveOrg(db, props.userId, args.org);
+        const o = await resolveTeam(db, props.userId, slug);
         const now = Date.now();
-        const entries = (await listMyTimeEntries(ctx, { orgId: o.id, from, to })).map((e) => ({
+        const entries = (await listMyTimeEntries(ctx, { teamId: o.id, from, to })).map((e) => ({
           id: e.id,
           task: e.key,
           title: e.title,
@@ -656,9 +667,9 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
   server.registerTool(
     "get_time_report",
     {
-      description: `Time logged in an organization, per person, project and task, in minutes. Owners and admins see everyone in the organization, including former members; leads see themselves and their direct reports; others see only themselves. from and to are instants, and entries are clipped to [from, to). Running time counts up to now, capped at 12 hours. Minutes are rounded down at each level, so parts may not add up to the total exactly. The range can be at most ${MAX_LIST_DAYS} days.`,
+      description: `Time logged in a team, per person, project and task, in minutes. Owners and admins see everyone in the team, including former members; leads see themselves and their direct reports; others see only themselves. from and to are instants, and entries are clipped to [from, to). Running time counts up to now, capped at 12 hours. Minutes are rounded down at each level, so parts may not add up to the total exactly. The range can be at most ${MAX_LIST_DAYS} days.`,
       inputSchema: z.object({
-        org: z.string().min(1).describe("Organization slug, as list_projects returns it."),
+        ...TEAM_INPUT,
         from: DATETIME.describe("ISO 8601 date-time with offset, inclusive."),
         to: DATETIME.describe("ISO 8601 date-time with offset, exclusive."),
         user: z.string().min(1).optional().describe("Only this person's time, by email address."),
@@ -667,10 +678,11 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
     },
     (args) =>
       run(async () => {
+        const slug = teamSlugArg(args);
         const { from, to } = parseRange(args);
-        const o = await resolveOrg(db, props.userId, args.org);
+        const o = await resolveTeam(db, props.userId, slug);
         const entries = await listTimeReportEntries(ctx, {
-          orgId: o.id,
+          teamId: o.id,
           from,
           to,
           ...(args.user ? { userEmail: args.user } : {}),
@@ -723,9 +735,9 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
   server.registerTool(
     "get_work_summary_data",
     {
-      description: `Your own work in an organization over [from, to), for writing a work summary, timesheet or standup: each task you logged time on, created, moved or commented on, with its current status, archived flag, your minutes clipped to the range, your time-entry notes, and your status changes and comments in the range. Each task gives its project slug and name. Statuses are project-defined names, so a status like "Done" means completed. Minutes are rounded down per task, so they may not add up to totalMinutes exactly. Running time counts up to now, capped at 12 hours. The range can be at most ${MAX_LIST_DAYS} days.`,
+      description: `Your own work in a team over [from, to), for writing a work summary, timesheet or standup: each task you logged time on, created, moved or commented on, with its current status, archived flag, your minutes clipped to the range, your time-entry notes, and your status changes and comments in the range. Each task gives its project slug and name. Statuses are project-defined names, so a status like "Done" means completed. Minutes are rounded down per task, so they may not add up to totalMinutes exactly. Running time counts up to now, capped at 12 hours. The range can be at most ${MAX_LIST_DAYS} days.`,
       inputSchema: z.object({
-        org: z.string().min(1).describe("Organization slug, as list_projects returns it."),
+        ...TEAM_INPUT,
         from: DATETIME.describe("ISO 8601 date-time with offset, inclusive."),
         to: DATETIME.describe("ISO 8601 date-time with offset, exclusive."),
       }),
@@ -733,9 +745,10 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
     },
     (args) =>
       run(async () => {
+        const slug = teamSlugArg(args);
         const { from, to } = parseRange(args);
-        const o = await resolveOrg(db, props.userId, args.org);
-        return getWorkSummaryData(ctx, { orgId: o.id, from, to });
+        const o = await resolveTeam(db, props.userId, slug);
+        return getWorkSummaryData(ctx, { teamId: o.id, from, to });
       }),
   );
 

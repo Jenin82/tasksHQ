@@ -5,13 +5,13 @@ import { renderToStaticMarkup } from "react-dom/server.browser";
 import { expect, it, vi } from "vitest";
 import {
   archiveTask,
-  createOrg,
+  createTeam,
   createProject,
   createTask,
   listTasks,
   listWorkspaceAssignments,
 } from "@tasks/core/domain";
-import { orgMember, status, user, type Status } from "@tasks/core/schema";
+import { teamMember, status, user, type Status } from "@tasks/core/schema";
 import { emptyProjectFilters, ProjectFiltersContext } from "@/components/project-filters-context";
 import { statusDot } from "@/lib/status-style";
 
@@ -28,11 +28,11 @@ vi.mock("@/lib/session", () => {
 });
 
 const { getProjectContext } = await import("@/lib/project-context");
-const { toRows } = await import("@/app/[org]/[project]/table/rows");
-const { TaskTable } = await import("@/app/[org]/[project]/table/task-table");
-const { WorkspaceAssignmentTable } = await import("@/app/[org]/(org)/settings/workspace-assignment-table");
-const { filterTasksByPeople } = await import("@/app/[org]/[project]/task-people-filters");
-const TablePage = (await import("@/app/[org]/[project]/table/page")).default;
+const { toRows } = await import("@/app/[team]/[project]/table/rows");
+const { TaskTable } = await import("@/app/[team]/[project]/table/task-table");
+const { WorkspaceAssignmentTable } = await import("@/app/[team]/(team)/settings/workspace-assignment-table");
+const { filterTasksByPeople } = await import("@/app/[team]/[project]/task-people-filters");
+const TablePage = (await import("@/app/[team]/[project]/table/page")).default;
 
 const db = drizzle(env.DB);
 const now = new Date();
@@ -52,9 +52,9 @@ await db.insert(user).values(
 const ownerCtx = { db, actorUserId: "tb-owner", source: "web" as const };
 
 actor.id = "tb-owner";
-const acme = await createOrg(ownerCtx, { slug: "tb-acme", name: "TB Acme" });
-await db.insert(orgMember).values({
-  orgId: acme.id,
+const acme = await createTeam(ownerCtx, { slug: "tb-acme", name: "TB Acme" });
+await db.insert(teamMember).values({
+  teamId: acme.id,
   userId: "tb-member",
   role: "member",
   createdAt: now,
@@ -67,7 +67,7 @@ const digest = (code: number) => ({
 
 async function freshProject(slug: string, key: string) {
   const project = await createProject(ownerCtx, {
-    orgId: acme.id,
+    teamId: acme.id,
     slug,
     name: slug,
     key,
@@ -80,24 +80,24 @@ async function freshProject(slug: string, key: string) {
   return { project, statuses };
 }
 
-it("filters the cross-organization table by project even when names, slugs, and task keys match", async () => {
-  const orgs = await Promise.all([
-    createOrg(ownerCtx, { slug: "tb-first", name: "TB First" }),
-    createOrg(ownerCtx, { slug: "tb-second", name: "TB Second" }),
+it("filters the cross-team table by project even when names, slugs, and task keys match", async () => {
+  const teams = await Promise.all([
+    createTeam(ownerCtx, { slug: "tb-first", name: "TB First" }),
+    createTeam(ownerCtx, { slug: "tb-second", name: "TB Second" }),
   ]);
-  const taskLists = await Promise.all(orgs.map(async (organization) => {
+  const taskLists = await Promise.all(teams.map(async (team) => {
     const project = await createProject(ownerCtx, {
-      orgId: organization.id, slug: "shared", name: "Shared", key: "SHR",
+      teamId: team.id, slug: "shared", name: "Shared", key: "SHR",
     });
-    await createTask(ownerCtx, { projectId: project.id, title: organization.name, assigneeUserId: ownerCtx.actorUserId });
-    const tasks = await listWorkspaceAssignments(ownerCtx, { orgId: organization.id, view: "mine" });
-    return tasks.map((task) => ({ ...task, orgSlug: organization.slug, orgName: organization.name }));
+    await createTask(ownerCtx, { projectId: project.id, title: team.name, assigneeUserId: ownerCtx.actorUserId });
+    const tasks = await listWorkspaceAssignments(ownerCtx, { teamId: team.id, view: "mine" });
+    return tasks.map((task) => ({ ...task, teamSlug: team.slug, teamName: team.name }));
   }));
-  const props = { title: "All My Tasks", editors: {}, emptyMessage: "No tasks.", filterScope: "tb-cross-org" };
+  const props = { title: "All My Tasks", editors: {}, emptyMessage: "No tasks.", filterScope: "tb-cross-team" };
   const combined = renderToStaticMarkup(
-    <WorkspaceAssignmentTable {...props} tasks={taskLists.flat()} organizations={orgs} />,
+    <WorkspaceAssignmentTable {...props} tasks={taskLists.flat()} teams={teams} />,
   );
-  expect(combined).toContain(">Organization");
+  expect(combined).toContain(">Team");
   expect(combined).toContain('href="/tb-first/shared/SHR-1"');
   expect(combined).toContain('href="/tb-second/shared/SHR-1"');
 
@@ -106,14 +106,14 @@ it("filters the cross-organization table by project even when names, slugs, and 
       filters: { ...emptyProjectFilters(), projectId: taskLists[0][0].projectId },
       setFilters: () => {},
     }}>
-      <WorkspaceAssignmentTable {...props} tasks={taskLists.flat()} organizations={orgs} />
+      <WorkspaceAssignmentTable {...props} tasks={taskLists.flat()} teams={teams} />
     </ProjectFiltersContext.Provider>,
   );
   expect(filtered).toContain('href="/tb-first/shared/SHR-1"');
   expect(filtered).not.toContain('href="/tb-second/shared/SHR-1"');
 
   const single = renderToStaticMarkup(<WorkspaceAssignmentTable {...props} tasks={taskLists[0]} />);
-  expect(single).not.toContain(">Organization");
+  expect(single).not.toContain(">Team");
 });
 
 /** What the page does, end to end: read, map, render. */
@@ -168,7 +168,7 @@ it("the table's data path is a 404 for a non-member and for an unknown project",
     digest(404),
   );
 
-  // Someone outside the org never gets past the org check.
+  // Someone outside the team never gets past the team check.
   actor.id = "tb-stranger";
   await expect(getProjectContext("tb-acme", "tb-reach")).rejects.toMatchObject(
     digest(404),
@@ -272,7 +272,7 @@ it("renders the stored status color and falls back to grey for a null color", as
   await createTask(ownerCtx, { projectId: project.id, title: "Finished", statusId: done.id });
 
   const html = renderToStaticMarkup(
-    await TablePage({ params: Promise.resolve({ org: acme.slug, project: project.slug }) }),
+    await TablePage({ params: Promise.resolve({ team: acme.slug, project: project.slug }) }),
   );
   expect(html).not.toContain('aria-label="Filters and sort"');
   expect(html).not.toContain('aria-label="Filter by title"');

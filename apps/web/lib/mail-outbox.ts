@@ -2,8 +2,8 @@ import { and, asc, eq, isNull, lte } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import { alias } from "drizzle-orm/sqlite-core";
 import { AccessError, requireProjectMember } from "@tasks/core/access";
-import { inviterStillManagesOrg, taskKey } from "@tasks/core/domain";
-import { comment, mailOutbox, org, orgInvite, orgMember, project, task, user, type MailJob } from "@tasks/core/schema";
+import { inviterStillManagesTeam, taskKey } from "@tasks/core/domain";
+import { comment, mailOutbox, team, teamInvite, teamMember, project, task, user, type MailJob } from "@tasks/core/schema";
 import type { MailMessage } from "./smtp";
 
 const MAX_ATTEMPTS = 5;
@@ -11,16 +11,16 @@ const LEASE_TIME = 2 * 60_000;
 const mentionRecipient = alias(user, "mention_recipient");
 
 async function mailForJob(db: DrizzleD1Database, origin: string, job: MailJob): Promise<MailMessage | null> {
-  // Older deployments may have queued these before invitations moved to the organization.
+  // Older deployments may have queued these before invitations moved to the team.
   if (job.kind === "project_invite" || job.kind === "project_added") return null;
 
   const app = new URL("/", origin).href;
-  if (job.kind === "org_invite") {
+  if (job.kind === "team_invite") {
     if (!job.inviteVersion) return null;
-    const active = await db.select({ email: orgInvite.email }).from(orgInvite).where(and(
-      eq(orgInvite.orgId, job.targetId), eq(orgInvite.email, job.recipient),
-      eq(orgInvite.createdAt, job.inviteVersion), isNull(orgInvite.acceptedAt),
-      inviterStillManagesOrg(db),
+    const active = await db.select({ email: teamInvite.email }).from(teamInvite).where(and(
+      eq(teamInvite.teamId, job.targetId), eq(teamInvite.email, job.recipient),
+      eq(teamInvite.createdAt, job.inviteVersion), isNull(teamInvite.acceptedAt),
+      inviterStillManagesTeam(db),
     )).get();
     return active ? {
       to: active.email,
@@ -32,19 +32,19 @@ async function mailForJob(db: DrizzleD1Database, origin: string, job: MailJob): 
   if (job.kind === "comment_mention") {
     const target = await db.select({
       body: comment.body, mentions: comment.mentions, author: user.name, title: task.title, email: mentionRecipient.email,
-      number: task.number, projectKey: project.key, projectSlug: project.slug, orgSlug: org.slug,
+      number: task.number, projectKey: project.key, projectSlug: project.slug, teamSlug: team.slug,
     }).from(comment)
       .innerJoin(task, eq(task.id, comment.taskId))
       .innerJoin(project, eq(project.id, task.projectId))
-      .innerJoin(org, eq(org.id, project.orgId))
+      .innerJoin(team, eq(team.id, project.teamId))
       .innerJoin(user, eq(user.id, comment.userId))
-      .innerJoin(orgMember, and(eq(orgMember.orgId, org.id), eq(orgMember.userId, job.recipient)))
-      .innerJoin(mentionRecipient, and(eq(mentionRecipient.id, orgMember.userId), eq(mentionRecipient.emailVerified, true)))
+      .innerJoin(teamMember, and(eq(teamMember.teamId, team.id), eq(teamMember.userId, job.recipient)))
+      .innerJoin(mentionRecipient, and(eq(mentionRecipient.id, teamMember.userId), eq(mentionRecipient.emailVerified, true)))
       .where(eq(comment.id, job.targetId)).get();
     if (!target?.mentions?.some(({ userId }) => userId === job.recipient)) return null;
 
     const key = taskKey(target.projectKey, target.number);
-    const href = new URL(`/${target.orgSlug}/${target.projectSlug}/${key}`, app).href;
+    const href = new URL(`/${target.teamSlug}/${target.projectSlug}/${key}`, app).href;
     return {
       to: target.email,
       subject: `You were mentioned in ${key}`,
@@ -58,8 +58,8 @@ async function mailForJob(db: DrizzleD1Database, origin: string, job: MailJob): 
 
   const target = await db.select({
     title: task.title, number: task.number, projectId: project.id, projectKey: project.key,
-    projectSlug: project.slug, orgSlug: org.slug, assignee: task.assigneeUserId,
-  }).from(task).innerJoin(project, eq(task.projectId, project.id)).innerJoin(org, eq(project.orgId, org.id))
+    projectSlug: project.slug, teamSlug: team.slug, assignee: task.assigneeUserId,
+  }).from(task).innerJoin(project, eq(task.projectId, project.id)).innerJoin(team, eq(project.teamId, team.id))
     .where(and(eq(task.id, job.targetId), isNull(task.archivedAt))).get();
   if (!target || (job.kind === "assignment" && target.assignee !== job.recipient)) return null;
   try {
@@ -70,7 +70,7 @@ async function mailForJob(db: DrizzleD1Database, origin: string, job: MailJob): 
   }
 
   const key = taskKey(target.projectKey, target.number);
-  const href = new URL(`/${target.orgSlug}/${target.projectSlug}/${key}`, app).href;
+  const href = new URL(`/${target.teamSlug}/${target.projectSlug}/${key}`, app).href;
   const subject = job.kind === "assignment" ? `Assigned to you: ${key}` : `Task updated: ${key}`;
   return { to: recipient.email, subject, text: `${subject}\n${target.title}\n\n${href}` };
 }
