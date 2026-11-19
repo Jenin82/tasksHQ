@@ -4,7 +4,6 @@ import { drizzle } from "drizzle-orm/d1";
 import { expect, it } from "vitest";
 import {
   addProjectMember,
-  createTeam,
   createProject,
   createProjectTaskType,
   createTask,
@@ -13,6 +12,7 @@ import {
   renameProjectTaskType,
   setDefaultProjectTaskType,
 } from "@tasks/core/domain";
+import { createTeam } from "./helpers";
 import { teamMember, task, user } from "@tasks/core/schema";
 
 const db = drizzle(env.DB);

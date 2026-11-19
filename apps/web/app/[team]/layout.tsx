@@ -5,6 +5,7 @@ import { teamReportingLine, project, projectMember } from "@tasks/core/schema";
 import { TopBar } from "@/components/top-bar";
 import { WorkspaceShell } from "@/components/workspace-shell";
 import { db } from "@/lib/db";
+import { getOrgMembership } from "@/lib/org-context";
 import { getTeamContext, listUserTeams } from "@/lib/team-context";
 
 export default async function TeamLayout({
@@ -17,8 +18,9 @@ export default async function TeamLayout({
   const { team: slug } = await params;
   const { team, member, user } = await getTeamContext(slug);
 
-  const [teams, projectRows, reports, runningTimer] = await Promise.all([
+  const [teams, orgMembership, projectRows, reports, runningTimer] = await Promise.all([
     listUserTeams(user.id),
+    getOrgMembership(user.id),
     db.select({ slug: project.slug, name: project.name, key: project.key, role: projectMember.role })
       .from(project)
       .leftJoin(projectMember, and(
@@ -44,11 +46,12 @@ export default async function TeamLayout({
     <WorkspaceShell
       key={team.slug}
       team={team.slug}
+      org={{ canManage: orgMembership.canManage }}
       projects={projects}
       canManageWorkspace={can(member.role, "team:manage_members")}
-      teams={teams.map(({ slug, name }) => ({ slug, name }))}
+      teams={teams.map(({ slug, name, implicit }) => ({ slug, name, member: !implicit }))}
       hasReports={reports.length > 0}
-      canViewTimeReports={can(member.role, "team:view_time_reports")}
+      canViewTimeReports={!member.implicit && can(member.role, "team:view_time_reports")}
       header={
         <TopBar
           team={{ slug: team.slug, name: team.name }}

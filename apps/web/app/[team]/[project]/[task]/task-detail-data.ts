@@ -11,6 +11,8 @@ import type { FieldPerson, FieldStatus, TaskFieldsIds } from "./task-fields";
 export type TaskDetailData = {
   detail: TaskWithHistory;
   canEdit: boolean;
+  /** False for org owners and admins outside the team: they can open it but not track time. */
+  canTrackTime: boolean;
   statuses: FieldStatus[];
   taskTypes: TaskTypeRef[];
   assignable: FieldPerson[];
@@ -88,5 +90,5 @@ export async function readTaskDetail(
     taskId: detail.id,
   };
 
-  return { detail, canEdit, statuses, taskTypes, assignable, detached, detachedReporter, ids, moveTargets };
+  return { detail, canEdit, canTrackTime: !access.member.implicit, statuses, taskTypes, assignable, detached, detachedReporter, ids, moveTargets };
 }

@@ -17,15 +17,15 @@ export const sections: GuideSection[] = [
   {
     id: "create-an-organization",
     title: "Create a team",
-    searchTerms: ["create organization", "new organization", "new team", "create workspace"],
+    searchTerms: ["new team", "create workspace"],
     content: <>
-      <p>A team is the workspace that holds your people and projects. Members of a team can open its projects.</p>
+      <p>A team is the workspace that holds your people and projects. Members of a team can open its projects. Only <DocLink topic="organization" section="roles">organization owners and admins</DocLink> can create teams.</p>
       <Steps>
-        <li>From the Teams page, choose <strong>New team</strong>. If you already belong to more than one team, you can also choose <strong>+</strong> next to Teams in the sidebar.</li>
+        <li>From the Teams page, choose <strong>New team</strong>. You can also choose <strong>+</strong> next to Teams in the sidebar.</li>
         <li>Enter the name your team will recognize and check the suggested slug. The slug is the part of the URL that identifies your workspace.</li>
         <li>Choose <strong>Create team</strong>.</li>
       </Steps>
-      <p>If your team already uses TasksHQ, ask one of its admins to invite you.</p>
+      <p>If your team already uses TasksHQ, ask one of its admins to invite you. If you signed in but have no team yet, ask an admin to add you to one.</p>
     </>,
   },
   {

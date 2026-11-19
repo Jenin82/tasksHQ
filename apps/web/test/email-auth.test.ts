@@ -3,12 +3,12 @@ import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { expect, it } from "vitest";
 import {
-  createTeam,
   createProject,
   inviteToTeam,
   listTasks,
   revokeTeamInvite,
 } from "@tasks/core/domain";
+import { createTeam } from "./helpers";
 import { teamInvite, teamMember, projectInvite, projectMember, user, verification } from "@tasks/core/schema";
 import { createTasksAuth } from "@/lib/auth";
 
@@ -22,7 +22,8 @@ await db.insert(user).values({
   emailVerified: true,
 });
 
-function fixture(ipSuffix: number, allowlist?: string, { enabled = true, beforeSend }: {
+// Signup is invite-only without an allowlist (P3), so the default admits this file's domain.
+function fixture(ipSuffix: number, allowlist: string | undefined = "*@email-auth.test", { enabled = true, beforeSend }: {
   enabled?: boolean;
   beforeSend?: () => Promise<void>;
 } = {}) {

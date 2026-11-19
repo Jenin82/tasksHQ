@@ -1,5 +1,4 @@
 import {
-  createTeam,
   createProject,
   createTask,
   renameProject,
@@ -7,11 +6,11 @@ import {
   setProjectTaskEditRestriction,
   setReportingLead,
 } from "@tasks/core/domain";
-import { activity, comment, team, teamMember, task, user } from "@tasks/core/schema";
-import { and, eq } from "drizzle-orm";
+import { activity, comment, orgMember, team, teamMember, task, user } from "@tasks/core/schema";
+import { and, eq, inArray } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 import { MAX_TASK_IMAGE_BYTES } from "@tasks/core/task-images";
-import { call, callResult, db } from "./helpers";
+import { call, callResult, db, createTeam } from "./helpers";
 
 // Storage is shared across the run, so every id and slug here is `mc-`-prefixed.
 const now = new Date();
@@ -103,6 +102,29 @@ describe("list_projects", () => {
     expect(outsider.data.map((p: any) => p.key)).toEqual(["SEC"]);
     const bystander = await call(BYSTANDER, "list_projects");
     expect(bystander.data.map((p: any) => p.key)).toEqual(["ENG", "OPS"]);
+  });
+
+  it("gives an org admin every team's projects, and an org member with no team none", async () => {
+    await db.insert(user).values(["mc-org-admin", "mc-org-member"].map((id) => ({
+      id, name: id, email: `${id}@example.test`, createdAt: now, updatedAt: now,
+    })));
+    await db.insert(orgMember).values([
+      { userId: "mc-org-admin", role: "admin", createdAt: now },
+      { userId: "mc-org-member", role: "member", createdAt: now },
+    ]);
+    try {
+      const orgAdmin = await call("mc-org-admin", "list_projects");
+      expect(orgAdmin.isError).toBe(false);
+      expect(orgAdmin.data.map((p: any) => `${p.team}/${p.key}`)).toEqual(expect.arrayContaining(["mc-acme/ENG", "mc-acme/OPS", "mc-other/SEC"]));
+      const resolved = await call("mc-org-admin", "list_tasks", { project: "mc-other/SEC" });
+      expect(resolved.isError).toBe(false);
+      const orgMemberResult = await call("mc-org-member", "list_projects");
+      expect(orgMemberResult.data).toEqual([]);
+    } finally {
+      // Storage is shared across the run: keep them out of other tests' counts.
+      await db.delete(orgMember).where(inArray(orgMember.userId, ["mc-org-admin", "mc-org-member"]));
+      await db.delete(user).where(inArray(user.id, ["mc-org-admin", "mc-org-member"]));
+    }
   });
 
   it("keeps project access independent of reporting lines", async () => {
@@ -587,9 +609,7 @@ describe("time tracking", () => {
 
     expect((await call(BYSTANDER, "delete_time_entry", { id: logged.data.entryId })).isError).toBe(false);
     expect((await call(BYSTANDER, "list_my_time_entries", { team: "mc-acme", from, to })).data.entries).toHaveLength(1);
-    // Deprecated pre-rename input, accepted for one release.
-    expect((await call(BYSTANDER, "list_my_time_entries", { org: "mc-acme", from, to })).data.entries).toHaveLength(1);
-    expect((await call(BYSTANDER, "list_my_time_entries", { from, to })).data).toBe("team is required.");
+    expect((await call(BYSTANDER, "list_my_time_entries", { from, to })).isError).toBe(true);
   });
 
   it("reports time by scope: self, lead plus direct reports, or everyone", async () => {

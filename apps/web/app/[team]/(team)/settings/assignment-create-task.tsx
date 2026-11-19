@@ -20,6 +20,8 @@ type CreateTaskProps = {
   teams: Team[];
   currentTeamSlug: string;
   showTeam: boolean;
+  /** False for an org owner/admin outside the team: only members are assignable. */
+  canAssignSelf: boolean;
 };
 
 export function AssignmentCreateTask(props: CreateTaskProps) {
@@ -57,7 +59,7 @@ export function AssignmentCreateTask(props: CreateTaskProps) {
 const selectClass = "h-9 w-full rounded-md border border-border bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 function AssignmentCreateForm({
-  teams, currentTeamSlug, showTeam, onClose, onCreated, onClosed,
+  teams, currentTeamSlug, showTeam, canAssignSelf, onClose, onCreated, onClosed,
 }: CreateTaskProps & {
   onClose: () => void;
   onCreated: (task: TaskPreview) => void;
@@ -122,14 +124,16 @@ function AssignmentCreateForm({
             <Input id={`${id}-title`} name="title" required disabled={pending} value={title}
               onChange={(event) => setTitle(event.currentTarget.value)} placeholder="What needs to be done?" />
           </div>
-          <div className="space-y-1.5">
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" name="assignSelf" checked={assignSelf}
-                disabled={pending}
-                onChange={(event) => setAssignSelf(event.currentTarget.checked)} />
-              Assign yourself
-            </label>
-          </div>
+          {canAssignSelf && (
+            <div className="space-y-1.5">
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" name="assignSelf" checked={assignSelf}
+                  disabled={pending}
+                  onChange={(event) => setAssignSelf(event.currentTarget.checked)} />
+                Assign yourself
+              </label>
+            </div>
+          )}
           {state.error && <p role="alert" className="text-sm text-destructive">{state.error}</p>}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" className="rounded-md" disabled={pending} onClick={onClose}>Cancel</Button>

@@ -5,14 +5,16 @@ import { WorkspaceShell } from "@/components/workspace-shell";
 const route = vi.hoisted(() => ({ pathname: "" }));
 vi.mock("next/navigation", () => ({ usePathname: () => route.pathname }));
 
-const oneTeam = [{ slug: "acme", name: "Acme Corp" }];
-const twoTeams = [{ slug: "acme", name: "Acme Corp" }, { slug: "globex", name: "Globex" }];
+const oneTeam = [{ slug: "acme", name: "Acme Corp", member: true }];
+const twoTeams = [{ slug: "acme", name: "Acme Corp", member: true }, { slug: "globex", name: "Globex", member: true }];
 const current = (html: string) => [...html.matchAll(/<a\b[^>]*href="([^"]+)"[^>]*aria-current="page"[^>]*>/g)].map(([, href]) => href);
 
-function renderSidebar(pathname: string, canManageWorkspace: boolean, teams = oneTeam, canManageProject = false) {
+const org = { canManage: false };
+
+function renderSidebar(pathname: string, canManageWorkspace: boolean, teams = oneTeam, canManageProject = false, orgAdmin = false) {
   route.pathname = pathname;
   return renderToStaticMarkup(
-    <WorkspaceShell team="acme" projects={[{ slug: "web", key: "WEB", name: "Website", canManageSettings: canManageProject }]} canManageWorkspace={canManageWorkspace} hasReports canViewTimeReports={false} teams={teams} header={null}>
+    <WorkspaceShell team="acme" org={{ ...org, canManage: orgAdmin }} projects={[{ slug: "web", key: "WEB", name: "Website", canManageSettings: canManageProject }]} canManageWorkspace={canManageWorkspace} hasReports canViewTimeReports={false} teams={teams} header={null}>
       Content
     </WorkspaceShell>,
   );
@@ -83,7 +85,7 @@ it("shows the project settings pages only on settings paths, marking just the op
 it("shows Team Time to time-report viewers and leads only", () => {
   route.pathname = "/acme/settings/your-tasks";
   const render = (canViewTimeReports: boolean, hasReports: boolean) => renderToStaticMarkup(
-    <WorkspaceShell team="acme" projects={[]} canManageWorkspace={false} hasReports={hasReports} canViewTimeReports={canViewTimeReports} teams={oneTeam} header={null}>
+    <WorkspaceShell team="acme" org={org} projects={[]} canManageWorkspace={false} hasReports={hasReports} canViewTimeReports={canViewTimeReports} teams={oneTeam} header={null}>
       Content
     </WorkspaceShell>,
   );
@@ -104,7 +106,7 @@ const teamRow = (html: string, name: string) =>
   [...html.matchAll(/<a\b([^>]*)>(.*?)<\/a>/g)].find(([, , inner]) => inner.includes(`>${name}<`))?.[1];
 
 it("lists teams above the current team's Workspace and Projects, highlighting the current one", () => {
-  const html = renderSidebar("/acme/settings/your-tasks", false, twoTeams);
+  const html = renderSidebar("/acme/settings/your-tasks", false, twoTeams, false, true);
   const group = html.split('aria-label="Teams"')[1]?.split(">Workspace</p>")[0] ?? "";
   expect(group).toContain('href="/acme"');
   expect(group).toContain('href="/globex"');
@@ -120,8 +122,8 @@ it("lists teams above the current team's Workspace and Projects, highlighting th
 });
 
 it("shows exactly three teams and Show more, the current one taking the last row", () => {
-  const teams = ["a", "b", "c", "d", "acme"].map((slug) => ({ slug, name: slug === "acme" ? "Acme Corp" : `Team ${slug}` }));
-  const html = renderSidebar("/acme", false, teams);
+  const teams = ["a", "b", "c", "d", "acme"].map((slug) => ({ slug, name: slug === "acme" ? "Acme Corp" : `Team ${slug}`, member: true }));
+  const html = renderSidebar("/acme", false, teams, false, true);
   for (const slug of ["a", "b", "acme"]) expect(html).toContain(`href="/${slug}"`);
   for (const slug of ["c", "d"]) expect(html).not.toContain(`href="/${slug}"`);
   // With the current team already in the first three, the first three show as they are.
@@ -161,4 +163,37 @@ it("keeps Workspace from collapsing over the page you're on", () => {
   for (const path of ["/acme/web", "/acme/settings/all-tasks"]) {
     expect(toggle(renderSidebar(path, true, twoTeams))).not.toMatch(/\sdisabled=""/);
   }
+});
+
+it("lists teams an org admin opens without joining, but keeps All My Tasks to real teams", () => {
+  const html = renderSidebar("/acme", false, [...oneTeam, { slug: "globex", name: "Globex", member: false }]);
+  expect(html).toContain('aria-label="Teams"');
+  expect(html).toContain('href="/globex"');
+  expect(html).not.toContain('href="/acme/settings/all-tasks"');
+});
+
+it("shows the Organization links and New team only to org admins", () => {
+  const member = renderSidebar("/acme", false, twoTeams);
+  expect(member).not.toContain('aria-label="Organization"');
+  expect(member).not.toContain('href="/settings/members"');
+  expect(member).not.toContain('aria-label="New team"');
+
+  const admin = renderSidebar("/acme", false, twoTeams, false, true);
+  const group = admin.split('aria-label="Organization"')[1]?.split("</div>")[0] ?? "";
+  for (const page of ["members", "teams", "general"]) expect(group).toContain(`href="/settings/${page}"`);
+  expect(admin.indexOf('aria-label="Organization"')).toBeLessThan(admin.indexOf(">Teams</p>"));
+  expect(admin).toContain('aria-label="New team"');
+});
+
+it("on the org's pages, lists every team and marks the open org page, with no Workspace or Projects", () => {
+  route.pathname = "/settings/teams";
+  const html = renderToStaticMarkup(
+    <WorkspaceShell org={{ ...org, canManage: true }} projects={[]} canManageWorkspace={false} hasReports={false} canViewTimeReports={false} teams={oneTeam} header={null}>
+      Content
+    </WorkspaceShell>,
+  );
+  expect(current(html)).toEqual(["/settings/teams"]);
+  expect(html).toContain('href="/acme"');
+  expect(html).not.toContain(">Workspace</p>");
+  expect(html).not.toContain(">Projects</p>");
 });

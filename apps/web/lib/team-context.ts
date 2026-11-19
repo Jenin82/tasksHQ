@@ -1,24 +1,29 @@
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, isNotNull } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { cache } from "react";
-import { AccessError, requireTeamMember } from "@tasks/core/access";
-import type { Team, TeamMember } from "@tasks/core/schema";
-import { team, teamMember } from "@tasks/core/schema";
+import { AccessError, requireTeamMember, teamAccess, type TeamAccess } from "@tasks/core/access";
+import type { Team } from "@tasks/core/schema";
+import { team } from "@tasks/core/schema";
 import { db } from "@/lib/db";
 import { requireUser, type SessionUser } from "@/lib/session";
 
 export type TeamContext = {
   user: SessionUser;
   team: Team;
-  member: TeamMember;
+  member: TeamAccess;
 };
 
+/**
+ * Every team the user can open: their own, plus all teams for org owners and
+ * admins (`implicit`). All My Tasks keeps to the non-implicit ones.
+ */
 export const listUserTeams = cache(async function listUserTeams(userId: string) {
-  return db.select({ id: team.id, slug: team.slug, name: team.name, role: teamMember.role })
-    .from(teamMember)
-    .innerJoin(team, eq(team.id, teamMember.teamId))
-    .where(eq(teamMember.userId, userId))
+  const access = teamAccess(team.id, userId);
+  const rows = await db.select({ id: team.id, slug: team.slug, name: team.name, role: access.role, implicit: access.implicit })
+    .from(team)
+    .where(isNotNull(access.role))
     .orderBy(asc(team.name), asc(team.id));
+  return rows.map((row) => ({ ...row, role: row.role! }));
 });
 
 /**

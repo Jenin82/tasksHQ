@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Archive, Briefcase, CalendarClock, ChevronDown, ChevronRight, ChevronUp, Clock, Layers, ListTodo, PanelLeft, Plus, Settings, Users } from "lucide-react";
+import { Archive, Briefcase, CalendarClock, ChevronDown, ChevronRight, ChevronUp, Clock, Layers, LayoutGrid, ListTodo, PanelLeft, Plus, Settings, Users } from "lucide-react";
 import { NewTeamDialog } from "@/app/new-team-dialog";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui/button";
@@ -26,13 +26,23 @@ const projectSettingsPages = [
 const TEAM_LIMIT = 3;
 const SECTIONS_KEY = "tasks:sidebar-closed-sections";
 
-export function WorkspaceShell({ team, projects, canManageWorkspace, hasReports, canViewTimeReports, teams, header, children }: {
-  team: string;
+const orgPages = [
+  ["Members", "/settings/members", Users],
+  ["Teams", "/settings/teams", LayoutGrid],
+  ["General", "/settings/general", Settings],
+] as const;
+
+export function WorkspaceShell({ team, org, projects, canManageWorkspace, hasReports, canViewTimeReports, teams, header, children }: {
+  /** Absent on the org's own pages, which show no Workspace or Projects. */
+  team?: string;
+  /** `canManage`: an org owner or admin, who gets the Organization links and New team. */
+  org: { canManage: boolean };
   projects: Project[];
   canManageWorkspace: boolean;
   hasReports: boolean;
   canViewTimeReports: boolean;
-  teams: { slug: string; name: string }[];
+  /** `member` is false for teams an org owner or admin opens without belonging to. */
+  teams: { slug: string; name: string; member: boolean }[];
   header: ReactNode;
   children: ReactNode;
 }) {
@@ -43,14 +53,19 @@ export function WorkspaceShell({ team, projects, canManageWorkspace, hasReports,
   const [collapsed, setCollapsed] = useState(false);
   const [drawer, setDrawer] = useState(false);
   const [lastViews, setLastViews] = useState<Record<string, "board" | "table">>({});
-  const storageKey = `tasks:project-views:${team}`;
+  // The org's own pages have no team, and so no project views to remember.
+  const storageKey = team ? `tasks:project-views:${team}` : undefined;
   const workspaceSettings = `/${team}/settings`;
-  const allTasks = `${workspaceSettings}/all-tasks`;
+  // On the org's pages, All My Tasks opens from the first team the user belongs to.
+  const allTasksTeam = team ?? teams.find((o) => o.member)?.slug;
+  const allTasks = allTasksTeam ? `/${allTasksTeam}/settings/all-tasks` : undefined;
   const teamMembers = `${workspaceSettings}/members`;
   const reportingLines = `${workspaceSettings}/reporting-lines`;
   const teamGeneral = `${workspaceSettings}/general`;
   const inTeamSettings = [teamMembers, reportingLines, teamGeneral].includes(pathname);
   const multipleTeams = teams.length > 1;
+  // All My Tasks spans only teams the user belongs to.
+  const multipleMemberTeams = teams.filter((o) => o.member).length > 1;
   const [showAllTeams, setShowAllTeams] = useState(false);
   // Collapsed sidebar sections, remembered per browser across teams.
   const [closedSections, setClosedSections] = useState<Record<string, boolean>>({});
@@ -86,6 +101,7 @@ export function WorkspaceShell({ team, projects, canManageWorkspace, hasReports,
   }
 
   useEffect(() => {
+    if (!storageKey) return;
     const base = active ? `/${team}/${active.slug}` : "";
     try {
       const saved: unknown = JSON.parse(localStorage.getItem(storageKey) || "{}");
@@ -103,24 +119,42 @@ export function WorkspaceShell({ team, projects, canManageWorkspace, hasReports,
   }, [active, team, pathname, storageKey]);
 
   function projectHref(base: string) {
-    const slug = base.slice(team.length + 2);
+    const slug = base.slice((team ?? "").length + 2);
     return lastViews[slug] === "table" ? `${base}/table` : base;
   }
 
+  const showAllTasks = (multipleTeams || !team) && multipleMemberTeams && allTasks !== undefined;
   const nav = (onNavigate?: () => void) => (
     <nav aria-label="Workspace navigation" className="space-y-5 p-3">
-      {multipleTeams && (
+      {/* The org links and All My Tasks sit together above the sections. */}
+      {(org.canManage || showAllTasks) && (
+        <div className="space-y-1">
+          {org.canManage && (
+            <div role="group" aria-label="Organization" className="space-y-1">
+              {orgPages.map(([label, href, Icon]) => (
+                <SidebarLink key={href} href={href} current={pathname === href} onNavigate={onNavigate}>
+                  <Icon aria-hidden /> {label}
+                </SidebarLink>
+              ))}
+            </div>
+          )}
+          {showAllTasks && (
+            <SidebarLink href={allTasks} current={pathname === allTasks} onNavigate={onNavigate}>
+              <Layers aria-hidden /> All My Tasks
+            </SidebarLink>
+          )}
+        </div>
+      )}
+      {/* The org's own pages have no current team, so they always list them. */}
+      {(multipleTeams || !team) && (
         <>
-          <SidebarLink href={allTasks} current={pathname === allTasks} onNavigate={onNavigate}>
-            <Layers aria-hidden /> All My Tasks
-          </SidebarLink>
           <div className="space-y-1">
             <SectionHeading label="Teams" open={!closedSections.teams} onToggle={() => toggleSection("teams")}>
-              <NewTeamDialog trigger={
+              {org.canManage && <NewTeamDialog trigger={
                 <Button type="button" size="icon-sm" variant="ghost" className={SECTION_BUTTON} aria-label="New team">
                   <Plus aria-hidden />
                 </Button>
-              } />
+              } />}
             </SectionHeading>
             {!closedSections.teams && <div role="group" aria-label="Teams" className="space-y-1">
               {visibleTeams.map((o) => (
@@ -141,6 +175,7 @@ export function WorkspaceShell({ team, projects, canManageWorkspace, hasReports,
           </div>
         </>
       )}
+      {team && <>
       <div className="space-y-1">
         <SectionHeading label="Workspace" open={!closedSections.workspace || workspaceHasCurrent} locked={workspaceHasCurrent} onToggle={() => toggleSection("workspace")} />
         {(!closedSections.workspace || workspaceHasCurrent) && <div className="space-y-1">
@@ -223,6 +258,7 @@ export function WorkspaceShell({ team, projects, canManageWorkspace, hasReports,
           );
         })}
       </div>
+      </>}
     </nav>
   );
 

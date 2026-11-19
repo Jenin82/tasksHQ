@@ -3,8 +3,8 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { expect, it, vi } from "vitest";
 import { RESERVED_SLUGS } from "@tasks/core/slug";
-import { createTeam } from "@tasks/core/domain";
-import { team, teamMember, user } from "@tasks/core/schema";
+import { createTeam } from "./helpers";
+import { orgMember, team, teamMember, user } from "@tasks/core/schema";
 
 // The route layer reads the session through this module; every other way in
 // needs a live request context the pool does not provide. Hoisted so the
@@ -30,7 +30,7 @@ const db = drizzle(env.DB);
 const now = new Date();
 
 // Shared storage, so every id and slug here is prefixed `rt-`.
-const IDS = ["rt-owner", "rt-member", "rt-stranger"];
+const IDS = ["rt-owner", "rt-member", "rt-stranger", "rt-org-admin"];
 await db.insert(user).values(
   IDS.map((id) => ({
     id,
@@ -40,6 +40,9 @@ await db.insert(user).values(
     updatedAt: now,
   })),
 );
+
+// Only org owners and admins create teams.
+await db.insert(orgMember).values({ userId: "rt-org-admin", role: "admin", createdAt: now });
 
 actor.id = "rt-owner";
 const acme = await createTeam(
@@ -114,7 +117,7 @@ it("a plain member cannot invite, change a role or create a project", async () =
 });
 
 it("createTeamAction rejects reserved and malformed slugs, and accepts a valid one", async () => {
-  actor.id = "rt-stranger";
+  actor.id = "rt-org-admin";
 
   for (const slug of RESERVED_SLUGS) {
     const state = await createTeamAction({}, form({ slug, name: "Nope" }));

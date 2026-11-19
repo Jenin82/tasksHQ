@@ -153,7 +153,7 @@ function Comments({ comments }: { comments: TaskWithHistory["comments"] }) {
 }
 
 export function TaskDetailContent({
-  data: { detail, canEdit, statuses, taskTypes, assignable, detached, detachedReporter, ids, moveTargets },
+  data: { detail, canEdit, canTrackTime, statuses, taskTypes, assignable, detached, detachedReporter, ids, moveTargets },
   inDialog = false,
 }: {
   data: TaskDetailData;
@@ -257,7 +257,7 @@ export function TaskDetailContent({
             inDialog ? "min-[420px]:max-md:grid-cols-2" : "min-[420px]:max-lg:grid-cols-2",
           )}>
             {/* First, so people track time without hunting for it. */}
-            {!detail.archivedAt && (
+            {!detail.archivedAt && canTrackTime && (
               <Property label="Time" className="col-span-full">
                 <TaskTime key={ids.taskId} teamSlug={ids.teamSlug} projectSlug={ids.projectSlug} taskKey={detail.key} />
               </Property>

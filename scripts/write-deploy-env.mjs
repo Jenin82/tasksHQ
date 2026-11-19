@@ -4,7 +4,7 @@ import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
-const SETTINGS = ["TASKSHQ_WEB_URL", "TASKSHQ_MCP_URL", "TASKSHQ_WEB_DOMAIN", "TASKSHQ_MCP_DOMAIN", "TASKSHQ_D1_ID", "TASKSHQ_KV_ID", "TASKSHQ_WEB_WORKER", "TASKSHQ_MCP_WORKER", "TASKSHQ_D1_NAME", "TASKSHQ_R2_BUCKET"];
+const SETTINGS = ["TASKSHQ_WEB_URL", "TASKSHQ_MCP_URL", "TASKSHQ_WEB_DOMAIN", "TASKSHQ_MCP_DOMAIN", "TASKSHQ_D1_ID", "TASKSHQ_OWNER_EMAIL", "TASKSHQ_KV_ID", "TASKSHQ_WEB_WORKER", "TASKSHQ_MCP_WORKER", "TASKSHQ_D1_NAME", "TASKSHQ_R2_BUCKET"];
 const SECRETS = ["BETTER_AUTH_SECRET", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "CONSENT_SECRET", "INTROSPECT_SECRET", "SMTP_HOST", "SMTP_PORT", "SMTP_TLS", "SMTP_USERNAME", "SMTP_PASSWORD", "SMTP_FROM", "SIGNUP_EMAIL_ALLOWLIST"];
 
 function fail(message) {
@@ -15,7 +15,7 @@ function fail(message) {
 // deploy.env is sourced by the shell and read by process.loadEnvFile, so keep it plain.
 const settings = SETTINGS.map((key) => {
   const value = process.env[key] ?? "";
-  if (!/^[A-Za-z0-9._:/-]*$/.test(value)) fail(`${key} may only contain letters, digits and . _ : / -`);
+  if (!/^[A-Za-z0-9._:/@+-]*$/.test(value)) fail(`${key} may only contain letters, digits and . _ : / @ + -`);
   return `${key}=${value}`;
 });
 

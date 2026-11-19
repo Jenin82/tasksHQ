@@ -1,18 +1,13 @@
-import { and, eq, exists, inArray, isNotNull, ne, sql, type SQL } from "drizzle-orm";
-import { AccessError, can, requireCapability, requireTeamMember, requireProjectMember } from "../access";
+import { and, eq, inArray, isNotNull, ne, or, sql, type SQL } from "drizzle-orm";
+import { AccessError, can, requireCapability, requireTeamMember, requireProjectMember, teamAccess } from "../access";
 import type { DomainContext } from "../activity";
 import { DomainError } from "../errors";
 import { activity, comment, team, teamInvite, teamMember, project, projectMember, status, task } from "../schema";
 import { taskKey } from "./task";
 
-function stillOwner({ db, actorUserId }: DomainContext, teamId: string) {
-  return exists(
-    db.select({ userId: teamMember.userId }).from(teamMember).where(and(
-      eq(teamMember.teamId, teamId),
-      eq(teamMember.userId, actorUserId),
-      eq(teamMember.role, "owner"),
-    )),
-  );
+/** A real team owner or an org owner. */
+function stillOwner({ actorUserId }: DomainContext, teamId: string) {
+  return eq(teamAccess(teamId, actorUserId).role, "owner");
 }
 
 function projectDeletes({ db }: DomainContext, scope: SQL) {
@@ -65,7 +60,9 @@ export async function deleteTeam(
   requireConfirmation(row.slug, confirmation);
 
   // Re-check ownership inside the batch. The final delete uses changes()
-  // because the preceding statement has already removed the owner.
+  // because the preceding statement has already removed a real team owner; an
+  // org owner who is not a team member removes no row there and still passes
+  // `owner`, which the team row deletion re-evaluates after the removal.
   const owner = stillOwner(ctx, teamId);
   const scope = and(eq(project.teamId, teamId), owner)!;
   const [, , , , , , , , , deleted] = await db.batch([
@@ -80,9 +77,9 @@ export async function deleteTeam(
     db.delete(teamMember).where(and(
       eq(teamMember.teamId, teamId),
       eq(teamMember.userId, actorUserId),
-      eq(teamMember.role, "owner"),
+      owner,
     )),
-    db.delete(team).where(and(eq(team.id, teamId), sql`changes() > 0`)).returning({ id: team.id }),
+    db.delete(team).where(and(eq(team.id, teamId), or(sql`changes() > 0`, owner))).returning({ id: team.id }),
   ]);
   if (!deleted.length) throw new AccessError("forbidden", "The team could not be deleted.");
 }
@@ -107,11 +104,7 @@ export async function deleteArchivedTask(
   }
 
   const permittedRoles = teamMember.role.enumValues.filter((role) => can(role, TASK_DELETE_CAPABILITY));
-  const stillPermitted = exists(db.select({ userId: teamMember.userId }).from(teamMember).where(and(
-    eq(teamMember.teamId, currentProject.teamId),
-    eq(teamMember.userId, actorUserId),
-    inArray(teamMember.role, permittedRoles),
-  )));
+  const stillPermitted = inArray(teamAccess(currentProject.teamId, actorUserId).role, permittedRoles);
   const scope = and(identity, eq(task.number, row.number), isNotNull(task.archivedAt), stillPermitted);
   const archivedTask = db.select({ id: task.id }).from(task).where(scope);
 

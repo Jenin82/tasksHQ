@@ -16,7 +16,7 @@ export default async function YourTimePage({ params, searchParams }: {
   searchParams: Promise<{ week?: string | string[] }>;
 }) {
   const [{ team: slug }, { week }] = await Promise.all([params, searchParams]);
-  const { team, user } = await getTeamContext(slug);
+  const { team, user, member } = await getTeamContext(slug);
   const [row] = await db.select({ timezone: userTable.timezone }).from(userTable).where(eq(userTable.id, user.id));
   const savedZone = row?.timezone ?? null;
   // Until the browser's zone is saved, the first render falls back to UTC.
@@ -71,7 +71,8 @@ export default async function YourTimePage({ params, searchParams }: {
     <main className="mx-auto w-full max-w-5xl min-w-0 px-4 py-8 sm:px-10 sm:py-12">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl">Your Time</h1>
-        <AddTimeEntry teamSlug={team.slug} timeZone={zone} />
+        {/* Org owners/admins outside the team cannot track time in it. */}
+        {!member.implicit && <AddTimeEntry teamSlug={team.slug} timeZone={zone} />}
       </div>
       <p className="mt-1 text-sm text-muted-foreground">
         Owners, admins and your lead can see your logged time and notes. Everyone in the workspace can see the total time logged on each task.

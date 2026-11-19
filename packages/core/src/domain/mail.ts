@@ -19,6 +19,15 @@ export function queueTeamInviteMail(
   `);
 }
 
+/** The org has one row, so the job targets it by its fixed ID. */
+export function queueOrgInviteMail(ctx: DomainContext, email: string, createdAt: Date) {
+  return ctx.db.insert(mailOutbox).select(sql`
+    select ${crypto.randomUUID()}, 'org_invite', 'org', ${email},
+      ${createdAt.getTime()}, ${Date.now()}, 0, null
+    where changes() > 0
+  `);
+}
+
 function noPendingMail(kind: MailJob["kind"], targetId: string, recipient: string) {
   return sql`not exists (
     select 1 from ${mailOutbox} where ${mailOutbox.kind} = ${kind}

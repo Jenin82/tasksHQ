@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 import {
   addComment,
   archiveTask,
-  createTeam,
   createProject,
   createStatus,
   createTask,
@@ -15,6 +14,7 @@ import {
   startTimer,
   transferTask,
 } from "@tasks/core/domain";
+import { createTeam } from "./helpers";
 import { activity, teamMember, status, timeEntry, user } from "@tasks/core/schema";
 
 const db = drizzle(env.DB);

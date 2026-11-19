@@ -2,8 +2,8 @@ import { and, asc, eq, isNull, lte } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import { alias } from "drizzle-orm/sqlite-core";
 import { AccessError, requireProjectMember } from "@tasks/core/access";
-import { inviterStillManagesTeam, taskKey } from "@tasks/core/domain";
-import { comment, mailOutbox, team, teamInvite, teamMember, project, task, user, type MailJob } from "@tasks/core/schema";
+import { inviterStillManagesOrg, inviterStillManagesTeam, taskKey } from "@tasks/core/domain";
+import { comment, mailOutbox, org, orgInvite, team, teamInvite, teamMember, project, task, user, type MailJob } from "@tasks/core/schema";
 import type { MailMessage } from "./smtp";
 
 const MAX_ATTEMPTS = 5;
@@ -20,11 +20,26 @@ async function mailForJob(db: DrizzleD1Database, origin: string, job: MailJob): 
     const active = await db.select({ email: teamInvite.email }).from(teamInvite).where(and(
       eq(teamInvite.teamId, job.targetId), eq(teamInvite.email, job.recipient),
       eq(teamInvite.createdAt, job.inviteVersion), isNull(teamInvite.acceptedAt),
-      inviterStillManagesTeam(db),
+      inviterStillManagesTeam(),
     )).get();
     return active ? {
       to: active.email,
       subject: "You’re invited to TasksHQ",
+      text: `Open TasksHQ and sign in or sign up with this email address to accept your invitation.\n\n${app}`,
+    } : null;
+  }
+
+  if (job.kind === "org_invite") {
+    if (!job.inviteVersion) return null;
+    const active = await db.select({ email: orgInvite.email, name: org.name }).from(orgInvite)
+      .innerJoin(org, eq(org.id, job.targetId))
+      .where(and(
+        eq(orgInvite.email, job.recipient), eq(orgInvite.createdAt, job.inviteVersion),
+        isNull(orgInvite.acceptedAt), inviterStillManagesOrg(),
+      )).get();
+    return active ? {
+      to: active.email,
+      subject: `You’re invited to join ${active.name} on TasksHQ`,
       text: `Open TasksHQ and sign in or sign up with this email address to accept your invitation.\n\n${app}`,
     } : null;
   }

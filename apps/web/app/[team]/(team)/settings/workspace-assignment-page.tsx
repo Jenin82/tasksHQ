@@ -17,7 +17,9 @@ export async function WorkspaceAssignmentPage({ teamSlug, view, allTeams = false
   allTeams?: boolean;
 }) {
   const { team, user, member } = await getTeamContext(teamSlug);
-  const teams = allTeams ? await listUserTeams(user.id) : [{ ...team, role: member.role }];
+  const teams = allTeams
+    ? (await listUserTeams(user.id)).filter((workspace) => !workspace.implicit)
+    : [{ ...team, role: member.role }];
   if (allTeams && teams.length < 2) redirect(`/${team.slug}/settings/your-tasks`);
 
   const ctx = { db, actorUserId: user.id, source: "web" as const };
@@ -77,6 +79,8 @@ export async function WorkspaceAssignmentPage({ teamSlug, view, allTeams = false
               teams={createTeams}
               currentTeamSlug={team.slug}
               showTeam={allTeams}
+              // All My Tasks lists real teams only.
+              canAssignSelf={allTeams || !member.implicit}
             />
           </div>
         )}

@@ -58,15 +58,17 @@ function assertValidSpan(startedAt: Date, endedAt: Date, now: number) {
 
 /** Read access only: any team member may track time, even on restricted tasks. */
 async function loadTimeTask(ctx: DomainContext, taskId: string, projectId: string) {
-  const { project: p } = await requireProjectMember(ctx.db, projectId, ctx.actorUserId);
+  const { project: p, member } = await requireProjectMember(ctx.db, projectId, ctx.actorUserId);
   const [row] = await ctx.db.select({ id: task.id, archivedAt: task.archivedAt }).from(task)
     .where(and(eq(task.id, taskId), eq(task.projectId, projectId)));
   if (!row) throw new AccessError("not_a_member", "No such task.");
-  return { project: p, row };
+  return { project: p, member, row };
 }
 
 async function loadTrackableTask(ctx: DomainContext, taskId: string, projectId: string) {
   const access = await loadTimeTask(ctx, taskId, projectId);
+  // Org owners and admins can open every team but track time only where they are members.
+  if (access.member.implicit) throw new DomainError("Join this team to track time.");
   if (access.row.archivedAt) throw new DomainError("Archived tasks can't track time.");
   return access;
 }

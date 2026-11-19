@@ -4,7 +4,8 @@ import { drizzle } from "drizzle-orm/d1";
 import { Buffer } from "node:buffer";
 import { headersContextFromRequest, runWithHeadersContext } from "vinext/shims/headers";
 import { expect, it, vi } from "vitest";
-import { createTeam, createProject, createTask, findProjectByAlias, renameProject, setProjectMemberRole } from "@tasks/core/domain";
+import { createProject, createTask, findProjectByAlias, renameProject, setProjectMemberRole } from "@tasks/core/domain";
+import { createTeam } from "./helpers";
 import { activity, teamMember, project as projectTable, projectSlugAlias, task as taskTable, taskShare, user } from "@tasks/core/schema";
 import type { TaskPreview } from "@/lib/task-preview";
 

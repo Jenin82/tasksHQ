@@ -1,7 +1,6 @@
-import { and, eq, sql } from "drizzle-orm";
-import { AccessError, hasTaskEditPermission } from "../access";
+import { and, eq, isNotNull, sql } from "drizzle-orm";
+import { AccessError, hasTaskEditPermission, teamAccess } from "../access";
 import type { DomainContext } from "../activity";
-import { teamMember } from "../schema/team";
 import { project } from "../schema/project";
 import { task, taskShare } from "../schema/task";
 import { parseTaskKey } from "./task";
@@ -21,7 +20,6 @@ export async function createTaskShare(ctx: DomainContext, input: { projectId: st
     eq(project.key, parsed.projectKey.toUpperCase()),
     eq(task.number, parsed.number),
   );
-  const memberJoin = and(eq(teamMember.teamId, project.teamId), eq(teamMember.userId, actorUserId));
   const code = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))))
     .replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
 
@@ -38,9 +36,8 @@ export async function createTaskShare(ctx: DomainContext, input: { projectId: st
   });
   const lookup = db.select({ code: taskShare.code }).from(task)
     .innerJoin(project, eq(project.id, task.projectId))
-    .innerJoin(teamMember, memberJoin)
     .leftJoin(taskShare, and(eq(task.id, taskShare.taskId), eq(task.projectId, taskShare.projectId), eq(task.number, taskShare.number)))
-    .where(location);
+    .where(and(location, isNotNull(teamAccess(project.teamId, actorUserId).role)));
   const [, [share]] = await db.batch([insert, lookup]);
   if (!share) throw new AccessError("not_a_member", "No such task.");
   return share.code;

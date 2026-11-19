@@ -18,7 +18,8 @@ Ask for all of these before running anything that changes their account:
    - workers.dev: their account's workers.dev subdomain. The `cf` CLI (1.0.0-beta.27) has no command to look it up or register it, so ask the user to read it from the Cloudflare dashboard under **Workers & Pages** (an account that has never used Workers registers one there first). The URLs become `https://taskshq-web.<subdomain>.workers.dev` and `https://taskshq-mcp.<subdomain>.workers.dev`.
 3. **Google OAuth client ID and secret** (Google Cloud console, OAuth 2.0 Client ID, type "Web application"). These are required by the deploy. If they do not have one yet, tell them to create it; they register the redirect URI in step 6.
 4. **SMTP settings** (optional, enables email sign-in and notifications): host, `tls` or `starttls`, port (optional), username, password, sender address.
-5. **Signup allowlist** (optional): comma-separated exact addresses and `*@domain` entries. Empty means open signup.
+5. **Owner email** (required): the address that becomes the first organization owner when it signs in. It is `TASKSHQ_OWNER_EMAIL`.
+6. **Signup allowlist** (optional): comma-separated exact addresses and `*@domain` entries. Without one, signup is invite-only: only the owner email and invited addresses can create accounts.
 
 Removing a line from `secrets.env` does not remove a deployed secret. To turn email or the allowlist off on an existing deployment, delete each secret from the web Worker, for example `pnpm --filter web exec cf workers secrets delete SMTP_HOST --worker taskshq-web` (use the `TASKSHQ_WEB_WORKER` name). Confirm with the user first.
 
@@ -69,6 +70,7 @@ cp secrets.env.example secrets.env
 | `TASKSHQ_MCP_URL` | `https://<mcp host>`, no trailing slash |
 | `TASKSHQ_WEB_DOMAIN`, `TASKSHQ_MCP_DOMAIN` | The hostnames, only for custom domains; otherwise empty |
 | `TASKSHQ_D1_ID` | The ID from step 4 |
+| `TASKSHQ_OWNER_EMAIL` | From the user: the address that becomes the first organization owner |
 | `TASKSHQ_KV_ID` | Empty for a new deployment |
 | Name overrides | Leave the defaults unless the user asks |
 
@@ -156,7 +158,7 @@ Custom domains can take a few minutes to issue certificates after the first depl
 
 Tell the user:
 
-- The web app URL (`TASKSHQ_WEB_URL`). They should open it, sign in, and create a team.
+- The web app URL (`TASKSHQ_WEB_URL`). They should open it, sign in with `TASKSHQ_OWNER_EMAIL`, and create a team.
 - The MCP server URL: `<TASKSHQ_MCP_URL>/mcp`. Claude Code: `claude mcp add --transport http --scope user taskshq <TASKSHQ_MCP_URL>/mcp`. Other clients: `<TASKSHQ_WEB_URL>/docs/mcp`.
 - Manual steps still outstanding: registering the Google redirect URI (step 6), enabling R2 billing if a deploy reported R2 as unavailable, and configuring sender-domain authentication with their SMTP provider if they use email.
 - That `deploy.env` and `secrets.env` hold their configuration and secrets, are gitignored, and must not be committed or shared.
@@ -173,6 +175,8 @@ pnpm run deploy
 ```
 
 Always apply migrations before deploying either Worker. Then repeat step 9.
+
+Migration `0021_org_layer.sql` (one organization above the teams) is additive and needs no downtime, but `TASKSHQ_OWNER_EMAIL` must be set in `deploy.env` first or the deploy scripts stop; ask the user for it. The migration makes every existing team owner an organization owner, who can then open, manage and delete every team: warn the user to check the organization owners after migrating and demote anyone who should not have that reach at `/settings/members` (or `UPDATE org_member SET role = 'member' WHERE user_id IN (...)`). Tell the user that signup is now invite-only unless `SIGNUP_EMAIL_ALLOWLIST` is set, so a deployment that relied on open signup needs one, and that MCP clients must send `team` (the deprecated `org` input is gone).
 
 Migration `0020_rename_org_to_team.sql` (organizations renamed to teams) renames tables that the running Workers still use, so the old Workers fail once it is applied. Run `pnpm run db:migrate:remote`, then `pnpm run deploy` (web, then MCP) immediately after, with nothing in between. Tell the user to expect errors until the deploy finishes and to reload any open browser tabs.
 

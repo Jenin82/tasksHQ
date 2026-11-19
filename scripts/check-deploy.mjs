@@ -61,6 +61,11 @@ if (deploy) {
   matchingDomain("TASKSHQ_WEB_DOMAIN", deploy.TASKSHQ_WEB_DOMAIN, webUrl);
   matchingDomain("TASKSHQ_MCP_DOMAIN", deploy.TASKSHQ_MCP_DOMAIN, mcpUrl);
   if (!deploy.TASKSHQ_D1_ID) errors.push("deploy.env: TASKSHQ_D1_ID is not set.");
+  if (!deploy.TASKSHQ_OWNER_EMAIL) {
+    errors.push("deploy.env: TASKSHQ_OWNER_EMAIL is not set.");
+  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(deploy.TASKSHQ_OWNER_EMAIL)) {
+    errors.push(`deploy.env: TASKSHQ_OWNER_EMAIL must be an email address (got "${deploy.TASKSHQ_OWNER_EMAIL}").`);
+  }
 }
 
 const secrets = load("secrets.env", "Copy secrets.env.example to secrets.env and fill it in.");

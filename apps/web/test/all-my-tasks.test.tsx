@@ -4,10 +4,10 @@ import { drizzle } from "drizzle-orm/d1";
 import { renderToStaticMarkup } from "react-dom/server.browser";
 import { expect, it, vi } from "vitest";
 import {
-  createTeam,
   createProject,
   createTask,
 } from "@tasks/core/domain";
+import { createTeam } from "./helpers";
 import { teamMember, task, user } from "@tasks/core/schema";
 import { listAssignmentCreateProjects } from "@/app/[team]/(team)/settings/assignment-create-projects";
 import { WorkspaceAssignmentPage } from "@/app/[team]/(team)/settings/workspace-assignment-page";

@@ -7,8 +7,8 @@ import {
   addProjectMember,
   archiveTask,
   changeTeamMemberRole,
-  createTeam,
   createProject,
+  createTeam as createTeamChecked,
   createStatus,
   createTask,
   deleteStatus,
@@ -23,8 +23,10 @@ import {
   reorderStatus,
   updateTask,
 } from "@tasks/core/domain";
+import { createTeam } from "./helpers";
 import {
   activity,
+  orgMember,
   teamInvite,
   teamMember,
   status,
@@ -58,6 +60,10 @@ await db.insert(user).values(
     updatedAt: now,
   })),
 );
+
+// Only org owners and admins pass the domain's createTeam.
+await db.insert(user).values({ id: "hd-org-admin", name: "HD-ORG-ADMIN", email: "hd-org-admin@hd.test", createdAt: now, updatedAt: now });
+await db.insert(orgMember).values({ userId: "hd-org-admin", role: "admin", createdAt: now });
 
 function ctxFor(userId: string) {
   return { db, actorUserId: userId, source: "web" as const };
@@ -144,42 +150,8 @@ it("M3: a move after the 2nd of four concurrently-created tasks lands right afte
   expect(new Set(after.map((t) => t.position)).size).toBe(5);
 });
 
-it("M4: two owners removing each other in parallel leaves an owner", async () => {
-  const o = await freshTeam("hd-race-rm");
-  const results = await settleAsDomain([
-    removeTeamMember(ctxFor("hd-owner"), { teamId: o.id, userId: "hd-owner2" }),
-    removeTeamMember(ctxFor("hd-owner2"), { teamId: o.id, userId: "hd-owner" }),
-  ]);
-  expect(results.filter((r) => r.status === "rejected")).toHaveLength(1);
-  const owners = await db
-    .select()
-    .from(teamMember)
-    .where(and(eq(teamMember.teamId, o.id), eq(teamMember.role, "owner")));
-  expect(owners).toHaveLength(1);
-});
-
-it("M4: two owners demoting each other in parallel leaves an owner", async () => {
-  const o = await freshTeam("hd-race-dm");
-  await settleAsDomain([
-    changeTeamMemberRole(ctxFor("hd-owner"), {
-      teamId: o.id,
-      userId: "hd-owner2",
-      role: "member",
-    }),
-    changeTeamMemberRole(ctxFor("hd-owner2"), {
-      teamId: o.id,
-      userId: "hd-owner",
-      role: "member",
-    }),
-  ]);
-  const owners = await db
-    .select()
-    .from(teamMember)
-    .where(and(eq(teamMember.teamId, o.id), eq(teamMember.role, "owner")));
-  expect(owners).toHaveLength(1);
-});
-
-it("M4/M5: refusing to remove the last owner rolls back the unassignment too", async () => {
+it("P5: the last team owner can leave, and their assignments go with them", async () => {
+  // Org owners always cover a team, so the team last-owner rule is gone.
   const { team: o, project: p } = await freshProject("hd-last", "LST");
   await db.delete(teamMember).where(
     and(eq(teamMember.teamId, o.id), eq(teamMember.userId, "hd-owner2")),
@@ -190,14 +162,13 @@ it("M4/M5: refusing to remove the last owner rolls back the unassignment too", a
     assigneeUserId: "hd-owner",
   });
 
-  await expect(
-    removeTeamMember(ctxFor("hd-owner"), { teamId: o.id, userId: "hd-owner" }),
-  ).rejects.toThrow(/last owner cannot be removed/);
+  await removeTeamMember(ctxFor("hd-owner"), { teamId: o.id, userId: "hd-owner" });
 
   const [row] = await db.select().from(task).where(eq(task.id, t.id));
-  expect(row.assigneeUserId).toBe("hd-owner");
-  const log = await db.select().from(activity).where(eq(activity.taskId, t.id));
-  expect(log.map((a) => a.type)).toEqual(["task.created"]);
+  expect(row.assigneeUserId).toBeNull();
+  const owners = await db.select().from(teamMember)
+    .where(and(eq(teamMember.teamId, o.id), eq(teamMember.role, "owner")));
+  expect(owners).toEqual([]);
 });
 
 it("Minor 1: removeTeamMember logs each unassignment and bumps updatedAt", async () => {
@@ -302,8 +273,8 @@ it("Minor 4: the domain refuses roles and status colors outside the schema's enu
 
 it("Minor 7: racing creates surface as DomainErrors, never constraint failures", async () => {
   const [a, b] = await settleAsDomain([
-    createTeam(ctxFor("hd-owner"), { slug: "hd-dup", name: "A" }),
-    createTeam(ctxFor("hd-owner"), { slug: "hd-dup", name: "B" }),
+    createTeamChecked(ctxFor("hd-org-admin"), { slug: "hd-dup", name: "A" }),
+    createTeamChecked(ctxFor("hd-org-admin"), { slug: "hd-dup", name: "B" }),
   ]);
   expect([a.status, b.status].sort()).toEqual(["fulfilled", "rejected"]);
 
@@ -327,7 +298,7 @@ it("Minor 15: length caps on names, titles, descriptions and comments", async ()
   const { team: o, project: p } = await freshProject("hd-len", "LEN");
   const long = (n: number) => "x".repeat(n);
   await expect(
-    createTeam(ctxFor("hd-owner"), { slug: "hd-len2", name: long(81) }),
+    createTeamChecked(ctxFor("hd-org-admin"), { slug: "hd-len2", name: long(81) }),
   ).rejects.toThrow(/at most 80/);
   await expect(
     createProject(ctxFor("hd-owner"), { teamId: o.id, slug: "p2", name: long(81), key: "PTW" }),

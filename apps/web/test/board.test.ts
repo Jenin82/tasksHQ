@@ -6,13 +6,13 @@ import { renderToStaticMarkup } from "react-dom/server.browser";
 import { expect, it, vi } from "vitest";
 import {
   addProjectMember,
-  createTeam,
   createProject,
   createTask,
   listProjectTaskTypes,
   listTasks,
   listWorkspaceAssignments,
 } from "@tasks/core/domain";
+import { createTeam } from "./helpers";
 import { activity, teamMember, status, task, user } from "@tasks/core/schema";
 import { listAssignmentCreateProjects } from "@/app/[team]/(team)/settings/assignment-create-projects";
 import type { BoardCard } from "@/app/[team]/[project]/board";

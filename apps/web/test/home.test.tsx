@@ -1,9 +1,11 @@
 import { env } from "cloudflare:test";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { renderToStaticMarkup } from "react-dom/server.browser";
 import { expect, it, vi } from "vitest";
-import { createTeam, createProject, createTask, inviteToTeam } from "@tasks/core/domain";
-import { teamMember, user } from "@tasks/core/schema";
+import { createProject, createTask, inviteToTeam } from "@tasks/core/domain";
+import { createTeam } from "./helpers";
+import { orgMember, teamMember, user } from "@tasks/core/schema";
 import { taskSignInDestination, taskSignInUrl } from "@/lib/task-sign-in";
 
 // Same seam as test/states.test.tsx: the route layer reads the session
@@ -62,6 +64,8 @@ await createProject(ctx("hm-two"), {
 await db
   .insert(teamMember)
   .values({ teamId: a.id, userId: "hm-member", role: "member", createdAt: now });
+// Only org owners and admins make teams; the team_member trigger made hm-two a member.
+await db.update(orgMember).set({ role: "admin" }).where(eq(orgMember.userId, "hm-two"));
 
 // A redirect() would throw out of Home, so rendering at all is the proof that
 // `/` no longer redirects for any team count.
@@ -113,23 +117,23 @@ it("accepts only canonical work item and short share paths as sign-in continuati
 
   actor.id = "hm-zero";
   const home = await Home({ searchParams: Promise.resolve({ next: "//example.com/first/HMF-1" }) });
-  expect(renderToStaticMarkup(home)).toContain("No teams yet");
+  expect(renderToStaticMarkup(home)).toContain("Ask an admin to add you to a team.");
 });
 
 /** The card for one team: from its link to the end of that link. */
 const card = (html: string, slug: string) =>
   html.slice(html.indexOf(`href="/${slug}"`)).split("</a>")[0];
 
-it("with no team, renders one empty-state card and no inline form", async () => {
+it("with no team, someone who cannot make one sees the waiting page", async () => {
   const html = await render("hm-zero");
 
-  expect(html).toContain("No teams yet");
+  expect(html).toContain("Ask an admin to add you to a team.");
   expect(html).not.toContain('href="/hm-');
-  expect(html).not.toContain('name="slug"');
+  expect(html).not.toContain("New team");
 });
 
 it("puts the account menu in the header and New team beside the heading", async () => {
-  const html = await render("hm-zero");
+  const html = await render("hm-two");
   const header = html.slice(html.indexOf("<header"), html.indexOf("</header>"));
   const main = html.slice(html.indexOf("<main"), html.indexOf("</main>"));
 
@@ -175,6 +179,7 @@ it("counts all projects in the member's team", async () => {
   expect(card(html, "hm-a")).toContain(">member<");
   expect(card(html, "hm-a")).toMatch(/>2<\/span> projects</);
   expect(html).not.toContain('href="/hm-b"');
+  expect(html).not.toContain("New team");
 });
 
 it("/new redirects to /", () => {

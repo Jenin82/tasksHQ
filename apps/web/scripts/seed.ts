@@ -32,6 +32,7 @@ import {
 import {
   activity,
   comment,
+  orgMember,
   team,
   teamInvite,
   teamMember,
@@ -156,6 +157,10 @@ const ana = await ensureUser("seed-ana", "Ana Ruiz", "ana@seed.local");
 const ben = await ensureUser("seed-ben", "Ben Okafor", "ben@seed.local");
 
 const ctx = { db, actorUserId: ana, source: "web" as const };
+
+// Only org owners and admins create teams.
+await db.insert(orgMember).values({ userId: ana, role: "admin", createdAt: now })
+  .onConflictDoUpdate({ target: orgMember.userId, set: { role: "admin" }, setWhere: eq(orgMember.role, "member") });
 
 const acme = await createTeam(ctx, { slug: TEAM_SLUG, name: "Acme" });
 

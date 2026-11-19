@@ -4,7 +4,7 @@ export const sections: GuideSection[] = [
   {
     id: "invitations",
     title: "Invite people",
-    searchTerms: ["invitations", "invite members", "organization members", "workspace members"],
+    searchTerms: ["invitations", "invite members", "team members", "workspace members"],
     content: (
       <>
         <p>
@@ -21,25 +21,33 @@ export const sections: GuideSection[] = [
           alt="The team Members page with the Invite button, member roles, and the Pending invites section."
           caption="Manage current members and pending invitations from the same page."
         />
-        <Note>A valid pending invitation lets the recipient join with that address even if signup is restricted to other addresses.</Note>
+        <p>
+          Joining a team also makes the person a member of the organization. People who already belong to the organization can be invited the same way.
+        </p>
+        <Note>A valid pending invitation lets the recipient create an account with that address, even though signup otherwise needs an invitation or an allowlisted address.</Note>
       </>
     ),
   },
   {
     id: "roles",
     title: "Choose a role",
-    searchTerms: ["permissions", "team permissions", "organization permissions", "org roles", "member roles"],
+    searchTerms: ["permissions", "team permissions", "team roles", "member roles"],
     content: (
       <>
         <ul className="list-disc space-y-2 pl-5">
           <li><strong>Member:</strong> Access the team’s projects and work on tasks. The project’s editing policy determines which existing tasks the member can edit.</li>
           <li><strong>Admin:</strong> Manage people other than owners, create projects, and manage project settings across the team.</li>
-          <li><strong>Owner:</strong> Manage all roles and permanently delete projects or the team. The team must keep at least one owner.</li>
+          <li><strong>Owner:</strong> Manage all roles and permanently delete projects or the team.</li>
         </ul>
+        <p>
+          <DocLink topic="organization" section="roles">Organization owners and admins</DocLink> can open and manage every team as its owners and admins can,
+          without joining it, so a team doesn’t need an owner of its own. They aren’t listed as members, and can’t be assigned, mentioned, or track time in the team until they join it.
+        </p>
         <p>
           To change a role, use the role menu on the person’s row under <strong>Members</strong>.
           To remove their access to the team and its projects, choose <strong>Remove</strong>,
-          then <strong>Confirm removal</strong>.
+          then <strong>Confirm removal</strong>. They stay in the organization and in their other teams;
+          to remove them everywhere, <DocLink topic="organization" section="remove-members">remove them from the organization</DocLink>.
           To delegate settings for just one project, <DocLink topic="project-settings" section="project-admins">grant project admin access</DocLink>.
         </p>
       </>
@@ -67,7 +75,7 @@ export const sections: GuideSection[] = [
   {
     id: "general",
     title: "Rename or delete a team",
-    searchTerms: ["rename organization", "delete organization", "rename workspace", "delete workspace"],
+    searchTerms: ["rename team", "delete team", "rename workspace", "delete workspace"],
     content: (
       <>
         <p>
@@ -75,7 +83,7 @@ export const sections: GuideSection[] = [
           {" "}<strong>Save name</strong>. The name updates while the team’s address stays the same.
         </p>
         <p>
-          An owner can also select <strong>Delete team</strong> and type the slug shown in the confirmation.
+          A team owner or an organization owner can also select <strong>Delete team</strong> and type the slug shown in the confirmation.
           This permanently deletes the team’s projects, tasks, comments, and history.
         </p>
       </>

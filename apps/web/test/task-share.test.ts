@@ -4,8 +4,16 @@ import { drizzle } from "drizzle-orm/d1";
 import { Buffer } from "node:buffer";
 import { expect, it, vi } from "vitest";
 import {
-  addComment, archiveTask, createTeam, createProject, createProjectTaskType, createTask, deleteArchivedTask, parseTaskKey, transferTask,
+  addComment,
+  archiveTask,
+  createProject,
+  createProjectTaskType,
+  createTask,
+  deleteArchivedTask,
+  parseTaskKey,
+  transferTask,
 } from "@tasks/core/domain";
+import { createTeam } from "./helpers";
 import { teamMember, taskShare, user } from "@tasks/core/schema";
 import type { TaskPreview, TaskPreviewParams } from "@/lib/task-preview";
 

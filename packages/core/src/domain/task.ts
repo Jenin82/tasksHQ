@@ -3,7 +3,7 @@ import type { BatchItem } from "drizzle-orm/batch";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import { alias } from "drizzle-orm/sqlite-core";
 import {
-  AccessError, canEditAnyTask, canEditTask, hasTeamMembership, hasTaskEditPermission, requireTeamMember, requireProjectMember, TaskEditForbidden,
+  AccessError, canEditAnyTask, canEditTask, hasTeamMembership, hasTaskEditPermission, requireTeamMember, requireProjectMember, TaskEditForbidden, teamAccess,
 } from "../access";
 import {
   type BatchWrites,
@@ -1535,7 +1535,7 @@ export async function addComment(
         ${value.createdAt.getTime()}, ${value.updatedAt.getTime()},
         ${value.mentions ? JSON.stringify(value.mentions) : null}
       from ${task} where ${currentTaskScope(row)}
-        and ${hasTeamMembership(ctx.db, p.teamId, ctx.actorUserId)}
+        and ${isNotNull(teamAccess(p.teamId, ctx.actorUserId).role)}
     `).returning({ id: comment.id }),
     writeActivityIfChanged(ctx, {
       projectId: row.projectId,

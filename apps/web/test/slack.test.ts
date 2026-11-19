@@ -4,7 +4,6 @@ import { drizzle } from "drizzle-orm/d1";
 import { beforeEach, expect, it, vi } from "vitest";
 import {
   addProjectMember,
-  createTeam,
   createProject,
   createStatus,
   createTask,
@@ -17,6 +16,7 @@ import {
   transferTask,
   updateTask,
 } from "@tasks/core/domain";
+import { createTeam } from "./helpers";
 import { mailOutbox, teamMember, projectSlack, slackOutbox, status, user } from "@tasks/core/schema";
 import { drainSlackOutbox, encryptSlackWebhook } from "@/lib/slack";
 

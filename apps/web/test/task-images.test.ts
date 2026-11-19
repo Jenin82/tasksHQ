@@ -1,7 +1,8 @@
 import { env } from "cloudflare:test";
 import { drizzle } from "drizzle-orm/d1";
 import { expect, it, vi } from "vitest";
-import { createTeam, createProject } from "@tasks/core/domain";
+import { createProject } from "@tasks/core/domain";
+import { createTeam } from "./helpers";
 import { user } from "@tasks/core/schema";
 import {
   MAX_TASK_IMAGE_BYTES,

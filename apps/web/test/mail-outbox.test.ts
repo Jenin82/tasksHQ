@@ -5,7 +5,6 @@ import { expect, it, vi } from "vitest";
 import {
   addComment,
   claimInvites,
-  createTeam,
   createProject,
   createTask,
   inviteToTeam,
@@ -15,6 +14,7 @@ import {
   setReportingLead,
   updateTask,
 } from "@tasks/core/domain";
+import { createTeam } from "./helpers";
 import { mailOutbox, teamMember, projectInvite, projectMember, status, user } from "@tasks/core/schema";
 import { drainMailOutbox } from "@/lib/mail-outbox";
 

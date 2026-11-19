@@ -4,7 +4,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { expect, it } from "vitest";
 import { claimInvites, createProject } from "@tasks/core/domain";
 import { team, teamInvite, teamMember, projectInvite, projectMember, user } from "@tasks/core/schema";
-import { auth } from "@/lib/auth";
+import { createTasksAuth } from "@/lib/auth";
 
 const db = drizzle(env.DB);
 const now = new Date();
@@ -62,6 +62,17 @@ async function inviteRow(teamId: string, email: string) {
     .where(and(eq(teamInvite.teamId, teamId), eq(teamInvite.email, email)));
   return row;
 }
+
+// Signup is invite-only without an allowlist (P3); these tests create some
+// users before their invite exists.
+const auth = createTasksAuth({
+  database: env.DB,
+  secret: env.BETTER_AUTH_SECRET,
+  baseURL: env.BETTER_AUTH_URL,
+  googleClientId: env.GOOGLE_CLIENT_ID,
+  googleClientSecret: env.GOOGLE_CLIENT_SECRET,
+  signupEmailAllowlist: "*@invites.test",
+});
 
 // Drives Better Auth's own user-creation seam, so the databaseHooks in
 // lib/auth.ts fire exactly as they do on a real Google sign-up. The Google

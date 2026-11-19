@@ -3,12 +3,12 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { expect, it, vi } from "vitest";
 import {
-  createTeam,
   createProject,
   createTask,
   getTaskDetail,
   setProjectMemberRole,
 } from "@tasks/core/domain";
+import { createTeam } from "./helpers";
 import { teamMember, status, user } from "@tasks/core/schema";
 
 const actor = vi.hoisted(() => ({ id: "bulk-member" }));

@@ -4,11 +4,11 @@ import { renderToStaticMarkup } from "react-dom/server.browser";
 import { expect, it, vi } from "vitest";
 import {
   addProjectMember,
-  createTeam,
   createProject,
   createTask,
   setProjectMemberRole,
 } from "@tasks/core/domain";
+import { createTeam } from "./helpers";
 import { teamMember, user } from "@tasks/core/schema";
 
 // Same seam as test/states.test.tsx: the route layer reads the session through

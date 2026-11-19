@@ -1,5 +1,6 @@
-import { and, asc, eq } from "drizzle-orm";
-import { teamMember, project } from "@tasks/core/schema";
+import { and, asc, eq, isNotNull } from "drizzle-orm";
+import { teamAccess } from "@tasks/core/access";
+import { project } from "@tasks/core/schema";
 import { db } from "@/lib/db";
 
 type Workspace = { id: string; slug: string; name: string };
@@ -12,11 +13,7 @@ export async function listAssignmentCreateProjects(workspaces: Workspace[], user
       key: project.key,
     })
       .from(project)
-      .innerJoin(teamMember, and(
-        eq(teamMember.teamId, project.teamId),
-        eq(teamMember.userId, userId),
-      ))
-      .where(eq(project.teamId, id))
+      .where(and(eq(project.teamId, id), isNotNull(teamAccess(project.teamId, userId).role)))
       .orderBy(asc(project.name), asc(project.id));
 
     return {

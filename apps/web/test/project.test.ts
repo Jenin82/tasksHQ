@@ -4,7 +4,6 @@ import { drizzle } from "drizzle-orm/d1";
 import { expect, it } from "vitest";
 import {
   addProjectMember,
-  createTeam,
   createProject,
   createStatus,
   deleteStatus,
@@ -13,6 +12,7 @@ import {
   renameStatus,
   reorderStatus,
 } from "@tasks/core/domain";
+import { createTeam } from "./helpers";
 import {
   activity,
   teamMember,

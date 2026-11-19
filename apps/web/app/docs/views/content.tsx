@@ -17,7 +17,7 @@ export const sections: GuideSection[] = [
   {
     id: "assignment-views",
     title: "Find work assigned to you or your reports",
-    searchTerms: ["switch team", "change team", "teams", "switch organization", "change organization", "organizations", "your team", "collapse sidebar", "show more teams"],
+    searchTerms: ["switch team", "change team", "teams", "your team", "collapse sidebar", "show more teams"],
     content: <>
       <ul className="list-disc space-y-2 pl-6 marker:text-muted-foreground">
         <li><strong>Your Tasks</strong> shows active work in the current team. Switch between <strong>Assigned to you</strong> and <strong>Assigned by you</strong>.</li>

@@ -1,4 +1,5 @@
 import { and, asc, eq, gte, inArray, lt, or, sql } from "drizzle-orm";
+import { requireTeamMember } from "../access";
 import type { DomainContext } from "../activity";
 import { activity } from "../schema/activity";
 import { project, status } from "../schema/project";
@@ -6,7 +7,7 @@ import { task } from "../schema/task";
 import { timeEntry } from "../schema/time";
 import { ACTIVITY_ROWID, taskKey } from "./task";
 import { MAX_ENTRY_MS, overlapMs } from "./time";
-import { listTimeReportEntries } from "./time-report";
+import { assertReportRange, listTimeReportEntries } from "./time-report";
 
 export type WorkSummaryTask = {
   key: string;
@@ -36,8 +37,11 @@ export async function getWorkSummaryData(
 ): Promise<{ totalMinutes: number; tasks: WorkSummaryTask[] }> {
   const { db, actorUserId } = ctx;
   const { teamId, from, to } = input;
-  // Checks membership and the range before anything else is read.
-  const entries = await listTimeReportEntries(ctx, { teamId, from, to, userId: actorUserId });
+  // Checks membership and the range before anything else is read. Access
+  // through an org role has no time reports, so it lists tasks only.
+  const member = await requireTeamMember(db, teamId, actorUserId);
+  assertReportRange(input);
+  const entries = member.implicit ? [] : await listTimeReportEntries(ctx, { teamId, from, to, userId: actorUserId });
 
   const acted = and(
     eq(activity.actorUserId, actorUserId),

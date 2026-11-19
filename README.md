@@ -38,7 +38,7 @@ Use your `TASKSHQ_WEB_WORKER` name if you changed it, and repeat for each `SMTP_
 
 Use a provider that supports SMTP `AUTH PLAIN` or `AUTH LOGIN` over TLS, and configure sender-domain authentication with it before enabling email for users. If SMTP settings are missing or invalid, the app hides email sign-in and disables one-time codes and email notifications. Google sign-in and membership management remain available.
 
-Signup is open by default. `SIGNUP_EMAIL_ALLOWLIST=*@example.com,someone@gmail.com` allows new accounts at `example.com` and the one Gmail address. Domain matches are exact and comparisons ignore case. The policy applies to Google and email signup. A valid pending team invitation lets the invited address sign up even if it falls outside the allowlist. Existing accounts can always sign in.
+Signup is invite-only by default. The verified `TASKSHQ_OWNER_EMAIL` account becomes the organization owner while the organization has none. `SIGNUP_EMAIL_ALLOWLIST=*@example.com,someone@gmail.com` also allows new accounts at `example.com` and the one Gmail address; they join the organization as members with no teams. Domain matches are exact and comparisons ignore case. The policy applies to Google and email signup. A valid pending team or organization invitation lets the invited address sign up even if it falls outside the allowlist. Existing accounts can always sign in.
 
 New email users provide a name and verify their address with a one-time code. Team invite emails link to the app home page; the recipient signs in with the invited address and TasksHQ claims the pending invite. Administrators can revoke pending invites under the team's Members settings. Team membership grants access to all projects in that team. Project settings are available to team owners and admins and to admins of that project.
 
@@ -73,8 +73,9 @@ cp apps/mcp/.dev.vars.example apps/mcp/.dev.vars
 ```
 
 1. Fill in `apps/web/.dev.vars` using its comments. For Google sign-in, register `http://localhost:5173/api/auth/callback/google` as a redirect URI on your Google OAuth client and keep `BETTER_AUTH_URL=http://localhost:5173`. Set the same `INTROSPECT_SECRET` in both `.dev.vars` files.
-2. Local D1 is keyed by `TASKSHQ_D1_ID`. Set it in `deploy.env` to your real database ID, or to any UUID (for example from `uuidgen`) if you only run locally. Changing it later points the dev server at a different, empty local database.
-3. Apply the migrations and start the app:
+2. Set `TASKSHQ_OWNER_EMAIL` in `deploy.env` to the address you sign in with locally; that account becomes the organization owner. Signup is invite-only, so without it (or a `SIGNUP_EMAIL_ALLOWLIST` in `.dev.vars`) you cannot create an account.
+3. Local D1 is keyed by `TASKSHQ_D1_ID`. Set it in `deploy.env` to your real database ID, or to any UUID (for example from `uuidgen`) if you only run locally. Changing it later points the dev server at a different, empty local database.
+4. Apply the migrations and start the app:
 
 ```sh
 cd apps/web
@@ -82,9 +83,9 @@ cd apps/web
 pnpm dev
 ```
 
-Open <http://localhost:5173>. `pnpm --filter web seed [email]` from the repository root resets a local `acme` team with sample data. To run the MCP server locally, run `pnpm --filter mcp dev` (it listens on `http://localhost:8787/mcp` and shares the web app's local D1, R2 and KV state).
+Open <http://localhost:5173>. `pnpm --filter web seed [email]` from the repository root resets a local `acme` team with sample data and makes its sample user Ana an organization admin. To run the MCP server locally, run `pnpm --filter mcp dev` (it listens on `http://localhost:8787/mcp` and shares the web app's local D1, R2 and KV state).
 
-Local dev always uses the localhost URLs: the web app on port 5173 and the MCP server on port 8787, and each dev server fails to start if its port is taken. The URLs in `deploy.env` only affect builds and deploys; locally, `deploy.env` matters only for `TASKSHQ_D1_ID`, which picks the local D1 database.
+Local dev always uses the localhost URLs: the web app on port 5173 and the MCP server on port 8787, and each dev server fails to start if its port is taken. The URLs in `deploy.env` only affect builds and deploys; locally, `deploy.env` matters only for `TASKSHQ_D1_ID`, which picks the local D1 database, and `TASKSHQ_OWNER_EMAIL`.
 
 ## Self-host on Cloudflare
 
@@ -132,7 +133,7 @@ Run from the repository root unless noted.
    cp secrets.env.example secrets.env
    ```
 
-   In `deploy.env`, set `TASKSHQ_WEB_URL`, `TASKSHQ_MCP_URL`, `TASKSHQ_D1_ID`, and the domain variables if you use custom domains. No trailing slashes.
+   In `deploy.env`, set `TASKSHQ_WEB_URL`, `TASKSHQ_MCP_URL`, `TASKSHQ_D1_ID`, `TASKSHQ_OWNER_EMAIL` (the first organization owner), and the domain variables if you use custom domains. No trailing slashes.
 
    In `secrets.env`, set:
    - `BETTER_AUTH_SECRET`, `CONSENT_SECRET`, `INTROSPECT_SECRET`: three different values from `openssl rand -base64 32`.
@@ -144,7 +145,7 @@ Run from the repository root unless noted.
 
    The web deploy uploads every key listed in `secrets.env`, overwriting the deployed value. The MCP deploy uploads only `INTROSPECT_SECRET`. Keys you leave out keep their current value on an existing Worker, but a new Worker needs every required key. Fill in each line or delete it: an empty `KEY=` would be uploaded as an empty secret, so the deploy scripts refuse it.
 
-   `pnpm run deploy:web`, `deploy:mcp` and `db:migrate:remote` first run `node scripts/check-deploy.mjs`. It stops when either file is missing, `deploy.env` has CRLF line endings, `TASKSHQ_WEB_URL` or `TASKSHQ_MCP_URL` is not an `https://` origin without a path, a domain variable differs from its URL's hostname, `TASKSHQ_D1_ID` is empty, a key in `secrets.env` is empty or only names an unset `$VARIABLE`, or `BETTER_AUTH_URL` differs from `TASKSHQ_WEB_URL`.
+   `pnpm run deploy:web`, `deploy:mcp` and `db:migrate:remote` first run `node scripts/check-deploy.mjs`. It stops when either file is missing, `deploy.env` has CRLF line endings, `TASKSHQ_WEB_URL` or `TASKSHQ_MCP_URL` is not an `https://` origin without a path, a domain variable differs from its URL's hostname, `TASKSHQ_D1_ID` is empty, `TASKSHQ_OWNER_EMAIL` is not an email address, a key in `secrets.env` is empty or only names an unset `$VARIABLE`, or `BETTER_AUTH_URL` differs from `TASKSHQ_WEB_URL`.
 
 4. In the Google Cloud console, add `<TASKSHQ_WEB_URL>/api/auth/callback/google` as an authorized redirect URI on the OAuth client.
 
@@ -175,7 +176,7 @@ curl <TASKSHQ_WEB_URL>/.well-known/oauth-authorization-server
 curl <TASKSHQ_MCP_URL>/.well-known/oauth-protected-resource/mcp
 ```
 
-The first returns JSON whose `issuer` is your web URL. The second returns JSON whose `resource` is `<TASKSHQ_MCP_URL>/mcp`. Then open `TASKSHQ_WEB_URL`, sign in, and create a team.
+The first returns JSON whose `issuer` is your web URL. The second returns JSON whose `resource` is `<TASKSHQ_MCP_URL>/mcp`. Then open `TASKSHQ_WEB_URL`, sign in as `TASKSHQ_OWNER_EMAIL`, and create a team.
 
 ### Upgrading an existing deployment
 
@@ -187,6 +188,8 @@ pnpm run deploy
 ```
 
 Always apply new migrations before deploying either Worker; new code may depend on new columns.
+
+Before upgrading to the organization release (migration `0021_org_layer.sql`), set `TASKSHQ_OWNER_EMAIL` in `deploy.env` (or the GitHub variable); the deploy scripts refuse to run without it. The migration is additive, so apply it and deploy as usual with no downtime. It creates one organization named after the oldest team, adds every team member to it, and makes every team owner an organization owner, so the setting matters only when no owner exists. **Warning:** every former team owner can then open, manage and delete every team. Check the organization owners after migrating and demote anyone who should not have that reach at `/settings/members`, or with `UPDATE org_member SET role = 'member' WHERE user_id IN (...)`. Signup without an invitation now needs `SIGNUP_EMAIL_ALLOWLIST`: a deployment that relied on open signup must set one to keep admitting new accounts, which then join the organization with no teams. MCP clients must send `team`; the deprecated `org` input is gone.
 
 Migration `0020_rename_org_to_team.sql` (organizations renamed to teams) renames tables that the running Workers still use, so the old Workers fail once it is applied. Run `pnpm run db:migrate:remote`, then `pnpm run deploy` (web, then MCP) immediately after. Expect errors in between, and reload any open browser tabs after the deploy.
 
@@ -212,12 +215,12 @@ Then set up GitHub:
    | Kind | Name | Value |
    | --- | --- | --- |
    | Variable | `CLOUDFLARE_ACCOUNT_ID` | Your Cloudflare account ID |
-   | Variable | `TASKSHQ_WEB_URL`, `TASKSHQ_MCP_URL`, `TASKSHQ_WEB_DOMAIN`, `TASKSHQ_MCP_DOMAIN`, `TASKSHQ_D1_ID`, `TASKSHQ_KV_ID`, `TASKSHQ_WEB_WORKER`, `TASKSHQ_MCP_WORKER`, `TASKSHQ_D1_NAME`, `TASKSHQ_R2_BUCKET` | As in `deploy.env.example`. Leave optional ones unset. |
+   | Variable | `TASKSHQ_WEB_URL`, `TASKSHQ_MCP_URL`, `TASKSHQ_WEB_DOMAIN`, `TASKSHQ_MCP_DOMAIN`, `TASKSHQ_D1_ID`, `TASKSHQ_OWNER_EMAIL`, `TASKSHQ_KV_ID`, `TASKSHQ_WEB_WORKER`, `TASKSHQ_MCP_WORKER`, `TASKSHQ_D1_NAME`, `TASKSHQ_R2_BUCKET` | As in `deploy.env.example`. Leave optional ones unset. |
    | Secret | `CLOUDFLARE_API_TOKEN` | The token from step 1 |
    | Secret | `BETTER_AUTH_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `CONSENT_SECRET`, `INTROSPECT_SECRET` | As in `secrets.env.example` |
    | Secret | `SMTP_HOST`, `SMTP_PORT`, `SMTP_TLS`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, `SIGNUP_EMAIL_ALLOWLIST` | Optional |
 
-   `BETTER_AUTH_URL` is set from `TASKSHQ_WEB_URL`. Variables may only contain letters, digits and `. _ : / -`. Secret values are written literally (`$` included) and must be one line; a value cannot contain both `'` and a backtick, or end with `\`. A secret you leave unset keeps its deployed value; a first deploy needs every required secret.
+   `BETTER_AUTH_URL` is set from `TASKSHQ_WEB_URL`. Variables may only contain letters, digits and `. _ : / @ + -`. Secret values are written literally (`$` included) and must be one line; a value cannot contain both `'` and a backtick, or end with `\`. A secret you leave unset keeps its deployed value; a first deploy needs every required secret.
 4. Run **Actions › Deploy › Run workflow** on `main`, or `gh workflow run deploy.yml --ref main`. Create the `production` environment first, and make sure CI on `main` is green. In CI, `cf` replaces an existing Custom Domain or DNS record for `TASKSHQ_WEB_DOMAIN` and `TASKSHQ_MCP_DOMAIN` without asking, so double-check both before the first run.
 5. After the first deploy, set the `TASKSHQ_KV_ID` variable to the ID of the OAuth KV namespace it created (see step 7 above), so later deploys reuse it.
 

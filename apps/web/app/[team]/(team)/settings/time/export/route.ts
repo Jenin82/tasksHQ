@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
+import { AccessError } from "@tasks/core/access";
 import { listTimeReportEntries, OutOfReportScope } from "@tasks/core/domain";
 import { user as userTable } from "@tasks/core/schema";
 import { db } from "@/lib/db";
@@ -29,7 +30,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ team
       { teamId: team.id, from: range.from, to: range.to, ...(range.person ? { userId: range.person } : {}) },
     );
   } catch (error) {
-    if (error instanceof OutOfReportScope) notFound();
+    // Org owners/admins outside the team have no time reports there.
+    if (error instanceof OutOfReportScope || (error instanceof AccessError && error.reason === "not_a_member")) notFound();
     throw error;
   }
 

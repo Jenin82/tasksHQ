@@ -1,7 +1,8 @@
 import { env } from "cloudflare:test";
 import { drizzle } from "drizzle-orm/d1";
 import { expect, it, vi } from "vitest";
-import { archiveTask, createTeam, createProject, createTask } from "@tasks/core/domain";
+import { archiveTask, createProject, createTask } from "@tasks/core/domain";
+import { createTeam } from "./helpers";
 import { teamMember, user } from "@tasks/core/schema";
 
 const actor = vi.hoisted(() => ({ id: "ws-member" }));

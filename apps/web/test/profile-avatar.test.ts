@@ -2,8 +2,8 @@ import { env } from "cloudflare:test";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { expect, it, vi } from "vitest";
-import { createTeam } from "@tasks/core/domain";
-import { teamMember, user } from "@tasks/core/schema";
+import { createTeam } from "./helpers";
+import { orgMember, teamMember, user } from "@tasks/core/schema";
 
 const actor = vi.hoisted(() => ({ id: "" }));
 vi.mock("@/lib/session", () => ({
@@ -16,10 +16,12 @@ const db = drizzle(env.DB);
 const owner = "avatar-owner";
 const member = "avatar-member";
 const outsider = "avatar-outsider";
+const orgPeer = "avatar-org-peer"; // in the org, but in none of the owner's teams
 const origin = "http://localhost:5173";
 const png = Uint8Array.fromBase64("iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKElEQVR4nO3NMQ0AAAgDsHlFOU6mgoOkSf8ms7cEAoFAIBAIBALBl6BUYRBMxBld8AAAAABJRU5ErkJggg==");
 
-await db.insert(user).values([owner, member, outsider].map((id) => ({ id, name: id, email: `${id}@avatar.test` })));
+await db.insert(user).values([owner, member, outsider, orgPeer].map((id) => ({ id, name: id, email: `${id}@avatar.test` })));
+await db.insert(orgMember).values({ userId: orgPeer, role: "member", createdAt: new Date() });
 const team = await createTeam({ db, actorUserId: owner, source: "web" }, { slug: "avatar-workspace", name: "Avatar workspace" });
 await db.insert(teamMember).values({ teamId: team.id, userId: member, role: "member", createdAt: new Date() });
 
@@ -41,7 +43,7 @@ it("requires authentication and a same-origin request to change the photo", asyn
   expect((await upload(png, "https://other.example")).status).toBe(403);
 });
 
-it("stores a small square WebP and limits profile reads to the owner and workspace members", async () => {
+it("stores a small square WebP and limits profile reads to the owner and organization members", async () => {
   actor.id = owner;
   const uploaded = await upload();
   expect(uploaded.status).toBe(201);
@@ -56,6 +58,8 @@ it("stores a small square WebP and limits profile reads to the owner and workspa
   expect(await env.IMAGES.info(new Blob([bytes]).stream())).toMatchObject({ width: 96, height: 96 });
 
   actor.id = member;
+  expect((await download(image)).status).toBe(200);
+  actor.id = orgPeer;
   expect((await download(image)).status).toBe(200);
   actor.id = outsider;
   expect((await download(image)).status).toBe(404);

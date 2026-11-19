@@ -1,7 +1,7 @@
-import { and, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, ne, or, type SQL, sql } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
-import { AccessError, requireCapability, requireTeamMember } from "../access";
-import { type DomainContext, writeActivitySelect } from "../activity";
+import { AccessError, requireCapability, requireOrgCapability, requireOrgMember, requireTeamMember, type TeamAccess } from "../access";
+import { type BatchWrites, type DomainContext, writeActivitySelect } from "../activity";
 import {
   DomainError,
   MAX_LENGTH,
@@ -10,16 +10,18 @@ import {
 } from "../errors";
 import { assertValidSlug } from "../slug";
 import { user } from "../schema/auth";
+import { orgInvite, orgMember } from "../schema/org";
 import { type Team, type TeamMember, team, teamInvite, teamMember } from "../schema/team";
 import { project } from "../schema/project";
 import { task } from "../schema/task";
 import { timeEntry } from "../schema/time";
-import { inviterStillManagesTeam, verifiedInviteRecipient } from "./invite-eligibility";
+import { inviterStillManagesOrg, inviterStillManagesTeam, verifiedInviteRecipient } from "./invite-eligibility";
 import { queueTeamInviteMail } from "./mail";
 import { stopTimeEntryValues } from "./time";
 
 /**
- * Claims live invitations for a verified address without changing existing roles.
+ * Claims live team and org invitations for a verified address. Team roles never
+ * change; an org invite only raises an existing org role.
  *
  * Team activity has no corresponding project ID, so claims write no activity row.
  */
@@ -32,16 +34,37 @@ export async function claimInvites(
   const pending = and(
     eq(teamInvite.email, normalizedEmail),
     isNull(teamInvite.acceptedAt),
-    inviterStillManagesTeam(db),
+    inviterStillManagesTeam(),
     verifiedInviteRecipient(db, userId, normalizedEmail),
   );
-  const [eligible] = await db.select({ teamId: teamInvite.teamId })
-    .from(teamInvite).where(pending).limit(1);
-  if (!eligible) return;
+  const orgPending = and(
+    eq(orgInvite.email, normalizedEmail),
+    isNull(orgInvite.acceptedAt),
+    inviterStillManagesOrg(),
+    verifiedInviteRecipient(db, userId, normalizedEmail),
+  );
+  const [teamEligible, orgEligible] = await db.batch([
+    db.select({ teamId: teamInvite.teamId }).from(teamInvite).where(pending).limit(1),
+    db.select({ email: orgInvite.email }).from(orgInvite).where(orgPending),
+  ]);
+  if (teamEligible.length === 0 && orgEligible.length === 0) return;
 
   // Recheck current invite and inviter inside the same batch as the grant.
   const now = new Date();
-  await db.batch([
+  const rank = (role: SQL) => sql`(case ${role} when 'owner' then 3 when 'admin' then 2 else 1 end)`;
+  const writes: BatchWrites = [
+    db.insert(orgMember).select(
+      db.select({
+        userId: sql<string>`${userId}`.as("user_id"),
+        role: orgInvite.role,
+        createdAt: sql<Date>`${now.getTime()}`.as("created_at"),
+      }).from(orgInvite).where(orgPending),
+    ).onConflictDoUpdate({
+      target: orgMember.userId,
+      set: { role: sql`excluded.role` },
+      setWhere: sql`${rank(sql`excluded.role`)} > ${rank(sql`${orgMember.role}`)}`,
+    }),
+    db.update(orgInvite).set({ acceptedAt: now }).where(orgPending),
     db.insert(teamMember).select(
       db.select({
         teamId: teamInvite.teamId,
@@ -51,7 +74,8 @@ export async function claimInvites(
       }).from(teamInvite).where(pending),
     ).onConflictDoNothing(),
     db.update(teamInvite).set({ acceptedAt: now }).where(pending),
-  ]);
+  ];
+  await db.batch(writes);
 }
 
 // Every function below writes no team-level activity row, for claimInvites'
@@ -59,32 +83,20 @@ export async function claimInvites(
 // activity type. (removeTeamMember does log the task-level side effect.)
 
 /**
- * §3's last-owner rule as a SQL condition on the row being removed or demoted,
- * so the check and the write are one statement. A separate count-then-write
- * lets two owners remove each other concurrently: both counts see two owners.
- */
-function notLastOwner(teamId: string) {
-  return or(
-    ne(teamMember.role, "owner"),
-    sql`(select count(*) from ${teamMember} where ${teamMember.teamId} = ${teamId} and ${teamMember.role} = 'owner') > 1`,
-  );
-}
-
-/**
  * §3's "admins can't touch owners" as a SQL condition on the row being
- * written, for `notLastOwner`'s reason: the pre-check reads the target's role
- * before the write, so an owner promoting the target in between would
- * otherwise let an admin remove or change a fresh owner.
+ * written, so the check and the write are one statement: the pre-check reads
+ * the target's role before the write, so an owner promoting the target in
+ * between would otherwise let an admin remove or change a fresh owner.
+ *
+ * There is no last-owner rule (P5): org owners always cover a team, so a team
+ * may be left without a real owner.
  */
-function untouchableBy(actor: TeamMember) {
+function untouchableBy(actor: Pick<TeamAccess, "role">) {
   return actor.role === "owner" ? undefined : ne(teamMember.role, "owner");
 }
 
 const ADMIN_REMOVES_OWNER = "An admin cannot remove an owner.";
 const ADMIN_CHANGES_OWNER = "An admin cannot change an owner's role.";
-
-const LAST_OWNER =
-  "A team must have at least one owner, so the last owner cannot be";
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -124,6 +136,8 @@ export async function createTeam(
   ctx: DomainContext,
   input: { slug: string; name: string },
 ): Promise<Team> {
+  const actor = await requireOrgMember(ctx.db, ctx.actorUserId);
+  requireOrgCapability(actor.role, "org:create_team");
   assertValidSlug("Team slug", input.slug);
   const name = validateTeamName(input.name);
 
@@ -331,9 +345,9 @@ export async function removeTeamMember(
         .where(and(eq(timeEntry.userId, input.userId), eq(timeEntry.teamId, input.teamId), isNull(timeEntry.endedAt))),
       ctx.db
         .delete(teamMember)
-        .where(and(memberRow, notLastOwner(input.teamId), untouchableBy(actor))),
-      // The guarded delete above can match nothing — the target is the last
-      // owner, or became an owner after the check above — and a zero-row
+        .where(and(memberRow, untouchableBy(actor))),
+      // The guarded delete above can match nothing — the target became an
+      // owner after the check above — and a zero-row
       // delete does not fail a batch, so the unassignments and activity rows
       // before it would commit. This statement only matches if the row
       // survived, and setting NOT NULL `role` to NULL then aborts the whole
@@ -343,13 +357,9 @@ export async function removeTeamMember(
     ]);
   } catch (error) {
     if (isConstraintError(error, "NOT NULL")) {
-      // Re-read to say which guard refused: the role may have changed since
-      // the pre-check.
-      const current = await requireTarget(ctx.db, input.teamId, input.userId);
-      if (current.role === "owner" && actor.role !== "owner") {
-        throw new AccessError("forbidden", ADMIN_REMOVES_OWNER);
-      }
-      throw new DomainError(`${LAST_OWNER} removed.`);
+      // Re-read: the row may have been removed since the pre-check.
+      await requireTarget(ctx.db, input.teamId, input.userId);
+      throw new AccessError("forbidden", ADMIN_REMOVES_OWNER);
     }
     throw error;
   }
@@ -382,9 +392,6 @@ export async function changeTeamMemberRole(
       and(
         eq(teamMember.teamId, input.teamId),
         eq(teamMember.userId, input.userId),
-        // Promoting to owner never shrinks the owner count, so only a demotion
-        // carries the last-owner guard.
-        input.role === "owner" ? undefined : notLastOwner(input.teamId),
         untouchableBy(actor),
       ),
     )
@@ -393,10 +400,7 @@ export async function changeTeamMemberRole(
   if (changed.length === 0) {
     // Re-read rather than trust `target`: the row may have been removed (and
     // `requireTarget` says so) or promoted since the pre-check.
-    const current = await requireTarget(ctx.db, input.teamId, input.userId);
-    if (current.role === "owner" && actor.role !== "owner") {
-      throw new AccessError("forbidden", ADMIN_CHANGES_OWNER);
-    }
-    throw new DomainError(`${LAST_OWNER} demoted.`);
+    await requireTarget(ctx.db, input.teamId, input.userId);
+    throw new AccessError("forbidden", ADMIN_CHANGES_OWNER);
   }
 }

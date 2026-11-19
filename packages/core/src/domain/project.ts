@@ -1,4 +1,4 @@
-import { and, desc, eq, exists, inArray, ne, notExists, or, sql } from "drizzle-orm";
+import { and, desc, eq, exists, inArray, ne, not, or, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import { generateKeyBetween, generateNKeysBetween } from "fractional-indexing";
@@ -10,6 +10,7 @@ import {
   requireCapability,
   requireTeamMember,
   requireProjectMember,
+  teamAccess,
 } from "../access";
 import {
   type BatchWrites,
@@ -241,12 +242,7 @@ export async function renameProject(
   }
 
   const permittedRoles = teamMember.role.enumValues.filter((role) => can(role, capability));
-  const stillPermitted = exists(db.select({ userId: teamMember.userId }).from(teamMember)
-    .where(and(
-      eq(teamMember.teamId, row.teamId),
-      eq(teamMember.userId, actorUserId),
-      inArray(teamMember.role, permittedRoles),
-    )));
+  const stillPermitted = inArray(teamAccess(row.teamId, actorUserId).role, permittedRoles);
   const writes: BatchWrites = [
     // Matches the name and slug read above, so a concurrent rename makes this
     // one fail instead of silently overwriting it.
@@ -325,17 +321,15 @@ export async function setProjectTaskEditRestriction(
   const { id, teamId } = await requireProjectCapability(ctx, projectId, capability);
   const { db, actorUserId } = ctx;
   const permittedRoles = teamMember.role.enumValues.filter((role) => can(role, capability));
-  const stillPermitted = exists(db.select({ userId: teamMember.userId }).from(teamMember)
-    .leftJoin(projectMember, and(
+  const stillPermitted = or(
+    inArray(teamAccess(teamId, actorUserId).role, permittedRoles),
+    exists(db.select({ userId: projectMember.userId }).from(projectMember).where(and(
       eq(projectMember.projectId, id),
-      eq(projectMember.teamId, teamMember.teamId),
-      eq(projectMember.userId, teamMember.userId),
-    ))
-    .where(and(
-      eq(teamMember.teamId, teamId),
-      eq(teamMember.userId, actorUserId),
-      or(inArray(teamMember.role, permittedRoles), eq(projectMember.role, "admin")),
-    )));
+      eq(projectMember.teamId, teamId),
+      eq(projectMember.userId, actorUserId),
+      eq(projectMember.role, "admin"),
+    ))),
+  );
   const [changed] = await db.batch([
     db.update(project).set({ restrictTaskEdits: restricted })
       .where(and(eq(project.id, id), ne(project.restrictTaskEdits, restricted), stillPermitted))
@@ -373,17 +367,15 @@ export async function setProjectAutoArchive(
     if (!chosen) throw new DomainError("Choose a status that belongs to this project.");
   }
   const permittedRoles = teamMember.role.enumValues.filter((role) => can(role, capability));
-  const stillPermitted = exists(db.select({ userId: teamMember.userId }).from(teamMember)
-    .leftJoin(projectMember, and(
+  const stillPermitted = or(
+    inArray(teamAccess(teamId, actorUserId).role, permittedRoles),
+    exists(db.select({ userId: projectMember.userId }).from(projectMember).where(and(
       eq(projectMember.projectId, id),
-      eq(projectMember.teamId, teamMember.teamId),
-      eq(projectMember.userId, teamMember.userId),
-    ))
-    .where(and(
-      eq(teamMember.teamId, teamId),
-      eq(teamMember.userId, actorUserId),
-      or(inArray(teamMember.role, permittedRoles), eq(projectMember.role, "admin")),
-    )));
+      eq(projectMember.teamId, teamId),
+      eq(projectMember.userId, actorUserId),
+      eq(projectMember.role, "admin"),
+    ))),
+  );
   // `is not` is null-safe, so a status going to/from null is detected too; a
   // no-op change writes no activity row (writeActivityIfChanged).
   const differs = or(sql`${project.autoArchiveStatusId} is not ${statusId}`, ne(project.autoArchiveDays, days));
@@ -492,18 +484,9 @@ export async function removeProjectMember(
 
   const managesTeam = can(member.role, "team:manage_members");
   const teamManagerRoles = teamMember.role.enumValues.filter((role) => can(role, "team:manage_members"));
-  const unprotectedTeamMember = notExists(ctx.db.select({ userId: teamMember.userId })
-    .from(teamMember).where(and(
-      eq(teamMember.teamId, row.teamId),
-      eq(teamMember.userId, input.userId),
-      inArray(teamMember.role, teamManagerRoles),
-    )));
+  const unprotectedTeamMember = not(inArray(teamAccess(row.teamId, input.userId).role, teamManagerRoles));
   const stillPermitted = managesTeam
-    ? exists(ctx.db.select({ userId: teamMember.userId }).from(teamMember).where(and(
-      eq(teamMember.teamId, row.teamId),
-      eq(teamMember.userId, ctx.actorUserId),
-      inArray(teamMember.role, teamManagerRoles),
-    )))
+    ? inArray(teamAccess(row.teamId, ctx.actorUserId).role, teamManagerRoles)
     : exists(ctx.db.select({ userId: projectMember.userId }).from(projectMember).where(and(
       eq(projectMember.projectId, input.projectId),
       eq(projectMember.teamId, row.teamId),
@@ -555,12 +538,10 @@ export async function setProjectMemberRole(
     throw new DomainError("Choose a valid project role.");
   }
 
-  const stillPermitted = exists(db.select({ userId: teamMember.userId }).from(teamMember)
-    .where(and(
-      eq(teamMember.teamId, row.teamId),
-      eq(teamMember.userId, actorUserId),
-      inArray(teamMember.role, teamMember.role.enumValues.filter((value) => can(value, "team:change_role"))),
-    )));
+  const stillPermitted = inArray(
+    teamAccess(row.teamId, actorUserId).role,
+    teamMember.role.enumValues.filter((value) => can(value, "team:change_role")),
+  );
 
   const eligibleTarget = db.select({ userId: teamMember.userId }).from(teamMember)
     .where(and(

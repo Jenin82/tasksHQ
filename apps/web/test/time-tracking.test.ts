@@ -5,7 +5,6 @@ import { expect, it } from "vitest";
 import {
   archiveTask,
   autoArchiveDoneTasks,
-  createTeam,
   createProject,
   createTask,
   createTimeEntry,
@@ -25,6 +24,7 @@ import {
   updateTask,
   updateTimeEntry,
 } from "@tasks/core/domain";
+import { createTeam } from "./helpers";
 import { activity, teamMember, status, task, timeEntry, user } from "@tasks/core/schema";
 import { zonedDate, zonedMidnight, zonedTime } from "@/lib/time-zone";
 
@@ -291,15 +291,15 @@ it("removeTeamMember stops the member's running timer in that team only", async 
   expect((await entry(away.id)).endedAt).toBeNull();
 });
 
-it("removeTeamMember refused for the last owner leaves that owner's timer running", async () => {
+it("removeTeamMember of the last owner (allowed, P5) stops that owner's timer", async () => {
   const soleId = await makeUser();
   const space = await createTeam(ctx(soleId), { slug: "tt-sole", name: "Sole owner" });
   const p = await createProject(ctx(soleId), { teamId: space.id, slug: "tt-sole-p", key: "TTS", name: "P" });
   const t = await createTask(ctx(soleId), { projectId: p.id, title: "Mine" });
   const timer = await startTimer(ctx(soleId), { taskId: t.id, projectId: p.id });
 
-  await expect(removeTeamMember(ctx(soleId), { teamId: space.id, userId: soleId })).rejects.toThrow(/owner/i);
-  expect((await entry(timer.id)).endedAt).toBeNull();
+  await removeTeamMember(ctx(soleId), { teamId: space.id, userId: soleId });
+  expect((await entry(timer.id)).endedAt).not.toBeNull();
 });
 
 it("deleteTeam removes the team's time entries, running or not", async () => {

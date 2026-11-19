@@ -1,5 +1,5 @@
 import { and, asc, eq, gt, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
-import { can, requireTeamMember } from "../access";
+import { AccessError, can, requireTeamMember } from "../access";
 import type { DomainContext } from "../activity";
 import { DomainError } from "../errors";
 import { user } from "../schema/auth";
@@ -33,6 +33,11 @@ export type TimeReportEntry = Pick<TimeEntry, "id" | "userId" | "taskId" | "star
   edited: boolean;
 };
 
+export function assertReportRange({ from, to }: { from: Date; to: Date }) {
+  if (!(to.getTime() > from.getTime())) throw new DomainError("The report must end after it starts.");
+  if (to.getTime() - from.getTime() > MAX_SPAN_MS) throw new DomainError("A report can cover at most 93 days.");
+}
+
 /**
  * Entries in one team that overlap `[from, to)`, unclamped. Owners and
  * admins see everyone, including former members; others see themselves and
@@ -44,10 +49,11 @@ export async function listTimeReportEntries(
 ): Promise<TimeReportEntry[]> {
   const { db, actorUserId } = ctx;
   const member = await requireTeamMember(db, input.teamId, actorUserId);
+  // Time reports stay with real members until reporting moves to the org.
+  if (member.implicit) throw new AccessError("not_a_member", "No such team.");
+  assertReportRange(input);
   const from = input.from.getTime();
   const to = input.to.getTime();
-  if (!(to > from)) throw new DomainError("The report must end after it starts.");
-  if (to - from > MAX_SPAN_MS) throw new DomainError("A report can cover at most 93 days.");
 
   const seesAll = can(member.role, "team:view_time_reports");
   // A subquery, not an ID list, so a large team stays under D1's parameter limit.

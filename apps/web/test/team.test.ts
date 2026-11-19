@@ -10,6 +10,7 @@ import {
   removeTeamMember,
 } from "@tasks/core/domain";
 import {
+  orgMember,
   team,
   teamInvite,
   teamMember,
@@ -34,6 +35,9 @@ await db.insert(user).values(
     updatedAt: now,
   })),
 );
+
+// The domain's createTeam needs an org owner or admin.
+await db.insert(orgMember).values({ userId: "og-a", role: "admin", createdAt: now });
 
 function ctxFor(userId: string) {
   return { db, actorUserId: userId, source: "web" as const };
@@ -99,7 +103,7 @@ it("createTeam rejects reserved and malformed slugs and accepts a valid one", as
   expect(ok.slug).toBe("og-v4lid-x");
 
   await expect(
-    createTeam(ctxFor("og-b"), { slug: "og-v4lid-x", name: "X" }),
+    createTeam(ctxFor("og-a"), { slug: "og-v4lid-x", name: "Y" }),
   ).rejects.toThrowError(/already taken/);
 });
 
@@ -158,42 +162,15 @@ it("inviteToTeam upserts a removed-then-reinvited user, clearing acceptedAt", as
   });
 });
 
-it("refuses to remove or demote the final owner, and allows both once there are two", async () => {
+it("lets the last owner be demoted or removed, since org owners cover the team (P5)", async () => {
   const o = await createTeam(ctxFor("og-a"), { slug: "og-last", name: "Last" });
 
-  await expect(
-    removeTeamMember(ctxFor("og-a"), { teamId: o.id, userId: "og-a" }),
-  ).rejects.toThrowError(/at least one owner/);
-  await expect(
-    changeTeamMemberRole(ctxFor("og-a"), {
-      teamId: o.id,
-      userId: "og-a",
-      role: "admin",
-    }),
-  ).rejects.toThrowError(/at least one owner/);
+  await changeTeamMemberRole(ctxFor("og-a"), { teamId: o.id, userId: "og-a", role: "admin" });
+  expect(await membersOf(o.id)).toMatchObject([{ userId: "og-a", role: "admin" }]);
 
-  await db.insert(teamMember).values({
-    teamId: o.id,
-    userId: "og-b",
-    role: "owner",
-    createdAt: now,
-  });
-
-  await changeTeamMemberRole(ctxFor("og-a"), {
-    teamId: o.id,
-    userId: "og-a",
-    role: "admin",
-  });
-  await changeTeamMemberRole(ctxFor("og-b"), {
-    teamId: o.id,
-    userId: "og-a",
-    role: "owner",
-  });
-  await removeTeamMember(ctxFor("og-b"), { teamId: o.id, userId: "og-b" });
-
-  expect(await membersOf(o.id)).toMatchObject([
-    { userId: "og-a", role: "owner" },
-  ]);
+  const p = await createTeam(ctxFor("og-a"), { slug: "og-last-rm", name: "Last rm" });
+  await removeTeamMember(ctxFor("og-a"), { teamId: p.id, userId: "og-a" });
+  expect(await membersOf(p.id)).toEqual([]);
 });
 
 it("an admin cannot grant or target owner, nor remove one", async () => {
@@ -298,7 +275,7 @@ it("removing a team member nulls their task assignments and drops their project_
 
   // A second team whose task is assigned to the same user, to prove the update
   // is scoped to the team being left rather than nulling every assignment.
-  const other = await createTeam(ctxFor("og-c"), {
+  const other = await createTeam(ctxFor("og-a"), {
     slug: "og-casc-other",
     name: "Other",
   });

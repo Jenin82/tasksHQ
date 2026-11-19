@@ -1,5 +1,5 @@
 import { and, eq, exists, inArray, ne, or, sql, type SQL } from "drizzle-orm";
-import { AccessError, canProject, requireProjectMember } from "../access";
+import { AccessError, canProject, requireProjectMember, teamAccess } from "../access";
 import type { DomainContext } from "../activity";
 import { DomainError } from "../errors";
 import { user } from "../schema/auth";
@@ -20,10 +20,8 @@ async function requireSlackManager(ctx: DomainContext, projectId: string) {
 function stillManagesSlack(ctx: DomainContext, projectId: string) {
   const teamRoles = teamMember.role.enumValues.filter((role) => canProject(role, null, manageCapability));
   const directRoles = projectMember.role.enumValues.filter((role) => canProject("member", role, manageCapability));
-  return exists(ctx.db.select({ id: project.id }).from(project).innerJoin(teamMember, and(
-    eq(teamMember.teamId, project.teamId), eq(teamMember.userId, ctx.actorUserId),
-  )).where(and(eq(project.id, projectId), or(
-    inArray(teamMember.role, teamRoles),
+  return exists(ctx.db.select({ id: project.id }).from(project).where(and(eq(project.id, projectId), or(
+    inArray(teamAccess(project.teamId, ctx.actorUserId).role, teamRoles),
     exists(ctx.db.select({ userId: projectMember.userId }).from(projectMember).where(and(
       eq(projectMember.projectId, project.id), eq(projectMember.teamId, project.teamId),
       eq(projectMember.userId, ctx.actorUserId), inArray(projectMember.role, directRoles),

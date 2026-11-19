@@ -4,6 +4,7 @@ import DocsPage from "@/app/docs/page";
 import GettingStartedPage from "@/app/docs/getting-started/page";
 import IntegrationsPage from "@/app/docs/integrations/page";
 import McpGuide from "@/app/docs/mcp/page";
+import OrganizationPage from "@/app/docs/organization/page";
 import ProjectSettingsPage from "@/app/docs/project-settings/page";
 import { GET as getSearchIndex } from "@/app/docs/search-index.json/route";
 import { searchDocs, type DocsSearchEntry } from "@/app/docs/search";
@@ -17,6 +18,7 @@ const guidePages = {
   "/docs/work-items": WorkItemsPage,
   "/docs/views": ViewsPage,
   "/docs/project-settings": ProjectSettingsPage,
+  "/docs/organization": OrganizationPage,
   "/docs/team-settings": TeamSettingsPage,
   "/docs/integrations": IntegrationsPage,
   "/docs/mcp": McpGuide,
@@ -75,7 +77,8 @@ it("finds status setup and distinguishes task and team permissions", async () =>
     "/docs/team-settings#roles",
   ]));
 
-  expect(searchDocs(entries, "organization roles")[0]?.href).toBe("/docs/team-settings#roles");
+  expect(searchDocs(entries, "organization roles")[0]?.href).toBe("/docs/organization#roles");
+  expect(searchDocs(entries, "team roles")[0]?.href).toBe("/docs/team-settings#roles");
   expect(searchDocs(entries, "Your Reports").map(({ href }) => href)).toContain("/docs/views#assignment-views");
 });
 

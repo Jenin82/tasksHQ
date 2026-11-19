@@ -5,7 +5,6 @@ import { renderToStaticMarkup } from "react-dom/server.browser";
 import { expect, it, vi } from "vitest";
 import {
   archiveTask,
-  createTeam,
   createProject,
   createTask,
   deleteArchivedTask,
@@ -18,6 +17,7 @@ import {
   unarchiveTask,
   updateTask,
 } from "@tasks/core/domain";
+import { createTeam } from "./helpers";
 import { mailOutbox, teamMember, status, taskShare, user } from "@tasks/core/schema";
 
 const actor = vi.hoisted(() => ({ id: "" }));

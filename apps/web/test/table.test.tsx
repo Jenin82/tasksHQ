@@ -5,12 +5,12 @@ import { renderToStaticMarkup } from "react-dom/server.browser";
 import { expect, it, vi } from "vitest";
 import {
   archiveTask,
-  createTeam,
   createProject,
   createTask,
   listTasks,
   listWorkspaceAssignments,
 } from "@tasks/core/domain";
+import { createTeam } from "./helpers";
 import { teamMember, status, user, type Status } from "@tasks/core/schema";
 import { emptyProjectFilters, ProjectFiltersContext } from "@/components/project-filters-context";
 import { statusDot } from "@/lib/status-style";

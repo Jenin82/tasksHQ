@@ -13,7 +13,7 @@ cp apps/web/.dev.vars.example apps/web/.dev.vars
 cp apps/mcp/.dev.vars.example apps/mcp/.dev.vars
 ```
 
-Then apply local migrations and run `pnpm dev`. `pnpm --filter web seed [email]` resets a local `acme` team with sample data. You do not need a Cloudflare account to develop or run tests.
+Set `TASKSHQ_OWNER_EMAIL` in `deploy.env` to the address you sign in with: signup is invite-only, so that account (made organization owner) or a `SIGNUP_EMAIL_ALLOWLIST` entry in `apps/web/.dev.vars` is how you get a first local account. Then apply local migrations and run `pnpm dev`. `pnpm --filter web seed [email]` resets a local `acme` team with sample data and makes the sample user Ana an organization admin. You do not need a Cloudflare account to develop or run tests.
 
 ## Project layout
 

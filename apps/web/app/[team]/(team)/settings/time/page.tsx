@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { notFound } from "next/navigation";
+import { AccessError } from "@tasks/core/access";
 import { listTimeReportEntries, OutOfReportScope } from "@tasks/core/domain";
 import { user as userTable } from "@tasks/core/schema";
 import { buttonVariants } from "@/components/ui/button";
@@ -28,7 +29,8 @@ export default async function TeamTimePage({ params, searchParams }: {
       { teamId: team.id, from: range.from, to: range.to, ...(person ? { userId: person } : {}) },
     );
   } catch (error) {
-    if (error instanceof OutOfReportScope) notFound();
+    // Org owners/admins outside the team have no time reports there.
+    if (error instanceof OutOfReportScope || (error instanceof AccessError && error.reason === "not_a_member")) notFound();
     throw error;
   }
   const clamped = clampEntries(entries, range);

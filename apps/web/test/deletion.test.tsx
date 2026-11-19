@@ -8,7 +8,6 @@ import {
   addProjectMember,
   archiveTask,
   changeTeamMemberRole,
-  createTeam,
   createProject,
   createTask,
   deleteArchivedTask,
@@ -19,6 +18,7 @@ import {
   listTasks,
   unarchiveTask,
 } from "@tasks/core/domain";
+import { createTeam } from "./helpers";
 import {
   activity,
   comment,

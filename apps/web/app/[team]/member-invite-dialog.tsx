@@ -19,13 +19,20 @@ export function MemberInviteDialog({
   teamSlug,
   actorRole,
   inviteAction,
+  title = "Invite to team",
+  description = "The recipient can access all projects after signing in with the invited address.",
 }: {
-  teamSlug: string;
+  /** Absent for org invites. */
+  teamSlug?: string;
+  title?: string;
+  description?: string;
   actorRole: TeamRole;
   inviteAction: (state: ActionState, formData: FormData) => Promise<ActionState>;
 }) {
   const [open, setOpen] = useState(false);
   const [session, setSession] = useState(0);
+  // Distinct field ids for the team and org invite dialogs.
+  const idPrefix = teamSlug ? "team-invite" : "org-invite";
   const [result, submit, pending] = useActionState<{ session: number; result: ActionState }, FormData>(
     async (_previous, formData: FormData) => {
       const result = await inviteAction(NO_ERROR, formData);
@@ -49,16 +56,14 @@ export function MemberInviteDialog({
         <Button size="sm">Invite</Button>
       </DialogTrigger>
       <DialogContent closeDisabled={pending}>
-        <DialogTitle>Invite to team</DialogTitle>
-        <DialogDescription>
-          The recipient can access all projects after signing in with the invited address.
-        </DialogDescription>
+        <DialogTitle>{title}</DialogTitle>
+        <DialogDescription>{description}</DialogDescription>
         <form key={session} action={submit} className="mt-5 flex flex-col gap-4">
-          <input type="hidden" name="team" value={teamSlug} />
+          {teamSlug && <input type="hidden" name="team" value={teamSlug} />}
           <div className="flex flex-col gap-2">
-            <Label htmlFor="team-invite-email">Email</Label>
+            <Label htmlFor={`${idPrefix}-email`}>Email</Label>
             <Input
-              id="team-invite-email"
+              id={`${idPrefix}-email`}
               name="email"
               type="email"
               required
@@ -68,9 +73,9 @@ export function MemberInviteDialog({
             />
           </div>
           <div className="flex flex-col gap-2">
-            <Label htmlFor="invite-role">Role</Label>
+            <Label htmlFor={`${idPrefix}-role`}>Role</Label>
             <RoleSelect
-              id="invite-role"
+              id={`${idPrefix}-role`}
               name="role"
               defaultValue={state.values?.role ?? "member"}
               actorRole={actorRole}

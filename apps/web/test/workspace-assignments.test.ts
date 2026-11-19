@@ -4,13 +4,13 @@ import { expect, it } from "vitest";
 import { requireProjectMember } from "@tasks/core/access";
 import {
   archiveTask,
-  createTeam,
   createProject,
   createTask,
   listWorkspaceAssignments,
   setReportingLead,
   updateTask,
 } from "@tasks/core/domain";
+import { createTeam } from "./helpers";
 import { teamMember, user } from "@tasks/core/schema";
 
 it("uses team access and limits team assignments to direct reports", async () => {

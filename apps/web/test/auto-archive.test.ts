@@ -4,7 +4,6 @@ import { drizzle } from "drizzle-orm/d1";
 import { expect, it } from "vitest";
 import {
   autoArchiveDoneTasks,
-  createTeam,
   createProject,
   createStatus,
   createTask,
@@ -14,6 +13,7 @@ import {
   unarchiveTask,
   updateTask,
 } from "@tasks/core/domain";
+import { createTeam } from "./helpers";
 import { activity, teamMember, project, status, task, user } from "@tasks/core/schema";
 
 const db = drizzle(env.DB);

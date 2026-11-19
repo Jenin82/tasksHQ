@@ -36,6 +36,7 @@ import {
   emailsFor,
   projectStatuses,
   projectTaskTypes,
+  reachableProjectIds,
   reachableProjects,
   resolveAssignee,
   resolveTeam,
@@ -73,16 +74,9 @@ const DESCRIPTION = z.string().describe(
 const DATETIME = z.iso.datetime({ offset: true });
 const NOTE = z.string().max(500).describe("Optional note, up to 500 characters.");
 const MAX_LIST_DAYS = 92;
-// `org` is the pre-rename input name, accepted for one release.
 const TEAM_INPUT = {
-  team: z.string().min(1).optional().describe("Team slug, as list_projects returns it. Required (the deprecated org is still accepted)."),
-  org: z.string().min(1).optional().describe("Deprecated: use team."),
+  team: z.string().min(1).describe("Team slug, as list_projects returns it."),
 };
-function teamSlugArg(args: { team?: string; org?: string }): string {
-  const slug = args.team ?? args.org;
-  if (!slug) throw new DomainError("team is required.");
-  return slug;
-}
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_IMAGE_BASE64_LENGTH = 4 * Math.ceil(MAX_TASK_IMAGE_BYTES / 3);
 // Allow room for the JSON-RPC envelope around a maximum-size encoded image.
@@ -222,7 +216,7 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
     () =>
       run(async () => {
         const projects = await reachableProjects(db, props.userId);
-        const ids = projects.map((p) => p.id);
+        const ids = reachableProjectIds(db, props.userId);
         const [statuses, types] = await Promise.all([
           projectStatuses(db, ids),
           projectTaskTypes(db, ids),
@@ -639,9 +633,8 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
     },
     (args) =>
       run(async () => {
-        const slug = teamSlugArg(args);
         const { from, to } = parseRange(args);
-        const o = await resolveTeam(db, props.userId, slug);
+        const o = await resolveTeam(db, props.userId, args.team);
         const now = Date.now();
         const entries = (await listMyTimeEntries(ctx, { teamId: o.id, from, to })).map((e) => ({
           id: e.id,
@@ -678,9 +671,8 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
     },
     (args) =>
       run(async () => {
-        const slug = teamSlugArg(args);
         const { from, to } = parseRange(args);
-        const o = await resolveTeam(db, props.userId, slug);
+        const o = await resolveTeam(db, props.userId, args.team);
         const entries = await listTimeReportEntries(ctx, {
           teamId: o.id,
           from,
@@ -745,9 +737,8 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
     },
     (args) =>
       run(async () => {
-        const slug = teamSlugArg(args);
         const { from, to } = parseRange(args);
-        const o = await resolveTeam(db, props.userId, slug);
+        const o = await resolveTeam(db, props.userId, args.team);
         return getWorkSummaryData(ctx, { teamId: o.id, from, to });
       }),
   );

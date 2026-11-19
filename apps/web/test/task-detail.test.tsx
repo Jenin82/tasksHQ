@@ -5,7 +5,6 @@ import { renderToStaticMarkup } from "react-dom/server.browser";
 import { expect, it, vi } from "vitest";
 import {
   addComment,
-  createTeam,
   createProject,
   createTask,
   getTaskDetail,
@@ -13,6 +12,7 @@ import {
   type TaskActivityEntry,
   type TaskDetail,
 } from "@tasks/core/domain";
+import { createTeam } from "./helpers";
 import { activity, teamMember, status, task as taskTable, user } from "@tasks/core/schema";
 
 // Same seam as test/table.test.tsx: the route layer reads the session through

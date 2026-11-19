@@ -1,5 +1,5 @@
 import { and, eq, exists, inArray, notExists, sql } from "drizzle-orm";
-import { AccessError, can, requireCapability, requireTeamMember } from "../access";
+import { AccessError, can, requireCapability, requireTeamMember, teamAccess } from "../access";
 import type { DomainContext } from "../activity";
 import { DomainError, isConstraintError } from "../errors";
 import { teamMember, teamReportingLine } from "../schema/team";
@@ -16,12 +16,10 @@ export async function setReportingLead(
   const actor = await requireTeamMember(db, teamId, actorUserId);
   requireCapability(actor.role, "team:manage_members");
 
-  const stillPermitted = exists(db.select({ userId: teamMember.userId }).from(teamMember)
-    .where(and(
-      eq(teamMember.teamId, teamId),
-      eq(teamMember.userId, actorUserId),
-      inArray(teamMember.role, teamMember.role.enumValues.filter((role) => can(role, "team:manage_members"))),
-    )));
+  const stillPermitted = inArray(
+    teamAccess(teamId, actorUserId).role,
+    teamMember.role.enumValues.filter((role) => can(role, "team:manage_members")),
+  );
 
   if (leadUserId === null) {
     if (expectedLeadUserId === null) return;

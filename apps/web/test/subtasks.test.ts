@@ -4,7 +4,6 @@ import { drizzle } from "drizzle-orm/d1";
 import { expect, it, vi } from "vitest";
 import {
   archiveTask,
-  createTeam,
   createProject,
   createTask,
   deleteArchivedTask,
@@ -17,6 +16,7 @@ import {
   transferTask,
   updateTask,
 } from "@tasks/core/domain";
+import { createTeam } from "./helpers";
 import { isTaskParentError } from "@tasks/core/errors";
 import { teamMember, task, user } from "@tasks/core/schema";
 import { readFilters } from "@/components/use-saved-task-filters";

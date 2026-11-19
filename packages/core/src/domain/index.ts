@@ -1,4 +1,5 @@
 export * from "./team";
+export * from "./org";
 export * from "./project";
 export * from "./task";
 export * from "./auto-archive";

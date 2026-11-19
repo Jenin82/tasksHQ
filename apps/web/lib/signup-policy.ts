@@ -11,8 +11,9 @@ export function isEmailAddress(email: string) {
     && localPattern.test(local) && domainPattern.test(domain);
 }
 
+/** No setting means no open signup (P3): only invites and the owner email. */
 export function signupEmailPolicy(setting?: string) {
-  if (!setting?.trim()) return () => true;
+  if (!setting?.trim()) return () => false;
 
   const entries = setting.split(",").map(normalizeEmail);
   if (entries.some((entry) => entry.startsWith("*@")

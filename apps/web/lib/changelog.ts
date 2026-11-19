@@ -10,6 +10,20 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: "2026-11-19-organization-layer",
+    date: "2026-11-19",
+    title: "One organization above your teams",
+    items: [
+      "Your teams now sit in one organization. Owners and admins manage its members, teams and name from the links at the top of the sidebar.",
+      "Removing someone from the organization removes them from every team, unassigns their tasks and stops their timer.",
+      "Organization owners and admins can open and manage every team without joining it. Join a team to be assigned, mentioned or track time there.",
+      "Every existing team owner is now an organization owner and can open, manage and delete every team. Owners should check the list in Organization Members and change anyone who should not have that reach.",
+      "Only organization owners and admins create teams, and a team no longer needs its own owner.",
+      "New accounts need an invitation unless the deployment sets a signup allowlist.",
+      "MCP tools no longer accept org; use team.",
+    ],
+  },
+  {
     id: "2026-11-19-organizations-are-teams",
     date: "2026-11-19",
     title: "Organizations are now teams",
