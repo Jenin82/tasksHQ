@@ -2,12 +2,12 @@ import { and, eq, sql } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import { DomainError } from "../errors";
 import { user } from "../schema/auth";
-import { orgMember } from "../schema/org";
+import { teamMember } from "../schema/team";
 import type { CommentMention } from "../schema/task";
 
 export async function resolveCommentMentions(
   db: DrizzleD1Database,
-  orgId: string,
+  teamId: string,
   rawBody: string,
   body: string,
   input: unknown,
@@ -31,9 +31,9 @@ export async function resolveCommentMentions(
 
   const ids = [...new Set(mentions.map(({ userId }) => userId))];
   const members = await db.select({ id: user.id, name: user.name })
-    .from(orgMember).innerJoin(user, eq(user.id, orgMember.userId))
+    .from(teamMember).innerJoin(user, eq(user.id, teamMember.userId))
     .where(and(
-      eq(orgMember.orgId, orgId),
+      eq(teamMember.teamId, teamId),
       sql`${user.id} in (select value from json_each(${JSON.stringify(ids)}))`,
     ));
   const names = new Map(members.map(({ id, name }) => [id, name.trim()]));

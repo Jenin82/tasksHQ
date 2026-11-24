@@ -37,7 +37,7 @@ export const sections: GuideSection[] = [
           <li><strong>Mentions:</strong> Mention someone else with <strong>@</strong> in a comment to email them the comment and a link to the work item.</li>
           <li>
             <strong>Work item updates:</strong> Title, description, or status changes can notify the reporter
-            when they are different from the assignee, and the assignee’s direct lead.
+            when they are different from the assignee, and the assignee’s direct lead when the lead can open the project.
             TasksHQ skips the person who made the change and groups edits for each work item and recipient into five-minute batches.
           </li>
         </ul>
@@ -59,7 +59,7 @@ export const sections: GuideSection[] = [
           <div><dt className="font-medium"><code>SMTP_USERNAME</code> and <code>SMTP_PASSWORD</code></dt><dd>The provider’s SMTP credentials. Store them as Worker secrets.</dd></div>
           <div><dt className="font-medium"><code>SMTP_FROM</code></dt><dd>A sender address authorized by the provider.</dd></div>
         </dl>
-        <p>To restrict new signups, set <code>SIGNUP_EMAIL_ALLOWLIST</code> to comma-separated email addresses and exact-domain patterns such as <code>*@example.com</code>. Existing accounts can sign in, and valid pending invitations still work for their invited addresses.</p>
+        <p>New accounts need an invitation unless <code>SIGNUP_EMAIL_ALLOWLIST</code> lists their address. Set it to comma-separated email addresses and exact-domain patterns such as <code>*@example.com</code>; those accounts join the organization with no teams. Existing accounts can sign in, and valid pending invitations still work for their invited addresses.</p>
       </>
     ),
   },

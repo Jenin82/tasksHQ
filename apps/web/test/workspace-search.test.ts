@@ -1,14 +1,15 @@
 import { env } from "cloudflare:test";
 import { drizzle } from "drizzle-orm/d1";
 import { expect, it, vi } from "vitest";
-import { archiveTask, createOrg, createProject, createTask } from "@tasks/core/domain";
-import { orgMember, user } from "@tasks/core/schema";
+import { archiveTask, createProject, createTask } from "@tasks/core/domain";
+import { createTeam } from "./helpers";
+import { teamMember, user } from "@tasks/core/schema";
 
 const actor = vi.hoisted(() => ({ id: "ws-member" }));
 vi.mock("@/lib/session", () => ({
   requireUser: async () => ({ id: actor.id, name: actor.id, email: `${actor.id}@search.test` }),
 }));
-const { GET } = await import("@/app/api/workspaces/[org]/search/route");
+const { GET } = await import("@/app/api/workspaces/[team]/search/route");
 
 it("searches all projects in the active workspace without exposing other workspaces or archived work", async () => {
   const db = drizzle(env.DB);
@@ -17,14 +18,14 @@ it("searches all projects in the active workspace without exposing other workspa
     id, name: id, email: `${id}@search.test`, createdAt: now, updatedAt: now,
   })));
   const owner = { db, actorUserId: "ws-owner", source: "web" as const };
-  const org = await createOrg(owner, { name: "Search workspace", slug: "ws-search" });
-  const other = await createOrg(owner, { name: "Other workspace", slug: "ws-other" });
-  await db.insert(orgMember).values([
-    { orgId: org.id, userId: "ws-member", role: "member", createdAt: now },
-    { orgId: other.id, userId: "ws-member", role: "member", createdAt: now },
+  const team = await createTeam(owner, { name: "Search workspace", slug: "ws-search" });
+  const other = await createTeam(owner, { name: "Other workspace", slug: "ws-other" });
+  await db.insert(teamMember).values([
+    { teamId: team.id, userId: "ws-member", role: "member", createdAt: now },
+    { teamId: other.id, userId: "ws-member", role: "member", createdAt: now },
   ]);
-  const makeProject = (key: string, orgId = org.id) =>
-    createProject(owner, { orgId, name: `Searchable ${key}`, slug: key.toLowerCase(), key });
+  const makeProject = (key: string, teamId = team.id) =>
+    createProject(owner, { teamId, name: `Searchable ${key}`, slug: key.toLowerCase(), key });
   const projects = await Promise.all([makeProject("WSA"), makeProject("WSB"), makeProject("WSC"), makeProject("WSD", other.id)]);
   await Promise.all(projects.map((project) =>
     createTask(owner, { projectId: project.id, title: "Searchable task" }),
@@ -32,9 +33,9 @@ it("searches all projects in the active workspace without exposing other workspa
   const archived = await createTask(owner, { projectId: projects[0].id, title: "Searchable archived" });
   await archiveTask(owner, { taskId: archived.id });
 
-  const search = (q: string, slug = org.slug) => GET(
+  const search = (q: string, slug = team.slug) => GET(
     new Request(`http://local/api/workspaces/${slug}/search?${new URLSearchParams({ q })}`),
-    { params: Promise.resolve({ org: slug }) },
+    { params: Promise.resolve({ team: slug }) },
   );
   const response = await search("searchable");
   expect(response.headers.get("cache-control")).toBe("private, no-store");

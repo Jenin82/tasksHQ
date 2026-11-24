@@ -3,8 +3,8 @@
 import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Archive, Briefcase, CalendarClock, ChevronDown, ChevronRight, ChevronUp, Clock, Layers, ListTodo, PanelLeft, Plus, Settings, Users } from "lucide-react";
-import { NewOrgDialog } from "@/app/new-org-dialog";
+import { Archive, Briefcase, ChevronDown, ChevronRight, ChevronUp, Clock, Layers, LayoutGrid, ListTodo, Network, PanelLeft, Plus, Settings, Users } from "lucide-react";
+import { NewTeamDialog } from "@/app/new-team-dialog";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "./ui/dialog";
@@ -22,71 +22,96 @@ const projectSettingsPages = [
   ["Integrations", "/integrations"],
 ] as const;
 
-// Orgs shown before "Show more".
-const ORG_LIMIT = 3;
+// Teams shown before "Show more".
+const TEAM_LIMIT = 3;
 const SECTIONS_KEY = "tasks:sidebar-closed-sections";
+const COLLAPSED_KEY = "tasks:sidebar-collapsed";
 
-export function WorkspaceShell({ org, projects, canManageWorkspace, hasReports, canViewTimeReports, orgs, header, children }: {
-  org: string;
+// The org's Settings section, for org owners and admins.
+const orgPages = [
+  ["Teams", "/settings/teams", LayoutGrid],
+  ["Members", "/settings/members", Users],
+  ["Reporting lines", "/settings/reporting-lines", Network],
+  ["General", "/settings/general", Settings],
+] as const;
+
+export function WorkspaceShell({ team, org, projects, canManageWorkspace, teams, header, children }: {
+  /** Absent on the org's own pages, which show no Workspace or Projects. */
+  team?: string;
+  /**
+   * `canManage`: an org owner or admin, who gets the Settings section and New team.
+   */
+  org: { canManage: boolean };
   projects: Project[];
   canManageWorkspace: boolean;
-  hasReports: boolean;
-  canViewTimeReports: boolean;
-  orgs: { slug: string; name: string }[];
+  /** `member` is false for teams an org owner or admin opens without belonging to. */
+  teams: { slug: string; name: string; member: boolean }[];
   header: ReactNode;
   children: ReactNode;
 }) {
   const pathname = usePathname();
   const [searchPending, setSearchPending] = useState<SearchDestination | null>(null);
   const loading = searchPending?.href !== pathname ? searchPending?.view : undefined;
-  const active = projects.find(({ slug }) => pathname === `/${org}/${slug}` || pathname.startsWith(`/${org}/${slug}/`));
+  const active = projects.find(({ slug }) => pathname === `/${team}/${slug}` || pathname.startsWith(`/${team}/${slug}/`));
   const [collapsed, setCollapsed] = useState(false);
   const [drawer, setDrawer] = useState(false);
   const [lastViews, setLastViews] = useState<Record<string, "board" | "table">>({});
-  const storageKey = `tasks:project-views:${org}`;
-  const workspaceSettings = `/${org}/settings`;
-  const allTasks = `${workspaceSettings}/all-tasks`;
-  const organizationMembers = `${workspaceSettings}/members`;
-  const reportingLines = `${workspaceSettings}/team`;
-  const organizationGeneral = `${workspaceSettings}/general`;
-  const inOrganizationSettings = [organizationMembers, reportingLines, organizationGeneral].includes(pathname);
-  const multipleOrgs = orgs.length > 1;
-  const [showAllOrgs, setShowAllOrgs] = useState(false);
-  // Collapsed sidebar sections, remembered per browser across orgs.
+  // The org's own pages have no team, and so no project views to remember.
+  const storageKey = team ? `tasks:project-views:${team}` : undefined;
+  const workspaceSettings = `/${team}/settings`;
+  // On the org's pages, All My Tasks opens from the first team the user belongs to.
+  const allTasksTeam = team ?? teams.find((o) => o.member)?.slug;
+  const allTasks = allTasksTeam ? `/${allTasksTeam}/settings/all-tasks` : undefined;
+  const teamMembers = `${workspaceSettings}/members`;
+  const teamGeneral = `${workspaceSettings}/general`;
+  const inTeamSettings = [teamMembers, teamGeneral].includes(pathname);
+  const multipleTeams = teams.length > 1;
+  // All My Tasks spans only teams the user belongs to.
+  const multipleMemberTeams = teams.filter((o) => o.member).length > 1;
+  const [showAllTeams, setShowAllTeams] = useState(false);
+  // Collapsed sidebar sections, remembered per browser across teams.
   const [closedSections, setClosedSections] = useState<Record<string, boolean>>({});
-  // Exactly ORG_LIMIT rows until Show more; the current org takes the last one when it falls past the limit.
-  const visibleOrgs = showAllOrgs || orgs.slice(0, ORG_LIMIT).some((o) => o.slug === org)
-    ? orgs.slice(0, showAllOrgs ? undefined : ORG_LIMIT)
-    : [...orgs.slice(0, ORG_LIMIT - 1), ...orgs.filter((o) => o.slug === org)];
+  // Exactly TEAM_LIMIT rows until Show more; the current team takes the last one when it falls past the limit.
+  const visibleTeams = showAllTeams || teams.slice(0, TEAM_LIMIT).some((o) => o.slug === team)
+    ? teams.slice(0, showAllTeams ? undefined : TEAM_LIMIT)
+    : [...teams.slice(0, TEAM_LIMIT - 1), ...teams.filter((o) => o.slug === team)];
 
   // Workspace can't collapse over the page you're on: its settings sub-menu is the only way between those pages.
-  const workspaceHasCurrent = pathname === `/${org}` || (pathname.startsWith(`${workspaceSettings}/`) && pathname !== allTasks);
+  // Likewise, Settings stays open on its own pages.
 
-  // A layout effect, so a client remount (switching orgs) never paints collapsed sections open first.
+  // A layout effect, so a client remount (switching teams) never paints collapsed sections open first.
   useLayoutEffect(() => {
     try {
-      const saved: unknown = JSON.parse(localStorage.getItem(SECTIONS_KEY) || "{}");
-      if (saved && typeof saved === "object" && !Array.isArray(saved)) {
-        const stored = saved as Record<string, unknown>;
-        setClosedSections({ organizations: stored.organizations === true, workspace: stored.workspace === true });
+      const saved = parseClosedSections(localStorage.getItem(SECTIONS_KEY));
+      if (saved) {
+        setClosedSections(saved);
+        setShowAllTeams(saved.allTeams);
       }
+      setCollapsed(localStorage.getItem(COLLAPSED_KEY) === "true");
     } catch {
       // Sections start open when browser storage is unavailable.
     }
   }, []);
 
-  function toggleSection(section: string) {
-    const next = { ...closedSections, [section]: !closedSections[section] };
-    setClosedSections(next);
+  // Every collapse in the sidebar remembers its last state in this browser.
+  function remember(key: string, value: string) {
     try {
-      localStorage.setItem(SECTIONS_KEY, JSON.stringify(next));
+      localStorage.setItem(key, value);
     } catch {
       // The toggle still works for this page.
     }
   }
 
+  function toggleSection(section: string) {
+    const next = { ...closedSections, [section]: !closedSections[section] };
+    setClosedSections(next);
+    if (section === "allTeams") setShowAllTeams(next.allTeams);
+    remember(SECTIONS_KEY, JSON.stringify(next));
+  }
+
   useEffect(() => {
-    const base = active ? `/${org}/${active.slug}` : "";
+    if (!storageKey) return;
+    const base = active ? `/${team}/${active.slug}` : "";
     try {
       const saved: unknown = JSON.parse(localStorage.getItem(storageKey) || "{}");
       const stored = saved && typeof saved === "object" && !Array.isArray(saved)
@@ -100,83 +125,90 @@ export function WorkspaceShell({ org, projects, canManageWorkspace, hasReports, 
     } catch {
       // Navigation works even when browser storage is unavailable.
     }
-  }, [active, org, pathname, storageKey]);
+  }, [active, team, pathname, storageKey]);
 
   function projectHref(base: string) {
-    const slug = base.slice(org.length + 2);
+    const slug = base.slice((team ?? "").length + 2);
     return lastViews[slug] === "table" ? `${base}/table` : base;
   }
 
+  const showAllTasks = (multipleTeams || !team) && multipleMemberTeams && allTasks !== undefined;
   const nav = (onNavigate?: () => void) => (
     <nav aria-label="Workspace navigation" className="space-y-5 p-3">
-      {multipleOrgs && (
-        <>
+      {/* The org-wide Time page and All My Tasks sit together above the sections. */}
+      <div className="space-y-1">
+        <SidebarLink href="/settings/time" current={pathname === "/settings/time"} onNavigate={onNavigate}>
+          <Clock aria-hidden /> Time
+        </SidebarLink>
+        {showAllTasks && (
           <SidebarLink href={allTasks} current={pathname === allTasks} onNavigate={onNavigate}>
             <Layers aria-hidden /> All My Tasks
           </SidebarLink>
+        )}
+      </div>
+      {org.canManage && (
+        <div className="space-y-1">
+          <SectionHeading label="Settings" open={!closedSections.settings} onToggle={() => toggleSection("settings")} />
+          {!closedSections.settings && <div role="group" aria-label="Settings" className="space-y-1">
+            {orgPages.map(([label, href, Icon]) => (
+              <SidebarLink key={href} href={href} current={pathname === href} onNavigate={onNavigate}>
+                <Icon aria-hidden /> {label}
+              </SidebarLink>
+            ))}
+          </div>}
+        </div>
+      )}
+      {/* The org's own pages have no current team, so they always list them. */}
+      {(multipleTeams || !team) && (
+        <>
           <div className="space-y-1">
-            <SectionHeading label="Organizations" open={!closedSections.organizations} onToggle={() => toggleSection("organizations")}>
-              <NewOrgDialog trigger={
-                <Button type="button" size="icon-sm" variant="ghost" className={SECTION_BUTTON} aria-label="New organization">
+            <SectionHeading label="Teams" open={!closedSections.teams} onToggle={() => toggleSection("teams")}>
+              {org.canManage && <NewTeamDialog trigger={
+                <Button type="button" size="icon-sm" variant="ghost" className={SECTION_BUTTON} aria-label="New team">
                   <Plus aria-hidden />
                 </Button>
-              } />
+              } />}
             </SectionHeading>
-            {!closedSections.organizations && <div role="group" aria-label="Organizations" className="space-y-1">
-              {visibleOrgs.map((o) => (
-                // Highlighted, never current: the Workspace "Projects" link already marks `/${org}`.
-                <SidebarLink key={o.slug} href={`/${o.slug}`} current={false} highlighted={o.slug === org} onNavigate={onNavigate}>
+            {!closedSections.teams && <div role="group" aria-label="Teams" className="space-y-1">
+              {visibleTeams.map((o) => (
+                // Highlighted, never current: the Workspace "Projects" link already marks `/${team}`.
+                <SidebarLink key={o.slug} href={`/${o.slug}`} current={false} highlighted={o.slug === team} onNavigate={onNavigate}>
                   <span aria-hidden className="grid size-5 shrink-0 place-items-center rounded bg-muted text-[10px] font-semibold">{Array.from(o.name).slice(0, 2).join("").toUpperCase()}</span>
                   <span className="truncate">{o.name}</span>
-                  {o.slug === org && <span className="sr-only">(current organization)</span>}
+                  {o.slug === team && <span className="sr-only">(current team)</span>}
                 </SidebarLink>
               ))}
-              {orgs.length > ORG_LIMIT && (
-                <button type="button" aria-expanded={showAllOrgs} onClick={() => setShowAllOrgs(!showAllOrgs)}
+              {teams.length > TEAM_LIMIT && (
+                <button type="button" aria-expanded={showAllTeams} onClick={() => toggleSection("allTeams")}
                   className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-semibold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring [&_svg]:size-3.5 [&_svg]:shrink-0">
-                  {showAllOrgs ? <><ChevronUp aria-hidden /> Show less</> : <><ChevronDown aria-hidden /> Show more</>}
+                  {showAllTeams ? <><ChevronUp aria-hidden /> Show less</> : <><ChevronDown aria-hidden /> Show more</>}
                 </button>
               )}
             </div>}
           </div>
         </>
       )}
+      {team && <>
       <div className="space-y-1">
-        <SectionHeading label="Workspace" open={!closedSections.workspace || workspaceHasCurrent} locked={workspaceHasCurrent} onToggle={() => toggleSection("workspace")} />
-        {(!closedSections.workspace || workspaceHasCurrent) && <div className="space-y-1">
-          <SidebarLink href={`/${org}`} current={pathname === `/${org}`} onNavigate={onNavigate}>
+        <SectionHeading label="Workspace" open={!closedSections.workspace} onToggle={() => toggleSection("workspace")} />
+        {!closedSections.workspace && <div className="space-y-1">
+          <SidebarLink href={`/${team}`} current={pathname === `/${team}`} onNavigate={onNavigate}>
             <Briefcase aria-hidden /> Projects
           </SidebarLink>
           <SidebarLink href={`${workspaceSettings}/your-tasks`} current={pathname === `${workspaceSettings}/your-tasks`} onNavigate={onNavigate}>
             <ListTodo aria-hidden /> Your Tasks
           </SidebarLink>
-          <SidebarLink href={`${workspaceSettings}/your-time`} current={pathname === `${workspaceSettings}/your-time`} onNavigate={onNavigate}>
-            <Clock aria-hidden /> Your Time
-          </SidebarLink>
-          {hasReports && (
-            <SidebarLink href={`${workspaceSettings}/your-team`} current={pathname === `${workspaceSettings}/your-team`} onNavigate={onNavigate}>
-              <Users aria-hidden /> Your Team
-            </SidebarLink>
-          )}
-          {(canViewTimeReports || hasReports) && (
-            <SidebarLink href={`${workspaceSettings}/time`} current={pathname === `${workspaceSettings}/time`} onNavigate={onNavigate}>
-              <CalendarClock aria-hidden /> Team Time
-            </SidebarLink>
-          )}
           {canManageWorkspace && (
             <div>
-              <SidebarLink href={organizationMembers} current={false} onNavigate={onNavigate}>
-                <Settings aria-hidden /> Settings
+              <SidebarLink href={teamMembers} current={false} onNavigate={onNavigate}>
+                <Settings aria-hidden /> Team settings
               </SidebarLink>
-              {inOrganizationSettings && (
-                <div className="my-1 ml-4 space-y-0.5 border-l border-border pl-2" role="group" aria-label="Organization settings">
-                  <SidebarLink href={organizationMembers} current={pathname === organizationMembers} onNavigate={onNavigate}>
+              {inTeamSettings && (
+                <div className="my-1 ml-4 space-y-0.5 border-l border-border pl-2" role="group" aria-label="Team settings">
+                  <SidebarLink href={teamMembers} current={pathname === teamMembers} onNavigate={onNavigate}>
                     Members
                   </SidebarLink>
-                  <SidebarLink href={reportingLines} current={pathname === reportingLines} onNavigate={onNavigate}>
-                    Reporting lines
-                  </SidebarLink>
-                  <SidebarLink href={organizationGeneral} current={pathname === organizationGeneral} onNavigate={onNavigate}>
+                  <SidebarLink href={teamGeneral} current={pathname === teamGeneral} onNavigate={onNavigate}>
                     General
                   </SidebarLink>
                 </div>
@@ -188,7 +220,7 @@ export function WorkspaceShell({ org, projects, canManageWorkspace, hasReports, 
       <div className="space-y-1">
         <p className="px-2 text-xs font-semibold text-muted-foreground">Projects</p>
         {projects.map((project) => {
-          const base = `/${org}/${project.slug}`;
+          const base = `/${team}/${project.slug}`;
           const items = projectHref(base);
           const selected = active?.slug === project.slug;
           return (
@@ -223,6 +255,7 @@ export function WorkspaceShell({ org, projects, canManageWorkspace, hasReports, 
           );
         })}
       </div>
+      </>}
     </nav>
   );
 
@@ -230,7 +263,7 @@ export function WorkspaceShell({ org, projects, canManageWorkspace, hasReports, 
     <>
       <Button type="button" size="icon" variant="ghost" className="hidden rounded-md md:inline-flex"
         aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} aria-expanded={!collapsed}
-        onClick={() => setCollapsed(!collapsed)}>
+        onClick={() => { setCollapsed(!collapsed); remember(COLLAPSED_KEY, String(!collapsed)); }}>
         <PanelLeft aria-hidden />
       </Button>
       <DialogTrigger asChild>
@@ -274,14 +307,25 @@ export function WorkspaceShell({ org, projects, canManageWorkspace, hasReports, 
   );
 }
 
+/** The saved `tasks:sidebar-closed-sections` value, keeping only known sections; null when it is not an object. */
+export function parseClosedSections(raw: string | null): Record<string, boolean> | null {
+  const saved: unknown = JSON.parse(raw || "{}");
+  if (!saved || typeof saved !== "object" || Array.isArray(saved)) return null;
+  const stored = saved as Record<string, unknown>;
+  return {
+    teams: stored.teams === true || stored.organizations === true,
+    workspace: stored.workspace === true,
+    settings: stored.settings === true,
+    allTeams: stored.allTeams === true,
+  };
+}
+
 const SECTION_BUTTON = "-my-1.5 rounded-md text-muted-foreground";
 
 // A sidebar section label with its own actions and a collapse chevron at the far edge.
-function SectionHeading({ label, open, locked = false, onToggle, children }: {
+function SectionHeading({ label, open, onToggle, children }: {
   label: string;
   open: boolean;
-  /** Held open because it holds the current page. */
-  locked?: boolean;
   onToggle: () => void;
   children?: ReactNode;
 }) {
@@ -290,7 +334,7 @@ function SectionHeading({ label, open, locked = false, onToggle, children }: {
       <p className="flex-1 px-2 text-xs font-semibold text-muted-foreground">{label}</p>
       {children}
       {/* Ghost buttons brighten while aria-expanded (meant for open menus); an open section stays muted until hover. */}
-      <Button type="button" size="icon-sm" variant="ghost" disabled={locked}
+      <Button type="button" size="icon-sm" variant="ghost"
         className={cn(SECTION_BUTTON, "aria-expanded:text-muted-foreground aria-expanded:hover:text-foreground")}
         aria-label={`${open ? "Collapse" : "Expand"} ${label}`} aria-expanded={open} onClick={onToggle}>
         {open ? <ChevronDown aria-hidden /> : <ChevronRight aria-hidden />}

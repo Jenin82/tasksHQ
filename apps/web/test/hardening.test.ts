@@ -1,32 +1,35 @@
 import { env } from "cloudflare:test";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { expect, it, vi } from "vitest";
 import {
   addComment,
   addProjectMember,
   archiveTask,
-  changeOrgMemberRole,
-  createOrg,
+  changeTeamMemberRole,
   createProject,
+  createTeam as createTeamChecked,
   createStatus,
   createTask,
   deleteStatus,
   getTaskDetail,
-  inviteToOrg,
+  inviteToTeam,
   listTasks,
   moveTask,
   recolorStatus,
-  removeOrgMember,
+  removeTeamMember,
   removeProjectMember,
   renameStatus,
   reorderStatus,
+  revokeTeamInvite,
   updateTask,
 } from "@tasks/core/domain";
+import { createTeam } from "./helpers";
 import {
   activity,
-  orgInvite,
   orgMember,
+  teamInvite,
+  teamMember,
   status,
   task,
   user,
@@ -42,7 +45,7 @@ vi.mock("@/lib/session", () => {
   });
   return { getUser: async () => current(), requireUser: async () => current() };
 });
-const { moveTaskAction } = await import("@/app/[org]/[project]/actions");
+const { moveTaskAction } = await import("@/app/[team]/[project]/actions");
 
 // Review fixes: races, atomicity, validation. Shared storage, so every id,
 // slug and email here is prefixed `hd-`.
@@ -59,25 +62,29 @@ await db.insert(user).values(
   })),
 );
 
+// Only org owners and admins pass the domain's createTeam.
+await db.insert(user).values({ id: "hd-org-admin", name: "HD-ORG-ADMIN", email: "hd-org-admin@hd.test", createdAt: now, updatedAt: now });
+await db.insert(orgMember).values({ userId: "hd-org-admin", role: "admin", createdAt: now });
+
 function ctxFor(userId: string) {
   return { db, actorUserId: userId, source: "web" as const };
 }
 
-/** An org owned by `hd-owner` and `hd-owner2`, `hd-admin` an admin, `hd-member` a member. */
-async function freshOrg(slug: string) {
-  const o = await createOrg(ctxFor("hd-owner"), { slug, name: slug });
-  await db.insert(orgMember).values([
-    { orgId: o.id, userId: "hd-owner2", role: "owner", createdAt: now },
-    { orgId: o.id, userId: "hd-admin", role: "admin", createdAt: now },
-    { orgId: o.id, userId: "hd-member", role: "member", createdAt: now },
+/** A team with `hd-owner`, `hd-owner2` and `hd-admin` as admins, `hd-member` a member. */
+async function freshTeam(slug: string) {
+  const o = await createTeam(ctxFor("hd-owner"), { slug, name: slug });
+  await db.insert(teamMember).values([
+    { teamId: o.id, userId: "hd-owner2", role: "admin", createdAt: now },
+    { teamId: o.id, userId: "hd-admin", role: "admin", createdAt: now },
+    { teamId: o.id, userId: "hd-member", role: "member", createdAt: now },
   ]);
   return o;
 }
 
 async function freshProject(slug: string, key: string) {
-  const o = await freshOrg(slug);
+  const o = await freshTeam(slug);
   const p = await createProject(ctxFor("hd-owner"), {
-    orgId: o.id,
+    teamId: o.id,
     slug: "web",
     name: "Web",
     key,
@@ -87,7 +94,7 @@ async function freshProject(slug: string, key: string) {
     .from(status)
     .where(eq(status.projectId, p.id))
     .orderBy(asc(status.position));
-  return { org: o, project: p, todo, doing };
+  return { team: o, project: p, todo, doing };
 }
 
 /** Every promise settles; none may fail with anything but a DomainError. */
@@ -144,45 +151,11 @@ it("M3: a move after the 2nd of four concurrently-created tasks lands right afte
   expect(new Set(after.map((t) => t.position)).size).toBe(5);
 });
 
-it("M4: two owners removing each other in parallel leaves an owner", async () => {
-  const o = await freshOrg("hd-race-rm");
-  const results = await settleAsDomain([
-    removeOrgMember(ctxFor("hd-owner"), { orgId: o.id, userId: "hd-owner2" }),
-    removeOrgMember(ctxFor("hd-owner2"), { orgId: o.id, userId: "hd-owner" }),
-  ]);
-  expect(results.filter((r) => r.status === "rejected")).toHaveLength(1);
-  const owners = await db
-    .select()
-    .from(orgMember)
-    .where(and(eq(orgMember.orgId, o.id), eq(orgMember.role, "owner")));
-  expect(owners).toHaveLength(1);
-});
-
-it("M4: two owners demoting each other in parallel leaves an owner", async () => {
-  const o = await freshOrg("hd-race-dm");
-  await settleAsDomain([
-    changeOrgMemberRole(ctxFor("hd-owner"), {
-      orgId: o.id,
-      userId: "hd-owner2",
-      role: "member",
-    }),
-    changeOrgMemberRole(ctxFor("hd-owner2"), {
-      orgId: o.id,
-      userId: "hd-owner",
-      role: "member",
-    }),
-  ]);
-  const owners = await db
-    .select()
-    .from(orgMember)
-    .where(and(eq(orgMember.orgId, o.id), eq(orgMember.role, "owner")));
-  expect(owners).toHaveLength(1);
-});
-
-it("M4/M5: refusing to remove the last owner rolls back the unassignment too", async () => {
-  const { org: o, project: p } = await freshProject("hd-last", "LST");
-  await db.delete(orgMember).where(
-    and(eq(orgMember.orgId, o.id), eq(orgMember.userId, "hd-owner2")),
+it("P5: the last team admin can leave, and their assignments go with them", async () => {
+  // Org owners and admins always cover a team, so there is no last-admin rule.
+  const { team: o, project: p } = await freshProject("hd-last", "LST");
+  await db.delete(teamMember).where(
+    and(eq(teamMember.teamId, o.id), inArray(teamMember.userId, ["hd-owner2", "hd-admin"])),
   );
   const t = await createTask(ctxFor("hd-owner"), {
     projectId: p.id,
@@ -190,18 +163,17 @@ it("M4/M5: refusing to remove the last owner rolls back the unassignment too", a
     assigneeUserId: "hd-owner",
   });
 
-  await expect(
-    removeOrgMember(ctxFor("hd-owner"), { orgId: o.id, userId: "hd-owner" }),
-  ).rejects.toThrow(/last owner cannot be removed/);
+  await removeTeamMember(ctxFor("hd-owner"), { teamId: o.id, userId: "hd-owner" });
 
   const [row] = await db.select().from(task).where(eq(task.id, t.id));
-  expect(row.assigneeUserId).toBe("hd-owner");
-  const log = await db.select().from(activity).where(eq(activity.taskId, t.id));
-  expect(log.map((a) => a.type)).toEqual(["task.created"]);
+  expect(row.assigneeUserId).toBeNull();
+  const admins = await db.select().from(teamMember)
+    .where(and(eq(teamMember.teamId, o.id), eq(teamMember.role, "admin")));
+  expect(admins).toEqual([]);
 });
 
-it("Minor 1: removeOrgMember logs each unassignment and bumps updatedAt", async () => {
-  const { org: o, project: p } = await freshProject("hd-unassign", "UNA");
+it("Minor 1: removeTeamMember logs each unassignment and bumps updatedAt", async () => {
+  const { team: o, project: p } = await freshProject("hd-unassign", "UNA");
   await addProjectMember(ctxFor("hd-owner"), {
     projectId: p.id,
     userId: "hd-member",
@@ -212,7 +184,7 @@ it("Minor 1: removeOrgMember logs each unassignment and bumps updatedAt", async 
     assigneeUserId: "hd-member",
   });
 
-  await removeOrgMember(ctxFor("hd-owner"), { orgId: o.id, userId: "hd-member" });
+  await removeTeamMember(ctxFor("hd-owner"), { teamId: o.id, userId: "hd-member" });
 
   const detail = await getTaskDetail(ctxFor("hd-owner"), { taskId: t.id });
   expect(detail.assignee).toBeNull();
@@ -251,38 +223,32 @@ it("Minor 1: deleteStatus logs task.moved for each moved task", async () => {
   });
 });
 
-it("M1 + Minor 8: an admin cannot grant owner or overwrite a pending owner invite", async () => {
-  const o = await freshOrg("hd-invite");
-  await inviteToOrg(ctxFor("hd-owner"), {
-    orgId: o.id,
-    email: "boss@hd.test",
-    role: "owner",
-  });
+it("M1 + Minor 8: teams have no owner role to grant, and admins change each other's invites", async () => {
+  const o = await freshTeam("hd-invite");
+  const owner = "owner" as "admin";
   await expect(
-    inviteToOrg(ctxFor("hd-admin"), {
-      orgId: o.id,
-      email: "boss@hd.test",
-      role: "member",
-    }),
-  ).rejects.toThrow(/pending owner invite/);
+    inviteToTeam(ctxFor("hd-owner"), { teamId: o.id, email: "boss@hd.test", role: owner }),
+  ).rejects.toThrow(/not a valid role/);
   await expect(
-    changeOrgMemberRole(ctxFor("hd-admin"), {
-      orgId: o.id,
-      userId: "hd-member",
-      role: "owner",
-    }),
-  ).rejects.toMatchObject({ name: "DomainError" });
+    changeTeamMemberRole(ctxFor("hd-owner"), { teamId: o.id, userId: "hd-member", role: owner }),
+  ).rejects.toThrow(/not a valid role/);
+
+  await inviteToTeam(ctxFor("hd-owner"), { teamId: o.id, email: "boss@hd.test", role: "admin" });
+  await inviteToTeam(ctxFor("hd-admin"), { teamId: o.id, email: "boss@hd.test", role: "member" });
+  const [row] = await db.select().from(teamInvite)
+    .where(and(eq(teamInvite.teamId, o.id), eq(teamInvite.email, "boss@hd.test")));
+  expect(row).toMatchObject({ role: "member", invitedByUserId: "hd-admin" });
 });
 
 it("Minor 4: the domain refuses roles and status colors outside the schema's enums", async () => {
-  const { org: o, project: p, todo } = await freshProject("hd-enum", "ENM");
+  const { team: o, project: p, todo } = await freshProject("hd-enum", "ENM");
   const bogus = "superuser" as "member";
   await expect(
-    inviteToOrg(ctxFor("hd-owner"), { orgId: o.id, email: "x@hd.test", role: bogus }),
+    inviteToTeam(ctxFor("hd-owner"), { teamId: o.id, email: "x@hd.test", role: bogus }),
   ).rejects.toThrow(/not a valid role/);
   await expect(
-    changeOrgMemberRole(ctxFor("hd-owner"), {
-      orgId: o.id,
+    changeTeamMemberRole(ctxFor("hd-owner"), {
+      teamId: o.id,
       userId: "hd-member",
       role: bogus,
     }),
@@ -302,16 +268,16 @@ it("Minor 4: the domain refuses roles and status colors outside the schema's enu
 
 it("Minor 7: racing creates surface as DomainErrors, never constraint failures", async () => {
   const [a, b] = await settleAsDomain([
-    createOrg(ctxFor("hd-owner"), { slug: "hd-dup", name: "A" }),
-    createOrg(ctxFor("hd-owner"), { slug: "hd-dup", name: "B" }),
+    createTeamChecked(ctxFor("hd-org-admin"), { slug: "hd-dup", name: "A" }),
+    createTeamChecked(ctxFor("hd-org-admin"), { slug: "hd-dup", name: "B" }),
   ]);
   expect([a.status, b.status].sort()).toEqual(["fulfilled", "rejected"]);
 
-  const { org: o, project: p, doing } = await freshProject("hd-dup-p", "DUP");
+  const { team: o, project: p, doing } = await freshProject("hd-dup-p", "DUP");
   await settleAsDomain([
-    createProject(ctxFor("hd-owner"), { orgId: o.id, slug: "api2", name: "X", key: "XX" }),
-    createProject(ctxFor("hd-owner"), { orgId: o.id, slug: "api2", name: "Y", key: "YY" }),
-    createProject(ctxFor("hd-owner"), { orgId: o.id, slug: "api3", name: "Z", key: "XX" }),
+    createProject(ctxFor("hd-owner"), { teamId: o.id, slug: "api2", name: "X", key: "XX" }),
+    createProject(ctxFor("hd-owner"), { teamId: o.id, slug: "api2", name: "Y", key: "YY" }),
+    createProject(ctxFor("hd-owner"), { teamId: o.id, slug: "api3", name: "Z", key: "XX" }),
   ]);
   await settleAsDomain([
     addProjectMember(ctxFor("hd-owner"), { projectId: p.id, userId: "hd-member" }),
@@ -324,13 +290,13 @@ it("Minor 7: racing creates surface as DomainErrors, never constraint failures",
 });
 
 it("Minor 15: length caps on names, titles, descriptions and comments", async () => {
-  const { org: o, project: p } = await freshProject("hd-len", "LEN");
+  const { team: o, project: p } = await freshProject("hd-len", "LEN");
   const long = (n: number) => "x".repeat(n);
   await expect(
-    createOrg(ctxFor("hd-owner"), { slug: "hd-len2", name: long(81) }),
+    createTeamChecked(ctxFor("hd-org-admin"), { slug: "hd-len2", name: long(81) }),
   ).rejects.toThrow(/at most 80/);
   await expect(
-    createProject(ctxFor("hd-owner"), { orgId: o.id, slug: "p2", name: long(81), key: "PTW" }),
+    createProject(ctxFor("hd-owner"), { teamId: o.id, slug: "p2", name: long(81), key: "PTW" }),
   ).rejects.toThrow(/at most 80/);
   await expect(
     createStatus(ctxFor("hd-owner"), { projectId: p.id, name: long(81) }),
@@ -349,9 +315,9 @@ it("Minor 15: length caps on names, titles, descriptions and comments", async ()
 });
 
 it("nits: email shape is checked, and an excerpt never splits a surrogate pair", async () => {
-  const { org: o, project: p } = await freshProject("hd-nits", "NIT");
+  const { team: o, project: p } = await freshProject("hd-nits", "NIT");
   await expect(
-    inviteToOrg(ctxFor("hd-owner"), { orgId: o.id, email: "a@b", role: "member" }),
+    inviteToTeam(ctxFor("hd-owner"), { teamId: o.id, email: "a@b", role: "member" }),
   ).rejects.toThrow(/valid email/);
 
   const t = await createTask(ctxFor("hd-owner"), { projectId: p.id, title: "E" });
@@ -426,53 +392,84 @@ it("MIN-1: reordering a status between two concurrently-created ones re-keys ins
   expect(new Set(after.map((s) => s.position)).size).toBe(before.length);
 });
 
-it("MIN-2: an admin cannot remove someone an owner promoted after the admin's check", async () => {
-  const o = await freshOrg("hd-promo-rm");
-  const promote = () =>
+it("MIN-2: an admin demoted after their check cannot remove a member", async () => {
+  const o = await freshTeam("hd-promo-rm");
+  const demote = () =>
     db
-      .update(orgMember)
-      .set({ role: "owner" })
-      .where(and(eq(orgMember.orgId, o.id), eq(orgMember.userId, "hd-member")));
+      .update(teamMember)
+      .set({ role: "member" })
+      .where(and(eq(teamMember.teamId, o.id), eq(teamMember.userId, "hd-admin")));
 
   await expect(
-    removeOrgMember(racedCtx("hd-admin", promote), {
-      orgId: o.id,
+    removeTeamMember(racedCtx("hd-admin", demote), {
+      teamId: o.id,
       userId: "hd-member",
     }),
   ).rejects.toMatchObject({ name: "AccessError", reason: "forbidden" });
 
   const [row] = await db
     .select()
-    .from(orgMember)
-    .where(and(eq(orgMember.orgId, o.id), eq(orgMember.userId, "hd-member")));
-  expect(row.role).toBe("owner");
+    .from(teamMember)
+    .where(and(eq(teamMember.teamId, o.id), eq(teamMember.userId, "hd-member")));
+  expect(row.role).toBe("member");
 });
 
-it("MIN-2: an admin cannot change the role of someone an owner is promoting at the same moment", async () => {
-  const o = await freshOrg("hd-promo-ch");
-  // Promotion first, so its write lands between the admin's check and write.
-  const [promoted, changed] = await Promise.allSettled([
-    changeOrgMemberRole(ctxFor("hd-owner"), {
-      orgId: o.id,
-      userId: "hd-member",
-      role: "owner",
+it("MIN-2: an admin demoted after their check cannot revoke an invite", async () => {
+  const o = await freshTeam("hd-promo-rv");
+  await inviteToTeam(ctxFor("hd-owner"), { teamId: o.id, email: "keep@hd.test", role: "member" });
+  const demote = () => db.update(teamMember).set({ role: "member" })
+    .where(and(eq(teamMember.teamId, o.id), eq(teamMember.userId, "hd-admin")));
+  // `revokeTeamInvite` writes with one delete, not a batch, so land the demotion before it.
+  let fired = false;
+  const racedDb = new Proxy(db, {
+    get(target, key, receiver) {
+      if (key === "delete" && !fired) {
+        fired = true;
+        return (table: Parameters<typeof db.delete>[0]) => {
+          const query = target.delete(table);
+          return new Proxy(query, {
+            get(q, k, r) {
+              if (k !== "then") return Reflect.get(q, k, r);
+              return (resolve: (v: unknown) => void, reject: (e: unknown) => void) => demote().then(() => q).then(resolve, reject);
+            },
+          });
+        };
+      }
+      return Reflect.get(target, key, receiver);
+    },
+  });
+
+  await expect(revokeTeamInvite({ ...ctxFor("hd-admin"), db: racedDb }, { teamId: o.id, email: "keep@hd.test" }))
+    .rejects.toMatchObject({ name: "AccessError", reason: "forbidden" });
+  const rows = await db.select().from(teamInvite).where(and(eq(teamInvite.teamId, o.id), eq(teamInvite.email, "keep@hd.test")));
+  expect(rows).toHaveLength(1);
+});
+
+it("MIN-2: an admin demoted at the same moment cannot change a member's role", async () => {
+  const o = await freshTeam("hd-promo-ch");
+  // Demotion first, so its write lands between the admin's check and write.
+  const [demoted, changed] = await Promise.allSettled([
+    changeTeamMemberRole(ctxFor("hd-owner"), {
+      teamId: o.id,
+      userId: "hd-admin",
+      role: "member",
     }),
-    changeOrgMemberRole(ctxFor("hd-admin"), {
-      orgId: o.id,
+    changeTeamMemberRole(ctxFor("hd-admin"), {
+      teamId: o.id,
       userId: "hd-member",
       role: "admin",
     }),
   ]);
-  expect(promoted.status).toBe("fulfilled");
+  expect(demoted.status).toBe("fulfilled");
   expect(changed).toMatchObject({
     status: "rejected",
     reason: { name: "AccessError", reason: "forbidden" },
   });
   const [row] = await db
     .select()
-    .from(orgMember)
-    .where(and(eq(orgMember.orgId, o.id), eq(orgMember.userId, "hd-member")));
-  expect(row.role).toBe("owner");
+    .from(teamMember)
+    .where(and(eq(teamMember.teamId, o.id), eq(teamMember.userId, "hd-member")));
+  expect(row.role).toBe("member");
 });
 
 it("MIN-3: two parallel archives write one task.archived", async () => {
@@ -518,7 +515,7 @@ it("MIN-3: renaming a status deleted after the check logs nothing and says it is
 });
 
 it("MIN-4: bulk-written activity rows match writeActivity's id, payload and timestamp shapes", async () => {
-  const { org: o, project: p, todo, doing } = await freshProject("hd-bulk", "BLK");
+  const { team: o, project: p, todo, doing } = await freshProject("hd-bulk", "BLK");
   await addProjectMember(ctxFor("hd-owner"), { projectId: p.id, userId: "hd-member" });
   const tasks = await Promise.all(
     ["X", "Y"].map((title) =>
@@ -531,7 +528,7 @@ it("MIN-4: bulk-written activity rows match writeActivity's id, payload and time
     ),
   );
 
-  await removeOrgMember(ctxFor("hd-owner"), { orgId: o.id, userId: "hd-member" });
+  await removeTeamMember(ctxFor("hd-owner"), { teamId: o.id, userId: "hd-member" });
   await deleteStatus(ctxFor("hd-owner"), {
     statusId: doing.id,
     moveTasksToStatusId: todo.id,
@@ -596,9 +593,9 @@ it("NIT-2: a move target deleted after the check is reported as gone, not as tas
 
 it("NIT-3: the move action 404s a task from another project than the URL's", async () => {
   actor.id = "hd-owner";
-  const { org: o, project: p } = await freshProject("hd-mv-x", "MVX");
+  const { team: o, project: p } = await freshProject("hd-mv-x", "MVX");
   const other = await createProject(ctxFor("hd-owner"), {
-    orgId: o.id,
+    teamId: o.id,
     slug: "other",
     name: "Other",
     key: "OTH",
@@ -607,7 +604,7 @@ it("NIT-3: the move action 404s a task from another project than the URL's", asy
 
   await expect(
     moveTaskAction({
-      orgSlug: o.slug,
+      teamSlug: o.slug,
       projectSlug: p.slug,
       taskId: t.id,
       statusId: t.status.id,
@@ -616,44 +613,15 @@ it("NIT-3: the move action 404s a task from another project than the URL's", asy
   ).rejects.toMatchObject({ digest: "NEXT_HTTP_ERROR_FALLBACK;404" });
 });
 
-it("NIT-4: an admin re-invite racing an owner's owner invite cannot downgrade it", async () => {
-  const o = await freshOrg("hd-inv-race");
-  // The owner's invite first, so it lands between the admin's checks and upsert.
-  const [, admin] = await Promise.allSettled([
-    inviteToOrg(ctxFor("hd-owner"), { orgId: o.id, email: "race@hd.test", role: "owner" }),
-    inviteToOrg(ctxFor("hd-admin"), { orgId: o.id, email: "race@hd.test", role: "member" }),
-  ]);
-  expect(admin).toMatchObject({ status: "rejected", reason: { name: "DomainError" } });
-  const [row] = await db
-    .select()
-    .from(orgInvite)
-    .where(and(eq(orgInvite.orgId, o.id), eq(orgInvite.email, "race@hd.test")));
-  expect(row.role).toBe("owner");
-
-  // An accepted owner invite is not protected: re-inviting a removed former
-  // owner is the ordinary re-invite.
-  await db
-    .update(orgInvite)
-    .set({ acceptedAt: now })
-    .where(and(eq(orgInvite.orgId, o.id), eq(orgInvite.email, "race@hd.test")));
-  await inviteToOrg(ctxFor("hd-admin"), {
-    orgId: o.id,
-    email: "race@hd.test",
-    role: "member",
-  });
-});
-
 it("NIT-5: changing the role of someone removed at the same moment says they are not a member", async () => {
-  const o = await freshOrg("hd-gone-ch");
+  const o = await freshTeam("hd-gone-ch");
   // Removal first, so the row is gone by the time the role update runs.
-  // An owner target: the old fallback read the stale role and blamed the
-  // last-owner rule.
   const [, changed] = await Promise.allSettled([
-    removeOrgMember(ctxFor("hd-owner"), { orgId: o.id, userId: "hd-owner2" }),
-    changeOrgMemberRole(ctxFor("hd-owner"), {
-      orgId: o.id,
+    removeTeamMember(ctxFor("hd-owner"), { teamId: o.id, userId: "hd-owner2" }),
+    changeTeamMemberRole(ctxFor("hd-owner"), {
+      teamId: o.id,
       userId: "hd-owner2",
-      role: "admin",
+      role: "member",
     }),
   ]);
   expect(changed).toMatchObject({

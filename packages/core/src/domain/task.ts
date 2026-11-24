@@ -1,9 +1,9 @@
-import { and, asc, desc, eq, exists, inArray, isNotNull, isNull, ne, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, exists, isNotNull, isNull, ne, or, sql, type SQL } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import { alias } from "drizzle-orm/sqlite-core";
 import {
-  AccessError, canEditAnyTask, canEditTask, hasOrgMembership, hasTaskEditPermission, requireOrgMember, requireProjectMember, TaskEditForbidden,
+  AccessError, canEditAnyTask, canEditTask, hasTeamMembership, hasTaskEditPermission, requireTeamMember, requireProjectMember, TaskEditForbidden, teamAccess,
 } from "../access";
 import {
   type BatchWrites,
@@ -23,7 +23,7 @@ import {
   isTaskParentError,
 } from "../errors";
 import { user } from "../schema/auth";
-import { orgMember, orgReportingLine } from "../schema/org";
+import { teamMember } from "../schema/team";
 import { type Project, type ProjectTaskType, type Status, project, projectTaskType, status } from "../schema/project";
 import { TASK_PRIORITIES, type Comment, type CommentMention, type Task, type TaskPriority, comment, task, taskProjectAlias } from "../schema/task";
 import { resolveCommentMentions } from "./comment-mentions";
@@ -43,7 +43,7 @@ export function taskKey(projectKey: string, number: number): string {
 
 /**
  * The inverse of `taskKey`, for the one place a key arrives as input: the
- * `/[org]/[project]/[task]` URL and §5.7's key-addressed MCP tools.
+ * `/[team]/[project]/[task]` URL and §5.7's key-addressed MCP tools.
  *
  * The project key itself is `[A-Z][A-Z0-9]{1,5}` (`assertValidProjectKey`), so
  * it never contains the `-`, and the number comes from a counter that starts
@@ -282,13 +282,13 @@ async function readDetail(
   return toDetail(row, p.key);
 }
 
-/** Active assignments in the viewer's organization. */
+/** Active assignments in the viewer's team. */
 export async function listWorkspaceAssignments(
   ctx: DomainContext,
-  input: { orgId: string; view: "mine" | "assigned" | "team" },
+  input: { teamId: string; view: "mine" | "assigned" },
 ) {
   const { db, actorUserId } = ctx;
-  await requireOrgMember(db, input.orgId, actorUserId);
+  await requireTeamMember(db, input.teamId, actorUserId);
   const rankedAssignments = input.view === "assigned" ? db.select({
     taskId: activity.taskId,
     actorId: activity.actorUserId,
@@ -301,7 +301,7 @@ export async function listWorkspaceAssignments(
     .from(activity)
     .innerJoin(project, eq(project.id, activity.projectId))
     .where(and(
-      eq(project.orgId, input.orgId),
+      eq(project.teamId, input.teamId),
       eq(activity.type, "task.updated"),
       sql`json_type(${activity.data}, '$.fields.assignee') = 'object'`,
     ))
@@ -318,15 +318,8 @@ export async function listWorkspaceAssignments(
         and(eq(rankedAssignments.actorId, actorUserId), eq(rankedAssignments.assigneeId, task.assigneeUserId)),
       ),
     );
-  } else if (input.view === "mine") {
-    assigned = eq(task.assigneeUserId, actorUserId);
   } else {
-    assigned = inArray(
-      task.assigneeUserId,
-      db.select({ userId: orgReportingLine.userId })
-        .from(orgReportingLine)
-        .where(and(eq(orgReportingLine.orgId, input.orgId), eq(orgReportingLine.leadUserId, actorUserId))),
-    );
+    assigned = eq(task.assigneeUserId, actorUserId);
   }
 
   const query = db
@@ -363,7 +356,7 @@ export async function listWorkspaceAssignments(
     ));
   }
   const rows = await query
-    .where(and(eq(project.orgId, input.orgId), assigned, isNull(task.archivedAt)))
+    .where(and(eq(project.teamId, input.teamId), assigned, isNull(task.archivedAt)))
     .orderBy(desc(task.updatedAt), asc(task.id));
 
   return rows.map(({ projectKey, number, createdAt, updatedAt, ...row }) => ({
@@ -544,7 +537,7 @@ async function readTaskHistory(db: DrizzleD1Database, taskId: string, p: Project
  *
  * The key is derived at read time (§3), so resolving one means parsing it
  * back. **Case-insensitive on the project-key half**: `project.key` is
- * uppercase by construction while the org and project slugs sharing the URL
+ * uppercase by construction while the team and project slugs sharing the URL
  * are lowercase, so a hand-typed `/acme/web/web-5` is the ordinary case, not
  * an error worth a 404. The number is matched exactly.
  *
@@ -679,16 +672,16 @@ async function requireStatusInProject(
   return row;
 }
 
-/** An assignee or reporter must belong to the task's organization. */
+/** An assignee or reporter must belong to the task's team. */
 async function requireAssignableUser(
   db: DrizzleD1Database,
-  orgId: string,
+  teamId: string,
   userId: string,
 ): Promise<{ id: string; displayName: string }> {
   const [ref] = await db.select({ id: user.id, displayName: user.name })
-    .from(orgMember).innerJoin(user, eq(user.id, orgMember.userId))
-    .where(and(eq(orgMember.orgId, orgId), eq(orgMember.userId, userId)));
-  if (!ref) throw new DomainError("That user must be a member of this organization.");
+    .from(teamMember).innerJoin(user, eq(user.id, teamMember.userId))
+    .where(and(eq(teamMember.teamId, teamId), eq(teamMember.userId, userId)));
+  if (!ref) throw new DomainError("That user must be a member of this team.");
   return ref;
 }
 
@@ -964,10 +957,10 @@ export async function createTask(
     : await firstStatus(ctx.db, input.projectId);
 
   if (input.assigneeUserId) {
-    await requireAssignableUser(ctx.db, p.orgId, input.assigneeUserId);
+    await requireAssignableUser(ctx.db, p.teamId, input.assigneeUserId);
   }
   if (input.reporterUserId) {
-    await requireAssignableUser(ctx.db, p.orgId, input.reporterUserId);
+    await requireAssignableUser(ctx.db, p.teamId, input.reporterUserId);
   }
   // The insert has no WHERE, so parent edit rights are checked only here. A
   // revocation racing this create can still land one sub-task.
@@ -1181,7 +1174,7 @@ export async function updateTask(
     input.assigneeUserId !== row.assigneeUserId
   ) {
     const to = input.assigneeUserId
-      ? await requireAssignableUser(ctx.db, p.orgId, input.assigneeUserId)
+      ? await requireAssignableUser(ctx.db, p.teamId, input.assigneeUserId)
       : null;
     columns.assigneeUserId = input.assigneeUserId;
     fields.assignee = {
@@ -1191,7 +1184,7 @@ export async function updateTask(
   }
 
   if (input.reporterUserId !== undefined && input.reporterUserId !== row.reporterUserId) {
-    const to = await requireAssignableUser(ctx.db, p.orgId, input.reporterUserId);
+    const to = await requireAssignableUser(ctx.db, p.teamId, input.reporterUserId);
     // Backfill and the insert trigger guarantee a reporter.
     const from = (await displayUser(ctx.db, row.reporterUserId!))!;
     columns.reporterUserId = input.reporterUserId;
@@ -1250,7 +1243,7 @@ export async function updateTask(
       plan ? sql`${task.statusId} is not ${plan.to.id}` : undefined,
     );
     if (changed) {
-      writes.unshift(queueTaskEditMail(ctx, row.id, p.orgId,
+      writes.unshift(queueTaskEditMail(ctx, row.id,
         columns.assigneeUserId === undefined ? sql`${task.assigneeUserId}` : columns.assigneeUserId,
         columns.reporterUserId ?? sql`${task.reporterUserId}`,
         and(scope, changed)!, now));
@@ -1297,7 +1290,7 @@ export async function moveTask(
   if (plan.to.id !== plan.from.id) {
     writes.push(logMove(ctx, row, plan, now, scope));
     if (ctx.emailNotifications) {
-      writes.unshift(queueTaskEditMail(ctx, row.id, p.orgId, sql`${task.assigneeUserId}`, sql`${task.reporterUserId}`,
+      writes.unshift(queueTaskEditMail(ctx, row.id, sql`${task.assigneeUserId}`, sql`${task.reporterUserId}`,
         and(scope, sql`${task.statusId} is not ${plan.to.id}`)!, now));
     }
   }
@@ -1316,7 +1309,7 @@ export async function listTaskMoveProjects(ctx: DomainContext, projectId: string
   const { db, actorUserId } = ctx;
   const { project: source } = await requireProjectMember(db, projectId, actorUserId);
   return db.select({ id: project.id, name: project.name }).from(project).where(and(
-    eq(project.orgId, source.orgId),
+    eq(project.teamId, source.teamId),
     ne(project.id, source.id),
     exists(db.select({ id: status.id }).from(status).where(eq(status.projectId, project.id))),
   )).orderBy(asc(project.name), asc(project.id));
@@ -1336,7 +1329,7 @@ export async function transferTask(
   if (await hasSubtasks(db, row.id)) throw new DomainError("Move or detach its sub-tasks before moving this task.");
 
   const { project: target } = await requireProjectMember(db, input.destinationProjectId, actorUserId);
-  if (source.orgId !== target.orgId) throw new DomainError("Choose a project in this workspace.");
+  if (source.teamId !== target.teamId) throw new DomainError("Choose a project in this workspace.");
 
   const [fromStatus, fromType, statuses, types] = await Promise.all([
     requireStatusInProject(db, source.id, row.statusId),
@@ -1358,7 +1351,7 @@ export async function transferTask(
   const number = await allocateTaskNumber(db, target.id);
   const moved = exists(db.select({ id: task.id }).from(task).where(taskInProject(row.id, target.id, number)));
   const { position, rekeys } = await positionIn(db, target.id, toStatus.id, null, undefined, moved);
-  const assigneeCanStay = row.assigneeUserId ? hasOrgMembership(db, target.orgId, row.assigneeUserId) : sql`0`;
+  const assigneeCanStay = row.assigneeUserId ? hasTeamMembership(db, target.teamId, row.assigneeUserId) : sql`0`;
   const fields: UpdatedFields = fromType.name !== toType.name ? { type: { from: fromType.name, to: toType.name } } : {};
   const data = JSON.stringify({ status: { from: fromStatus.name, to: toStatus.name }, fields });
 
@@ -1407,7 +1400,7 @@ export async function transferTask(
       scope: targetScope,
     }));
     if (ctx.emailNotifications) {
-      notifications.push(queueTaskEditMail(ctx, row.id, target.orgId, sql`${task.assigneeUserId}`, sql`${task.reporterUserId}`, targetScope, new Date()));
+      notifications.push(queueTaskEditMail(ctx, row.id, sql`${task.assigneeUserId}`, sql`${task.reporterUserId}`, targetScope, new Date()));
     }
   }
   let updated;
@@ -1514,7 +1507,7 @@ export async function addComment(
     throw new DomainError("A comment cannot be empty.");
   }
   assertMaxLength("A comment", body, MAX_LENGTH.comment);
-  const mentions = await resolveCommentMentions(ctx.db, p.orgId, input.body, body, input.mentions);
+  const mentions = await resolveCommentMentions(ctx.db, p.teamId, input.body, body, input.mentions);
 
   const now = new Date();
   const value = {
@@ -1535,7 +1528,7 @@ export async function addComment(
         ${value.createdAt.getTime()}, ${value.updatedAt.getTime()},
         ${value.mentions ? JSON.stringify(value.mentions) : null}
       from ${task} where ${currentTaskScope(row)}
-        and ${hasOrgMembership(ctx.db, p.orgId, ctx.actorUserId)}
+        and ${isNotNull(teamAccess(p.teamId, ctx.actorUserId).role)}
     `).returning({ id: comment.id }),
     writeActivityIfChanged(ctx, {
       projectId: row.projectId,
@@ -1545,7 +1538,7 @@ export async function addComment(
     }),
   ] as const;
   const notifications = ctx.emailNotifications && mentions.length
-    ? [queueCommentMentionMail(ctx, p.orgId, value.id, [...new Set(mentions.map(({ userId }) => userId))])]
+    ? [queueCommentMentionMail(ctx, p.teamId, value.id, [...new Set(mentions.map(({ userId }) => userId))])]
     : [];
   const [inserted] = await ctx.db.batch([...writes, ...notifications]);
 

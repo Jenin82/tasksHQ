@@ -1,13 +1,13 @@
 /**
- * Dev seed: one org, one project, its four default statuses and 12 tasks, so
+ * Dev seed: one team, one project, its four default statuses and 12 tasks, so
  * steps 8-10 have something to look at.
  *
  *   pnpm --filter web seed              # synthetic members only
- *   pnpm --filter web seed you@you.com  # plus you, as a second owner
+ *   pnpm --filter web seed you@you.com  # plus you, as a team admin and Super admin
  *
- * If that address already has a `user` row it is added to the org directly;
- * otherwise a pending owner invite is left for it, which `claimInvites` picks
- * up on your first sign-in (§4.4).
+ * If that address already has a `user` row it is added to the team directly;
+ * otherwise pending team and org owner invites are left for it, which
+ * `claimInvites` picks up on your first sign-in (§4.4).
  *
  * Re-runnable: it deletes everything under the `acme` slug first.
  *
@@ -24,17 +24,19 @@ import { drizzle } from "drizzle-orm/sqlite-proxy";
 import {
   addProjectMember,
   claimInvites,
-  createOrg,
+  createTeam,
   createProject,
   createTask,
-  inviteToOrg,
+  inviteToTeam,
 } from "@tasks/core/domain";
 import {
   activity,
   comment,
-  org,
   orgInvite,
   orgMember,
+  team,
+  teamInvite,
+  teamMember,
   project,
   projectMember,
   status,
@@ -42,7 +44,7 @@ import {
   user,
 } from "@tasks/core/schema";
 
-const ORG_SLUG = "acme";
+const TEAM_SLUG = "acme";
 const PROJECT_SLUG = "web";
 
 const D1_DIR = path.join(
@@ -93,7 +95,7 @@ const proxy = async (sql: string, params: unknown[], method: string) => {
 // §25: every multi-write domain mutation is one `db.batch`, which D1 runs as a
 // single transaction. sqlite-proxy has no batch unless given this callback,
 // and it must be transactional too, or the NOT NULL sentinel in
-// `removeOrgMember` would fail after half the batch had committed.
+// `removeTeamMember` would fail after half the batch had committed.
 const db = drizzle(proxy, async (queries) => {
   sqlite.exec("BEGIN");
   try {
@@ -110,13 +112,13 @@ const db = drizzle(proxy, async (queries) => {
 const now = new Date();
 
 async function reset() {
-  const [existing] = await db.select().from(org).where(eq(org.slug, ORG_SLUG));
+  const [existing] = await db.select().from(team).where(eq(team.slug, TEAM_SLUG));
   if (!existing) return;
 
   const projects = await db
     .select({ id: project.id })
     .from(project)
-    .where(eq(project.orgId, existing.id));
+    .where(eq(project.teamId, existing.id));
   const projectIds = projects.map((p) => p.id);
 
   if (projectIds.length > 0) {
@@ -137,9 +139,9 @@ async function reset() {
     await db.delete(project).where(inArray(project.id, projectIds));
   }
 
-  await db.delete(orgInvite).where(eq(orgInvite.orgId, existing.id));
-  await db.delete(orgMember).where(eq(orgMember.orgId, existing.id));
-  await db.delete(org).where(eq(org.id, existing.id));
+  await db.delete(teamInvite).where(eq(teamInvite.teamId, existing.id));
+  await db.delete(teamMember).where(eq(teamMember.teamId, existing.id));
+  await db.delete(team).where(eq(team.id, existing.id));
 }
 
 async function ensureUser(id: string, name: string, email: string) {
@@ -157,10 +159,14 @@ const ben = await ensureUser("seed-ben", "Ben Okafor", "ben@seed.local");
 
 const ctx = { db, actorUserId: ana, source: "web" as const };
 
-const acme = await createOrg(ctx, { slug: ORG_SLUG, name: "Acme" });
+// Only org owners and admins create teams.
+await db.insert(orgMember).values({ userId: ana, role: "admin", createdAt: now })
+  .onConflictDoUpdate({ target: orgMember.userId, set: { role: "admin" }, setWhere: eq(orgMember.role, "member") });
+
+const acme = await createTeam(ctx, { slug: TEAM_SLUG, name: "Acme" });
 
 // Ben joins the way a real member does: invited, then claimed at sign-in.
-await inviteToOrg(ctx, { orgId: acme.id, email: "ben@seed.local", role: "member" });
+await inviteToTeam(ctx, { teamId: acme.id, email: "ben@seed.local", role: "member" });
 await claimInvites(db, ben, "ben@seed.local");
 
 const you = process.argv[2]?.trim().toLowerCase();
@@ -169,14 +175,23 @@ const [existingUser] = you
   ? await db.select().from(user).where(sql`lower(${user.email}) = ${you}`)
   : [];
 if (you) {
-  await inviteToOrg(ctx, { orgId: acme.id, email: you, role: "owner" });
+  await inviteToTeam(ctx, { teamId: acme.id, email: you, role: "admin" });
   if (existingUser) {
     await claimInvites(db, existingUser.id, you);
+    // Teams have no owner role; the dev user owns the org instead (Ana, an
+    // org admin, cannot grant that through an invite).
+    await db.update(orgMember).set({ role: "owner" }).where(eq(orgMember.userId, existingUser.id));
+  } else {
+    // An owner invite, claimed on first sign-in. Claiming rechecks that the
+    // inviter is an org owner, so name one when the org has one.
+    const [owner] = await db.select({ userId: orgMember.userId }).from(orgMember).where(eq(orgMember.role, "owner")).limit(1);
+    await db.insert(orgInvite).values({ email: you, role: "owner", invitedByUserId: owner?.userId ?? ana, createdAt: now })
+      .onConflictDoUpdate({ target: orgInvite.email, set: { role: "owner", invitedByUserId: owner?.userId ?? ana, createdAt: now, acceptedAt: null } });
   }
 }
 
 const web = await createProject(ctx, {
-  orgId: acme.id,
+  teamId: acme.id,
   slug: PROJECT_SLUG,
   name: "Web App",
   key: "WEB",
@@ -202,7 +217,7 @@ const TASKS: Array<{ title: string; column: number; assignee: string | null }> =
   { title: "Table view column sizing", column: 1, assignee: "seed-ben" },
   { title: "Status reorder writes one row", column: 1, assignee: null },
   { title: "Activity log renders web and MCP badges", column: 1, assignee: "seed-ben" },
-  { title: "Org member invite flow", column: 2, assignee: "seed-ana" },
+  { title: "Team member invite flow", column: 2, assignee: "seed-ana" },
   { title: "Reserved slug denylist", column: 2, assignee: "seed-ana" },
   { title: "Default status seeding", column: 2, assignee: "seed-ben" },
 ];
@@ -222,8 +237,10 @@ for (const t of TASKS) {
 sqlite.close();
 
 console.log(
-  `Seeded org "${ORG_SLUG}", project "${PROJECT_SLUG}" (WEB), ${statuses.length} statuses, ${TASKS.length} tasks.`,
+  `Seeded team "${TEAM_SLUG}", project "${PROJECT_SLUG}" (WEB), ${statuses.length} statuses, ${TASKS.length} tasks.`,
 );
 if (you) {
-  console.log(`Invited ${you} as an owner.`);
+  console.log(existingUser
+    ? `Invited ${you} as a team admin and made them a Super admin.`
+    : `Invited ${you} as a team admin and a Super admin; both are claimed on first sign-in.`);
 }

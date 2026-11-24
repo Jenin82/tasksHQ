@@ -4,7 +4,6 @@ import { drizzle } from "drizzle-orm/d1";
 import { expect, it } from "vitest";
 import {
   autoArchiveDoneTasks,
-  createOrg,
   createProject,
   createStatus,
   createTask,
@@ -14,7 +13,8 @@ import {
   unarchiveTask,
   updateTask,
 } from "@tasks/core/domain";
-import { activity, orgMember, project, status, task, user } from "@tasks/core/schema";
+import { createTeam } from "./helpers";
+import { activity, teamMember, project, status, task, user } from "@tasks/core/schema";
 
 const db = drizzle(env.DB);
 const DAY_MS = 86_400_000;
@@ -25,11 +25,11 @@ await db.insert(user).values([ownerId, memberId].map((id) => ({ id, name: id, em
 
 const ctx = (actorUserId: string) => ({ db, actorUserId, source: "web" as const });
 const owner = ctx(ownerId);
-const workspace = await createOrg(owner, { slug: "aa-space", name: "Auto archive" });
-await db.insert(orgMember).values({ orgId: workspace.id, userId: memberId, role: "member", createdAt: new Date() });
+const workspace = await createTeam(owner, { slug: "aa-space", name: "Auto archive" });
+await db.insert(teamMember).values({ teamId: workspace.id, userId: memberId, role: "member", createdAt: new Date() });
 
 let seq = 0;
-const makeProject = () => createProject(owner, { orgId: workspace.id, slug: `aa-${seq}`, key: `AA${seq++}`, name: "P" });
+const makeProject = () => createProject(owner, { teamId: workspace.id, slug: `aa-${seq}`, key: `AA${seq++}`, name: "P" });
 
 async function doneStatusId(projectId: string) {
   const [row] = await db.select({ id: status.id }).from(status)

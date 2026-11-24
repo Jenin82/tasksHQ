@@ -5,7 +5,6 @@ import { renderToStaticMarkup } from "react-dom/server.browser";
 import { expect, it, vi } from "vitest";
 import {
   addComment,
-  createOrg,
   createProject,
   createTask,
   getTaskDetail,
@@ -13,7 +12,8 @@ import {
   type TaskActivityEntry,
   type TaskDetail,
 } from "@tasks/core/domain";
-import { activity, orgMember, status, task as taskTable, user } from "@tasks/core/schema";
+import { createTeam } from "./helpers";
+import { activity, teamMember, status, task as taskTable, user } from "@tasks/core/schema";
 
 // Same seam as test/table.test.tsx: the route layer reads the session through
 // this module, and the pool gives no live request context.
@@ -28,18 +28,18 @@ vi.mock("@/lib/session", () => {
 });
 
 const { ActivityLog, groupDescriptionActivity, SourceBadge } = await import(
-  "@/app/[org]/[project]/[task]/activity-log"
+  "@/app/[team]/[project]/[task]/activity-log"
 );
 const { addCommentAction, editTaskAction, setReporterAction, setStatusAction, transferTaskAction } = await import(
-  "@/app/[org]/[project]/[task]/actions"
+  "@/app/[team]/[project]/[task]/actions"
 );
 const { GET: readDialogDetails } = await import(
-  "@/app/[org]/[project]/[task]/details/route"
+  "@/app/[team]/[project]/[task]/details/route"
 );
-const { TaskDetailContent } = await import("@/app/[org]/[project]/[task]/task-detail-content");
-const { readTaskDetail } = await import("@/app/[org]/[project]/[task]/task-detail-data");
+const { TaskDetailContent } = await import("@/app/[team]/[project]/[task]/task-detail-content");
+const { readTaskDetail } = await import("@/app/[team]/[project]/[task]/task-detail-data");
 const TaskDetailPage = (
-  await import("@/app/[org]/[project]/[task]/page")
+  await import("@/app/[team]/[project]/[task]/page")
 ).default;
 
 const db = drizzle(env.DB);
@@ -66,22 +66,22 @@ function finishTaskSetup(taskId: string) {
 }
 
 actor.id = "td-owner";
-const acme = await createOrg(ownerCtx, { slug: "td-acme", name: "TD Acme" });
-await db.insert(orgMember).values({
-  orgId: acme.id,
+const acme = await createTeam(ownerCtx, { slug: "td-acme", name: "TD Acme" });
+await db.insert(teamMember).values({
+  teamId: acme.id,
   userId: "td-member",
   role: "member",
   createdAt: now,
 });
 
 const web = await createProject(ownerCtx, {
-  orgId: acme.id,
+  teamId: acme.id,
   slug: "web",
   name: "Web",
   key: "TDW",
 });
 const destination = await createProject(ownerCtx, {
-  orgId: acme.id,
+  teamId: acme.id,
   slug: "delivery",
   name: "Delivery",
   key: "TDD",
@@ -104,13 +104,13 @@ const render = (node: React.ReactNode) => renderToStaticMarkup(node);
 
 const page = (task: string) =>
   TaskDetailPage({
-    params: Promise.resolve({ org: "td-acme", project: "web", task }),
+    params: Promise.resolve({ team: "td-acme", project: "web", task }),
   });
 
 function dialogDetails(task: string, project = "web") {
   const request = new Request(`http://localhost:5173/td-acme/${project}/${task}/details`);
   return readDialogDetails(request, {
-    params: Promise.resolve({ org: "td-acme", project, task }),
+    params: Promise.resolve({ team: "td-acme", project, task }),
   });
 }
 
@@ -154,7 +154,7 @@ it("gives an unknown key and an unreachable task the identical notFound()", asyn
   await expect(page("OTH-1")).rejects.toMatchObject(NOT_FOUND);
 
   // A task that exists and is reachable — but not by this caller, who is a
-  // plain org member with no `project_member` row.
+  // plain team member with no `project_member` row.
   actor.id = "td-stranger";
   await expect(page("TDW-5")).rejects.toMatchObject(NOT_FOUND);
   await expect(page("TDW-999")).rejects.toMatchObject(NOT_FOUND);
@@ -167,7 +167,7 @@ it("keeps textarea mention offsets through multipart newline normalization", asy
   const start = body.indexOf("@");
   const end = start + "@TD-MEMBER".length;
   const form = new FormData();
-  form.set("org", acme.slug);
+  form.set("team", acme.slug);
   form.set("project", web.slug);
   form.set("taskId", item.id);
   form.set("body", body);
@@ -198,7 +198,7 @@ it("loads private dialog details with comments, activity and editable options", 
   expect(response.status).toBe(200);
   expect(response.headers.get("Cache-Control")).toBe("private, no-store");
   expect(await response.json()).toMatchObject({
-    ids: { orgSlug: "td-acme", projectSlug: "web", taskId: task.id },
+    ids: { teamSlug: "td-acme", projectSlug: "web", taskId: task.id },
     statuses: statuses.map(({ id, name, color }) => ({ id, name, color })),
     assignable: [{ userId: "td-member", name: "TD-MEMBER" }, { userId: "td-owner", name: "TD-OWNER" }],
     moveTargets: expect.arrayContaining([{ id: destination.id, name: destination.name }]),
@@ -247,7 +247,7 @@ it("redirects the move form and old page to the new key for callers with access"
   actor.id = "td-owner";
   const task = await createTask(ownerCtx, { projectId: web.id, title: "Follow old task link" });
   const form = new FormData();
-  form.set("org", acme.slug);
+  form.set("team", acme.slug);
   form.set("project", web.slug);
   form.set("taskId", task.id);
   form.set("destinationProjectId", destination.id);
@@ -273,7 +273,7 @@ it("saves task metadata from the detail forms and leaves omitted fields intact",
   const task = await createTask(ownerCtx, { projectId: web.id, title: "Detail fields" });
   function fields() {
     const form = new FormData();
-    form.set("org", acme.slug);
+    form.set("team", acme.slug);
     form.set("project", web.slug);
     form.set("taskId", task.id);
     return form;
@@ -312,7 +312,7 @@ it("saves task metadata from the detail forms and leaves omitted fields intact",
 it("gives invalid keys, a different project and callers without reach the same dialog 404", async () => {
   actor.id = "td-owner";
   const otherProject = await createProject(ownerCtx, {
-    orgId: acme.id,
+    teamId: acme.id,
     slug: "other",
     name: "Other",
     key: "TDO",
@@ -401,7 +401,7 @@ it("logs task.moved — never task.updated — for a status change from the deta
   await finishTaskSetup(task.id);
 
   const form = new FormData();
-  form.set("org", "td-acme");
+  form.set("team", "td-acme");
   form.set("project", "web");
   form.set("taskId", task.id);
   form.set("statusId", statuses[1].id);

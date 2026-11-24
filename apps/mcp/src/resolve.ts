@@ -4,12 +4,11 @@
  * here; every mutation still goes through a `@tasks/core/domain` function,
  * which re-proves reach with `requireProjectMember` on its own.
  */
-import { AccessError } from "@tasks/core/access";
+import { AccessError, teamAccess } from "@tasks/core/access";
 import { parseTaskKey } from "@tasks/core/domain";
 import { DomainError } from "@tasks/core/errors";
 import {
-  org,
-  orgMember,
+  team,
   project,
   projectSlugAlias,
   projectTaskType,
@@ -20,81 +19,95 @@ import {
   type ProjectTaskType,
   type Status,
 } from "@tasks/core/schema";
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, sql, type SQLWrapper } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 
-export type ReachableProject = Project & { orgSlug: string };
+/** `implicit`: reached only through an org owner/admin role, not a team membership. */
+export type ReachableProject = Project & { teamSlug: string; implicit: boolean };
 
 const NO_PROJECT = () => new AccessError("not_a_member", "No such project.");
 const NO_TASK = () => new AccessError("not_a_member", "No such task.");
 
-/** Every project the caller can reach across their organizations. */
+/** Project IDs the caller can open, as a subquery (D1 caps bound parameters at 100). */
+export function reachableProjectIds(db: DrizzleD1Database, userId: string) {
+  return db.select({ id: project.id }).from(project).where(isNotNull(teamAccess(project.teamId, userId).role));
+}
+
+/** Every project the caller can reach: their teams, or every team for org owners/admins. */
 export async function reachableProjects(
   db: DrizzleD1Database,
   userId: string,
 ): Promise<ReachableProject[]> {
+  const access = teamAccess(project.teamId, userId);
   const rows = await db
     .select({
       project,
-      orgSlug: org.slug,
+      teamSlug: team.slug,
+      implicit: access.implicit,
     })
     .from(project)
-    .innerJoin(org, eq(org.id, project.orgId))
-    .innerJoin(
-      orgMember,
-      and(eq(orgMember.orgId, project.orgId), eq(orgMember.userId, userId)),
-    )
-    .orderBy(asc(org.slug), asc(project.name), asc(project.id));
+    .innerJoin(team, eq(team.id, project.teamId))
+    .where(isNotNull(access.role))
+    .orderBy(asc(team.slug), asc(project.name), asc(project.id));
 
-  return rows.map((r) => ({ ...r.project, orgSlug: r.orgSlug }));
+  return rows.map((r) => ({ ...r.project, teamSlug: r.teamSlug, implicit: r.implicit }));
 }
 
-/** `org` is an organization slug the caller belongs to; any other is "No such organization." */
-export async function resolveOrg(
+/** `team` is a team slug the caller can open; any other is "No such team." */
+export async function resolveTeam(
   db: DrizzleD1Database,
   userId: string,
   slug: string,
 ): Promise<{ id: string; slug: string }> {
   const [row] = await db
-    .select({ id: org.id, slug: org.slug })
-    .from(org)
-    .innerJoin(orgMember, and(eq(orgMember.orgId, org.id), eq(orgMember.userId, userId)))
-    .where(eq(org.slug, slug.trim().toLowerCase()));
-  if (!row) throw new AccessError("not_a_member", "No such organization.");
+    .select({ id: team.id, slug: team.slug })
+    .from(team)
+    .where(and(eq(team.slug, slug.trim().toLowerCase()), isNotNull(teamAccess(team.id, userId).role)));
+  if (!row) throw new AccessError("not_a_member", "No such team.");
   return row;
 }
 
 /**
- * Splits the optional `org/` qualifier. Project keys and slugs are unique only
- * within an org (§3), so one user in two orgs can reach two `WEB` projects;
+ * Splits the optional `team/` qualifier. Project keys and slugs are unique only
+ * within a team (§3), so one user in two teams can reach two `WEB` projects;
  * `acme/WEB` picks one.
  */
-function splitOrg(input: string): { orgSlug?: string; rest: string } {
+function splitTeam(input: string): { teamSlug?: string; rest: string } {
   const trimmed = input.trim();
   const slash = trimmed.indexOf("/");
   if (slash === -1) return { rest: trimmed };
   return {
-    orgSlug: trimmed.slice(0, slash).toLowerCase(),
+    teamSlug: trimmed.slice(0, slash).toLowerCase(),
     rest: trimmed.slice(slash + 1),
   };
 }
 
-function pickOne<T extends { orgSlug: string }>(
+/**
+ * Without a team prefix, the caller's own teams win: an org owner/admin reaches
+ * every team, so a bare key falls back to those only when no own team matches.
+ */
+function preferOwnTeams<T extends { implicit: boolean }>(matches: T[], teamSlug?: string): T[] {
+  if (teamSlug) return matches;
+  const own = matches.filter((m) => !m.implicit);
+  return own.length > 0 ? own : matches;
+}
+
+function pickOne<T extends { teamSlug: string }>(
   matches: T[],
   what: string,
   notFound: () => Error,
 ): T {
   if (matches.length === 1) return matches[0];
   if (matches.length === 0) throw notFound();
-  const orgs = [...new Set(matches.map((m) => m.orgSlug))].sort().join(", ");
+  const teams = [...new Set(matches.map((m) => m.teamSlug))].sort().join(", ");
   throw new DomainError(
-    `"${what}" matches more than one project (orgs: ${orgs}). Prefix it with the org slug, e.g. "${matches[0].orgSlug}/${what}".`,
+    `"${what}" matches more than one project (teams: ${teams}). Prefix it with the team slug, e.g. "${matches[0].teamSlug}/${what}".`,
   );
 }
 
 /**
  * `project` is a key (`ENG`) or a slug (`web`), case-insensitive, optionally
- * `org/`-qualified. A former slug from a rename still resolves when nothing
+ * `team/`-qualified. A former slug from a rename still resolves when nothing
  * live matches.
  */
 export async function resolveProject(
@@ -102,31 +115,39 @@ export async function resolveProject(
   userId: string,
   input: string,
 ): Promise<ReachableProject> {
-  const { orgSlug, rest } = splitOrg(input);
+  const { teamSlug, rest } = splitTeam(input);
   const wanted = rest.toLowerCase();
-  const matches = (await reachableProjects(db, userId)).filter(
+  const matches = preferOwnTeams((await reachableProjects(db, userId)).filter(
     (p) =>
-      (!orgSlug || p.orgSlug === orgSlug) &&
+      (!teamSlug || p.teamSlug === teamSlug) &&
       (p.key.toLowerCase() === wanted || p.slug === wanted),
-  );
+  ), teamSlug);
   // A key in one project and the same word as another's slug: the key wins,
   // since it is the more specific identifier.
   const byKey = matches.filter((p) => p.key.toLowerCase() === wanted);
   if (matches.length > 0) return pickOne(byKey.length > 0 ? byKey : matches, rest, NO_PROJECT);
 
+  const aliasAccess = teamAccess(project.teamId, userId);
   const aliased = await db
-    .select({ project, orgSlug: org.slug })
+    .select({ project, teamSlug: team.slug, implicit: aliasAccess.implicit })
     .from(projectSlugAlias)
-    .innerJoin(project, and(eq(project.id, projectSlugAlias.projectId), eq(project.orgId, projectSlugAlias.orgId)))
-    .innerJoin(org, eq(org.id, project.orgId))
-    .innerJoin(orgMember, and(eq(orgMember.orgId, project.orgId), eq(orgMember.userId, userId)))
-    .where(and(eq(projectSlugAlias.slug, wanted), orgSlug ? eq(org.slug, orgSlug) : undefined))
-    .orderBy(asc(org.slug), asc(project.id));
-  return pickOne(aliased.map((r) => ({ ...r.project, orgSlug: r.orgSlug })), rest, NO_PROJECT);
+    .innerJoin(project, and(eq(project.id, projectSlugAlias.projectId), eq(project.teamId, projectSlugAlias.teamId)))
+    .innerJoin(team, eq(team.id, project.teamId))
+    .where(and(
+      eq(projectSlugAlias.slug, wanted),
+      teamSlug ? eq(team.slug, teamSlug) : undefined,
+      isNotNull(aliasAccess.role),
+    ))
+    .orderBy(asc(team.slug), asc(project.id));
+  return pickOne(
+    preferOwnTeams(aliased.map((r) => ({ ...r.project, teamSlug: r.teamSlug, implicit: r.implicit })), teamSlug),
+    rest,
+    NO_PROJECT,
+  );
 }
 
 /**
- * `task` is a task key (`ENG-42`), optionally `org/`-qualified. Unparseable,
+ * `task` is a task key (`ENG-42`), optionally `team/`-qualified. Unparseable,
  * unknown and unreachable are the identical "No such task." — the contract
  * core's `loadTask` and `getTaskByKey` keep.
  */
@@ -135,13 +156,13 @@ export async function resolveTask(
   userId: string,
   input: string,
 ): Promise<{ taskId: string; project: ReachableProject; number: number }> {
-  const { orgSlug, rest } = splitOrg(input);
+  const { teamSlug, rest } = splitTeam(input);
   const parsed = parseTaskKey(rest);
   if (!parsed) throw NO_TASK();
 
   const projects = (await reachableProjects(db, userId)).filter(
     (p) =>
-      (!orgSlug || p.orgSlug === orgSlug) &&
+      (!teamSlug || p.teamSlug === teamSlug) &&
       p.key.toUpperCase() === parsed.projectKey.toUpperCase(),
   );
   if (projects.length === 0) throw NO_TASK();
@@ -158,21 +179,20 @@ export async function resolveTask(
         eq(task.number, parsed.number),
       ),
     );
-  const matches = rows.map((r) => ({
-    taskId: r.id,
-    project: projects.find((p) => p.id === r.projectId)!,
-    orgSlug: projects.find((p) => p.id === r.projectId)!.orgSlug,
-  }));
-  const hit = pickOne(matches, rest, NO_TASK);
+  const matches = rows.map((r) => {
+    const p = projects.find((p) => p.id === r.projectId)!;
+    return { taskId: r.id, project: p, teamSlug: p.teamSlug, implicit: p.implicit };
+  });
+  const hit = pickOne(preferOwnTeams(matches, teamSlug), rest, NO_TASK);
   return { taskId: hit.taskId, project: hit.project, number: parsed.number };
 }
 
 /** Statuses in board order — §3's `position, id`. */
 export async function projectStatuses(
   db: DrizzleD1Database,
-  projectIds: string[],
+  projectIds: string[] | SQLWrapper,
 ): Promise<Status[]> {
-  if (projectIds.length === 0) return [];
+  if (Array.isArray(projectIds) && projectIds.length === 0) return [];
   return db
     .select()
     .from(status)
@@ -183,9 +203,9 @@ export async function projectStatuses(
 /** Task types in default-first order for discovery and name lookup. */
 export async function projectTaskTypes(
   db: DrizzleD1Database,
-  projectIds: string[],
+  projectIds: string[] | SQLWrapper,
 ): Promise<ProjectTaskType[]> {
-  if (projectIds.length === 0) return [];
+  if (Array.isArray(projectIds) && projectIds.length === 0) return [];
   return db
     .select()
     .from(projectTaskType)
@@ -257,7 +277,7 @@ export async function resolveAssignee(
     .where(eq(sql`lower(${user.email})`, email.trim().toLowerCase()));
   if (!row) {
     throw new DomainError(
-      "That user must be a member of this organization.",
+      "That user must be a member of this team.",
     );
   }
   return row.id;
@@ -274,10 +294,14 @@ export async function emailsFor(
   userIds: (string | undefined | null)[],
 ): Promise<Map<string, string>> {
   const ids = [...new Set(userIds.filter((id): id is string => !!id))];
-  if (ids.length === 0) return new Map();
-  const rows = await db
-    .select({ id: user.id, email: user.email })
-    .from(user)
-    .where(inArray(user.id, ids));
-  return new Map(rows.map((r) => [r.id, r.email]));
+  const emails = new Map<string, string>();
+  // D1 caps bound parameters at 100.
+  for (let i = 0; i < ids.length; i += 90) {
+    const rows = await db
+      .select({ id: user.id, email: user.email })
+      .from(user)
+      .where(inArray(user.id, ids.slice(i, i + 90)));
+    for (const r of rows) emails.set(r.id, r.email);
+  }
+  return emails;
 }

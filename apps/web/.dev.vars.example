@@ -31,6 +31,7 @@ SMTP_USERNAME=
 SMTP_PASSWORD=
 SMTP_FROM=
 
-# Optional new-account policy. Valid pending invites bypass it.
+# Optional new-account policy. Empty means invite-only: valid pending invites
+# and TASKSHQ_OWNER_EMAIL (set in the repo-root deploy.env) can still sign up.
 # Example: *@domain.com,test@gmail.com
 SIGNUP_EMAIL_ALLOWLIST=

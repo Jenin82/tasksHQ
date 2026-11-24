@@ -1,10 +1,10 @@
 import { and, desc, eq, exists, gt, gte, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
-import { AccessError, hasOrgMembership, requireOrgMember, requireProjectMember } from "../access";
+import { AccessError, hasTeamMembership, requireOrgMember, requireTeamMember, requireProjectMember, teamAccess } from "../access";
 import type { DomainContext } from "../activity";
 import { DomainError, assertMaxLength } from "../errors";
 import { user } from "../schema/auth";
-import { org, orgMember } from "../schema/org";
+import { team, teamMember } from "../schema/team";
 import { project } from "../schema/project";
 import { task } from "../schema/task";
 import { STALE_MS, type TimeEntry, timeEntry } from "../schema/time";
@@ -56,27 +56,29 @@ function assertValidSpan(startedAt: Date, endedAt: Date, now: number) {
   if (endedAt.getTime() - startedAt.getTime() > MAX_ENTRY_MS) throw new DomainError("A time entry can be at most 24 hours.");
 }
 
-/** Read access only: any organization member may track time, even on restricted tasks. */
+/** Read access only: any team member may track time, even on restricted tasks. */
 async function loadTimeTask(ctx: DomainContext, taskId: string, projectId: string) {
-  const { project: p } = await requireProjectMember(ctx.db, projectId, ctx.actorUserId);
+  const { project: p, member } = await requireProjectMember(ctx.db, projectId, ctx.actorUserId);
   const [row] = await ctx.db.select({ id: task.id, archivedAt: task.archivedAt }).from(task)
     .where(and(eq(task.id, taskId), eq(task.projectId, projectId)));
   if (!row) throw new AccessError("not_a_member", "No such task.");
-  return { project: p, row };
+  return { project: p, member, row };
 }
 
 async function loadTrackableTask(ctx: DomainContext, taskId: string, projectId: string) {
   const access = await loadTimeTask(ctx, taskId, projectId);
+  // Org owners and admins can open every team but track time only where they are members.
+  if (access.member.implicit) throw new DomainError("Join this team to track time.");
   if (access.row.archivedAt) throw new DomainError("Archived tasks can't track time.");
   return access;
 }
 
 /** Re-checks inside the batch what `loadTrackableTask` checked before it. */
-function canTrack(ctx: DomainContext, taskId: string, projectId: string, orgId: string) {
+function canTrack(ctx: DomainContext, taskId: string, projectId: string, teamId: string) {
   return and(
     exists(ctx.db.select({ id: task.id }).from(task)
       .where(and(eq(task.id, taskId), eq(task.projectId, projectId), isNull(task.archivedAt)))),
-    hasOrgMembership(ctx.db, orgId, ctx.actorUserId),
+    hasTeamMembership(ctx.db, teamId, ctx.actorUserId),
   )!;
 }
 
@@ -84,22 +86,22 @@ function ownEntry(ctx: DomainContext, id: string) {
   return and(
     eq(timeEntry.id, id),
     eq(timeEntry.userId, ctx.actorUserId),
-    exists(ctx.db.select({ userId: orgMember.userId }).from(orgMember)
-      .where(and(eq(orgMember.orgId, timeEntry.orgId), eq(orgMember.userId, ctx.actorUserId)))),
+    exists(ctx.db.select({ userId: teamMember.userId }).from(teamMember)
+      .where(and(eq(teamMember.teamId, timeEntry.teamId), eq(teamMember.userId, ctx.actorUserId)))),
   )!;
 }
 
 function insertEntry(
   ctx: DomainContext,
   values: {
-    orgId: string; taskId: string; startedAt: number; endedAt: number | null;
+    teamId: string; taskId: string; startedAt: number; endedAt: number | null;
     note: string | null; kind: TimeEntry["kind"]; now: number;
   },
   guard: ReturnType<typeof canTrack>,
 ) {
   // Columns in `schema/time.ts` definition order.
   return ctx.db.insert(timeEntry).select(sql`
-    select ${crypto.randomUUID()}, ${values.orgId}, ${values.taskId}, ${ctx.actorUserId},
+    select ${crypto.randomUUID()}, ${values.teamId}, ${values.taskId}, ${ctx.actorUserId},
       ${values.startedAt}, ${values.endedAt}, ${values.note}, ${values.kind}, ${ctx.source},
       0, null, ${values.now}, ${values.now}
     where ${guard}`).returning();
@@ -110,7 +112,7 @@ async function failedInsert(ctx: DomainContext, taskId: string, projectId: strin
   throw new DomainError("The task changed. Refresh and try again.");
 }
 
-/** Starts a timer on the task, stopping the actor's running timer (in any organization) first. */
+/** Starts a timer on the task, stopping the actor's running timer (in any team) first. */
 export async function startTimer(
   ctx: DomainContext,
   input: { taskId: string; projectId: string; note?: string | null },
@@ -118,11 +120,11 @@ export async function startTimer(
   const note = normalizeNote(input.note);
   const { project: p } = await loadTrackableTask(ctx, input.taskId, input.projectId);
   const now = Date.now();
-  const guard = canTrack(ctx, input.taskId, input.projectId, p.orgId);
+  const guard = canTrack(ctx, input.taskId, input.projectId, p.teamId);
   const [, inserted] = await ctx.db.batch([
     ctx.db.update(timeEntry).set(stopTimeEntryValues(now))
       .where(and(eq(timeEntry.userId, ctx.actorUserId), isNull(timeEntry.endedAt), guard)),
-    insertEntry(ctx, { orgId: p.orgId, taskId: input.taskId, startedAt: now, endedAt: null, note, kind: "timer", now }, guard),
+    insertEntry(ctx, { teamId: p.teamId, taskId: input.taskId, startedAt: now, endedAt: null, note, kind: "timer", now }, guard),
   ]);
   return inserted[0] ?? failedInsert(ctx, input.taskId, input.projectId);
 }
@@ -143,7 +145,7 @@ export type RunningTimer = {
   projectId: string;
   projectSlug: string;
   projectKey: string;
-  orgSlug: string;
+  teamSlug: string;
   startedAt: Date;
   note: string | null;
 };
@@ -157,13 +159,13 @@ export async function getRunningTimer(ctx: DomainContext): Promise<RunningTimer 
     projectId: project.id,
     projectSlug: project.slug,
     projectKey: project.key,
-    orgSlug: org.slug,
+    teamSlug: team.slug,
     startedAt: timeEntry.startedAt,
     note: timeEntry.note,
   }).from(timeEntry)
     .innerJoin(task, eq(task.id, timeEntry.taskId))
     .innerJoin(project, eq(project.id, task.projectId))
-    .innerJoin(org, eq(org.id, project.orgId))
+    .innerJoin(team, eq(team.id, project.teamId))
     .where(and(eq(timeEntry.userId, ctx.actorUserId), isNull(timeEntry.endedAt)));
   if (!row) return null;
   const { number, ...rest } = row;
@@ -180,9 +182,9 @@ export async function createTimeEntry(
   const note = normalizeNote(input.note);
   const { project: p } = await loadTrackableTask(ctx, input.taskId, input.projectId);
   const [inserted] = await insertEntry(ctx, {
-    orgId: p.orgId, taskId: input.taskId, startedAt: input.startedAt.getTime(),
+    teamId: p.teamId, taskId: input.taskId, startedAt: input.startedAt.getTime(),
     endedAt: input.endedAt.getTime(), note, kind: "manual", now,
-  }, canTrack(ctx, input.taskId, input.projectId, p.orgId));
+  }, canTrack(ctx, input.taskId, input.projectId, p.teamId));
   return inserted ?? failedInsert(ctx, input.taskId, input.projectId);
 }
 
@@ -236,14 +238,24 @@ export type MyTimeEntry = Pick<TimeEntry, "id" | "startedAt" | "endedAt" | "note
   projectId: string;
   projectSlug: string;
   projectName: string;
+  teamId: string;
+  teamSlug: string;
+  teamName: string;
+  /** A real member of the entry's team, so `ownEntry` lets the actor edit it. */
+  editable: boolean;
 };
 
-/** The actor's entries in one organization that overlap `[from, to)`, newest first. */
+/**
+ * The actor's entries that overlap `[from, to)`, newest first, in teams they
+ * can open now (or only `teamId`).
+ */
 export async function listMyTimeEntries(
   ctx: DomainContext,
-  input: { orgId: string; from: Date; to: Date },
+  input: { teamId?: string; from: Date; to: Date },
 ): Promise<MyTimeEntry[]> {
-  await requireOrgMember(ctx.db, input.orgId, ctx.actorUserId);
+  await requireOrgMember(ctx.db, ctx.actorUserId);
+  if (input.teamId) await requireTeamMember(ctx.db, input.teamId, ctx.actorUserId);
+  const access = teamAccess(timeEntry.teamId, ctx.actorUserId);
   const rows = await ctx.db.select({
     id: timeEntry.id,
     startedAt: timeEntry.startedAt,
@@ -260,19 +272,25 @@ export async function listMyTimeEntries(
     projectSlug: project.slug,
     projectName: project.name,
     projectKey: project.key,
+    teamId: team.id,
+    teamSlug: team.slug,
+    teamName: team.name,
+    implicit: access.implicit,
   }).from(timeEntry)
     .innerJoin(task, eq(task.id, timeEntry.taskId))
     .innerJoin(project, eq(project.id, task.projectId))
+    .innerJoin(team, eq(team.id, timeEntry.teamId))
     .where(and(
       eq(timeEntry.userId, ctx.actorUserId),
-      eq(timeEntry.orgId, input.orgId),
+      input.teamId ? eq(timeEntry.teamId, input.teamId) : undefined,
+      isNotNull(access.role),
       // No entry is longer than MAX_ENTRY_MS, so this bounds the index scan.
       gte(timeEntry.startedAt, new Date(input.from.getTime() - MAX_ENTRY_MS)),
       lt(timeEntry.startedAt, input.to),
       or(isNull(timeEntry.endedAt), gt(timeEntry.endedAt, input.from)),
     ))
     .orderBy(desc(timeEntry.startedAt), desc(timeEntry.id));
-  return rows.map(({ number, projectKey, ...row }) => ({ ...row, key: taskKey(projectKey, number) }));
+  return rows.map(({ number, projectKey, implicit, ...row }) => ({ ...row, key: taskKey(projectKey, number), editable: !implicit }));
 }
 
 /** Totals for a task; running entries count up to now. */

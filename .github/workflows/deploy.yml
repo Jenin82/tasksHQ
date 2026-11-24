@@ -58,6 +58,7 @@ jobs:
           TASKSHQ_WEB_DOMAIN: ${{ vars.TASKSHQ_WEB_DOMAIN }}
           TASKSHQ_MCP_DOMAIN: ${{ vars.TASKSHQ_MCP_DOMAIN }}
           TASKSHQ_D1_ID: ${{ vars.TASKSHQ_D1_ID }}
+          TASKSHQ_OWNER_EMAIL: ${{ vars.TASKSHQ_OWNER_EMAIL }}
           TASKSHQ_KV_ID: ${{ vars.TASKSHQ_KV_ID }}
           TASKSHQ_WEB_WORKER: ${{ vars.TASKSHQ_WEB_WORKER }}
           TASKSHQ_MCP_WORKER: ${{ vars.TASKSHQ_MCP_WORKER }}

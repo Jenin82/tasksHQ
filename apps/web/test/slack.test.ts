@@ -4,7 +4,6 @@ import { drizzle } from "drizzle-orm/d1";
 import { beforeEach, expect, it, vi } from "vitest";
 import {
   addProjectMember,
-  createOrg,
   createProject,
   createStatus,
   createTask,
@@ -17,7 +16,8 @@ import {
   transferTask,
   updateTask,
 } from "@tasks/core/domain";
-import { mailOutbox, orgMember, projectSlack, slackOutbox, status, user } from "@tasks/core/schema";
+import { createTeam } from "./helpers";
+import { mailOutbox, teamMember, projectSlack, slackOutbox, status, user } from "@tasks/core/schema";
 import { drainSlackOutbox, encryptSlackWebhook } from "@/lib/slack";
 
 const db = drizzle(env.DB);
@@ -38,12 +38,12 @@ beforeEach(async () => {
 });
 
 async function fixture(slug: string) {
-  const org = await createOrg(owner, { slug, name: "Slack test workspace" });
-  await db.insert(orgMember).values({ orgId: org.id, userId: member.actorUserId, role: "member", createdAt: new Date() });
-  const project = await createProject(owner, { orgId: org.id, slug: "work", name: "Slack test project", key: "SLK" });
+  const team = await createTeam(owner, { slug, name: "Slack test workspace" });
+  await db.insert(teamMember).values({ teamId: team.id, userId: member.actorUserId, role: "member", createdAt: new Date() });
+  const project = await createProject(owner, { teamId: team.id, slug: "work", name: "Slack test project", key: "SLK" });
   await addProjectMember(owner, { projectId: project.id, userId: member.actorUserId });
   const statuses = await db.select().from(status).where(eq(status.projectId, project.id)).orderBy(asc(status.position));
-  return { org, project, todo: statuses[0], doing: statuses[1], done: statuses[2] };
+  return { team, project, todo: statuses[0], doing: statuses[1], done: statuses[2] };
 }
 
 async function connect(projectId: string, url = webhook, actor = owner) {
@@ -84,8 +84,8 @@ it("records creation and real moves for the connected project from web and MCP",
 });
 
 it("queues a transfer's status change for the destination project only", async () => {
-  const { org, project: source } = await fixture("slack-task-transfer");
-  const target = await createProject(owner, { orgId: org.id, slug: "next", name: "Next project", key: "NXT" });
+  const { team, project: source } = await fixture("slack-task-transfer");
+  const target = await createProject(owner, { teamId: team.id, slug: "next", name: "Next project", key: "NXT" });
   const waiting = await createStatus(owner, { projectId: source.id, name: "Waiting for review" });
   await addProjectMember(owner, { projectId: target.id, userId: member.actorUserId });
   const task = await createTask(member, { projectId: source.id, title: "Transfer this task", statusId: waiting.id });
@@ -134,7 +134,7 @@ it("restricts integration management and discards pending jobs for the previous 
 });
 
 it("honors Retry-After without letting a later status event overtake creation", async () => {
-  const { org, project, doing } = await fixture("slack-ordered");
+  const { team, project, doing } = await fixture("slack-ordered");
   await connect(project.id);
   const task = await createTask(owner, { projectId: project.id, title: "<!channel> & fixture" });
   await updateTask(member, { taskId: task.id, statusId: doing.id });
@@ -156,7 +156,7 @@ it("honors Retry-After without letting a later status event overtake creation", 
   expect(message).toMatchObject({ unfurl_links: false, unfurl_media: false });
   expect(message.text).not.toContain("<!channel>");
   expect(JSON.stringify(message.blocks)).toContain("plain_text");
-  expect(JSON.stringify(message.blocks)).toContain(`${origin}/${org.slug}/${project.slug}/${task.key}`);
+  expect(JSON.stringify(message.blocks)).toContain(`${origin}/${team.slug}/${project.slug}/${task.key}`);
 
   const [retry, waiting] = await jobs(project.id);
   expect(retry).toMatchObject({ id: first.id, attempts: 1, leaseId: null });

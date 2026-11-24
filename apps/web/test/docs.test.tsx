@@ -4,10 +4,11 @@ import DocsPage from "@/app/docs/page";
 import GettingStartedPage from "@/app/docs/getting-started/page";
 import IntegrationsPage from "@/app/docs/integrations/page";
 import McpGuide from "@/app/docs/mcp/page";
-import OrganizationSettingsPage from "@/app/docs/organization-settings/page";
+import OrganizationPage from "@/app/docs/organization/page";
 import ProjectSettingsPage from "@/app/docs/project-settings/page";
 import { GET as getSearchIndex } from "@/app/docs/search-index.json/route";
 import { searchDocs, type DocsSearchEntry } from "@/app/docs/search";
+import TeamSettingsPage from "@/app/docs/team-settings/page";
 import ViewsPage from "@/app/docs/views/page";
 import WorkItemsPage from "@/app/docs/work-items/page";
 import { legacyMcpSections } from "@/app/docs/topics";
@@ -17,7 +18,8 @@ const guidePages = {
   "/docs/work-items": WorkItemsPage,
   "/docs/views": ViewsPage,
   "/docs/project-settings": ProjectSettingsPage,
-  "/docs/organization-settings": OrganizationSettingsPage,
+  "/docs/organization": OrganizationPage,
+  "/docs/team-settings": TeamSettingsPage,
   "/docs/integrations": IntegrationsPage,
   "/docs/mcp": McpGuide,
 };
@@ -62,7 +64,7 @@ it("indexes every rendered guide section at its exact anchor", async () => {
   expect(entries.map(({ href }) => href).sort()).toEqual(renderedLinks.sort());
 });
 
-it("finds status setup and distinguishes task and organization permissions", async () => {
+it("finds status setup and distinguishes task and team permissions", async () => {
   const entries = await readSearchIndex();
 
   for (const query of ["status setup", "How do I set up a status?"]) {
@@ -72,7 +74,18 @@ it("finds status setup and distinguishes task and organization permissions", asy
   const permissions = searchDocs(entries, "permissions").map(({ href }) => href);
   expect(permissions).toEqual(expect.arrayContaining([
     "/docs/project-settings#task-editing",
-    "/docs/organization-settings#roles",
+    "/docs/team-settings#roles",
+  ]));
+
+  expect(searchDocs(entries, "organization roles")[0]?.href).toBe("/docs/organization#roles");
+  expect(searchDocs(entries, "team roles")[0]?.href).toBe("/docs/team-settings#roles");
+  expect(searchDocs(entries, "reporting lines")[0]?.href).toBe("/docs/organization#reporting-lines");
+  expect(searchDocs(entries, "team time")[0]?.href).toBe("/docs/organization#time");
+  expect(searchDocs(entries, "your time")[0]?.href).toBe("/docs/organization#time");
+  expect(searchDocs(entries, "super admin")[0]?.href).toBe("/docs/organization#roles");
+  expect(searchDocs(entries, "owner").map(({ href }) => href)).toEqual(expect.arrayContaining([
+    "/docs/organization#roles",
+    "/docs/team-settings#roles",
   ]));
 });
 
@@ -98,7 +111,7 @@ it("uses labeled screenshots to illustrate product controls", () => {
     [ViewsPage, "board"],
     [ViewsPage, "task-filters"],
     [ProjectSettingsPage, "project-statuses"],
-    [OrganizationSettingsPage, "organization-members"],
+    [TeamSettingsPage, "organization-members"],
   ] as const;
 
   for (const [Page, name] of examples) {

@@ -1,4 +1,4 @@
-import { and, desc, eq, exists, inArray, ne, notExists, or, sql } from "drizzle-orm";
+import { and, desc, eq, exists, inArray, ne, not, or, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import { generateKeyBetween, generateNKeysBetween } from "fractional-indexing";
@@ -8,8 +8,9 @@ import {
   canProject,
   type Capability,
   requireCapability,
-  requireOrgMember,
+  requireTeamMember,
   requireProjectMember,
+  teamAccess,
 } from "../access";
 import {
   type BatchWrites,
@@ -27,7 +28,7 @@ import {
 import { placeAfter } from "../position";
 import { assertValidProjectKey, assertValidSlug } from "../slug";
 import { user } from "../schema/auth";
-import { org, orgMember } from "../schema/org";
+import { team, teamMember } from "../schema/team";
 import {
   type Project,
   type ProjectRole,
@@ -116,19 +117,19 @@ function assertStatusSurvived(written: unknown[]) {
 
 export async function createProject(
   ctx: DomainContext,
-  input: { orgId: string; slug: string; name: string; key: string },
+  input: { teamId: string; slug: string; name: string; key: string },
 ): Promise<Project> {
-  const actor = await requireOrgMember(ctx.db, input.orgId, ctx.actorUserId);
+  const actor = await requireTeamMember(ctx.db, input.teamId, ctx.actorUserId);
   requireCapability(actor.role, "project:create");
 
-  // Same reserved list as org slugs: `/[org]/[project]/settings` means a
+  // Same reserved list as team slugs: `/[team]/[project]/settings` means a
   // project slugged `settings` would shadow its own settings page (§4.10).
   assertValidSlug("Project slug", input.slug);
   assertValidProjectKey(input.key);
 
   const name = projectName(input.name);
 
-  // unique(orgId,slug) and unique(orgId,key) both exist; checked here so the
+  // unique(teamId,slug) and unique(teamId,key) both exist; checked here so the
   // caller gets a sentence instead of a SQLite constraint message.
   const slugTaken = new DomainError(
     `A project with the slug "${input.slug}" already exists.`,
@@ -139,7 +140,7 @@ export async function createProject(
   const clashes = await ctx.db
     .select({ slug: project.slug, key: project.key })
     .from(project)
-    .where(eq(project.orgId, input.orgId));
+    .where(eq(project.teamId, input.teamId));
   if (clashes.some((p) => p.slug === input.slug)) {
     throw slugTaken;
   }
@@ -154,7 +155,7 @@ export async function createProject(
   const doneStatusId = statusIds[DEFAULT_STATUSES.findIndex((s) => s.name === "Done")];
   const row: Project = {
     id: crypto.randomUUID(),
-    orgId: input.orgId,
+    teamId: input.teamId,
     slug: input.slug,
     name,
     key: input.key,
@@ -170,7 +171,7 @@ export async function createProject(
       // The live slug wins over a former slug of another project, so that
       // project's old links stop redirecting there.
       ctx.db.delete(projectSlugAlias).where(and(
-        eq(projectSlugAlias.orgId, input.orgId),
+        eq(projectSlugAlias.teamId, input.teamId),
         eq(projectSlugAlias.slug, input.slug),
       )),
       // Inserted with a null auto-archive status: it references a status row the
@@ -179,7 +180,7 @@ export async function createProject(
       ctx.db.insert(project).values({ ...row, autoArchiveStatusId: null }),
       // §3: the creator becomes a member, so a project is never created memberless.
       ctx.db.insert(projectMember).values({
-        orgId: input.orgId,
+        teamId: input.teamId,
         projectId: row.id,
         userId: ctx.actorUserId,
       }),
@@ -236,17 +237,12 @@ export async function renameProject(
   const slugChanged = slug !== row.slug;
   if (slugChanged) {
     const [clash] = await db.select({ id: project.id }).from(project)
-      .where(and(eq(project.orgId, row.orgId), eq(project.slug, slug)));
+      .where(and(eq(project.teamId, row.teamId), eq(project.slug, slug)));
     if (clash) throw slugTaken;
   }
 
-  const permittedRoles = orgMember.role.enumValues.filter((role) => can(role, capability));
-  const stillPermitted = exists(db.select({ userId: orgMember.userId }).from(orgMember)
-    .where(and(
-      eq(orgMember.orgId, row.orgId),
-      eq(orgMember.userId, actorUserId),
-      inArray(orgMember.role, permittedRoles),
-    )));
+  const permittedRoles = teamMember.role.enumValues.filter((role) => can(role, capability));
+  const stillPermitted = inArray(teamAccess(row.teamId, actorUserId).role, permittedRoles);
   const writes: BatchWrites = [
     // Matches the name and slug read above, so a concurrent rename makes this
     // one fail instead of silently overwriting it.
@@ -266,26 +262,26 @@ export async function renameProject(
     const renamed = exists(db.select({ id: project.id }).from(project)
       .where(and(eq(project.id, row.id), eq(project.slug, slug))));
     const now = new Date();
-    const [{ slug: orgSlug }] = await db.select({ slug: org.slug }).from(org).where(eq(org.id, row.orgId));
+    const [{ slug: teamSlug }] = await db.select({ slug: team.slug }).from(team).where(eq(team.id, row.teamId));
     writes.push(
       db.delete(projectSlugAlias).where(and(
-        eq(projectSlugAlias.orgId, row.orgId),
+        eq(projectSlugAlias.teamId, row.teamId),
         eq(projectSlugAlias.slug, slug),
         renamed,
       )),
       // Columns in `projectSlugAlias` table order. The WHERE also lets SQLite parse the upsert.
       db.insert(projectSlugAlias)
-        .select(sql`select ${row.orgId}, ${row.slug}, ${row.id}, ${now.getTime()} where ${renamed}`)
+        .select(sql`select ${row.teamId}, ${row.slug}, ${row.id}, ${now.getTime()} where ${renamed}`)
         .onConflictDoUpdate({
-          target: [projectSlugAlias.orgId, projectSlugAlias.slug],
+          target: [projectSlugAlias.teamId, projectSlugAlias.slug],
           set: { projectId: row.id, createdAt: now },
         }),
       // Descriptions store image paths under the project slug, and the editor
       // renders only the current project's path. Rewriting them keeps images
       // showing (and copying on a move) without touching updated_at or activity.
       db.update(task)
-        .set({ description: sql`replace(${task.description}, ${taskImagePath(orgSlug, row.slug, "")}, ${taskImagePath(orgSlug, slug, "")})` })
-        .where(and(eq(task.projectId, row.id), sql`instr(${task.description}, ${taskImagePath(orgSlug, row.slug, "")}) > 0`, renamed)),
+        .set({ description: sql`replace(${task.description}, ${taskImagePath(teamSlug, row.slug, "")}, ${taskImagePath(teamSlug, slug, "")})` })
+        .where(and(eq(task.projectId, row.id), sql`instr(${task.description}, ${taskImagePath(teamSlug, row.slug, "")}) > 0`, renamed)),
     );
   }
 
@@ -306,14 +302,14 @@ export async function renameProject(
 }
 
 /**
- * The project a former slug in `orgId` now points at, or null. No access
+ * The project a former slug in `teamId` now points at, or null. No access
  * check: it only maps a name, and every caller checks access to the project.
  */
-export async function findProjectByAlias(db: DrizzleD1Database, orgId: string, slug: string) {
+export async function findProjectByAlias(db: DrizzleD1Database, teamId: string, slug: string) {
   const [row] = await db.select({ projectId: project.id, projectSlug: project.slug })
     .from(projectSlugAlias)
-    .innerJoin(project, and(eq(project.id, projectSlugAlias.projectId), eq(project.orgId, projectSlugAlias.orgId)))
-    .where(and(eq(projectSlugAlias.orgId, orgId), eq(projectSlugAlias.slug, slug)));
+    .innerJoin(project, and(eq(project.id, projectSlugAlias.projectId), eq(project.teamId, projectSlugAlias.teamId)))
+    .where(and(eq(projectSlugAlias.teamId, teamId), eq(projectSlugAlias.slug, slug)));
   return row ?? null;
 }
 
@@ -322,20 +318,18 @@ export async function setProjectTaskEditRestriction(
   { projectId, restricted }: { projectId: string; restricted: boolean },
 ) {
   const capability = "project:manage_task_editing";
-  const { id, orgId } = await requireProjectCapability(ctx, projectId, capability);
+  const { id, teamId } = await requireProjectCapability(ctx, projectId, capability);
   const { db, actorUserId } = ctx;
-  const permittedRoles = orgMember.role.enumValues.filter((role) => can(role, capability));
-  const stillPermitted = exists(db.select({ userId: orgMember.userId }).from(orgMember)
-    .leftJoin(projectMember, and(
+  const permittedRoles = teamMember.role.enumValues.filter((role) => can(role, capability));
+  const stillPermitted = or(
+    inArray(teamAccess(teamId, actorUserId).role, permittedRoles),
+    exists(db.select({ userId: projectMember.userId }).from(projectMember).where(and(
       eq(projectMember.projectId, id),
-      eq(projectMember.orgId, orgMember.orgId),
-      eq(projectMember.userId, orgMember.userId),
-    ))
-    .where(and(
-      eq(orgMember.orgId, orgId),
-      eq(orgMember.userId, actorUserId),
-      or(inArray(orgMember.role, permittedRoles), eq(projectMember.role, "admin")),
-    )));
+      eq(projectMember.teamId, teamId),
+      eq(projectMember.userId, actorUserId),
+      eq(projectMember.role, "admin"),
+    ))),
+  );
   const [changed] = await db.batch([
     db.update(project).set({ restrictTaskEdits: restricted })
       .where(and(eq(project.id, id), ne(project.restrictTaskEdits, restricted), stillPermitted))
@@ -362,7 +356,7 @@ export async function setProjectAutoArchive(
   { projectId, statusId, days }: { projectId: string; statusId: string | null; days: number },
 ) {
   const capability = "project:manage_statuses";
-  const { id, orgId } = await requireProjectCapability(ctx, projectId, capability);
+  const { id, teamId } = await requireProjectCapability(ctx, projectId, capability);
   const { db, actorUserId } = ctx;
   if (!Number.isInteger(days) || days < AUTO_ARCHIVE_MIN_DAYS || days > AUTO_ARCHIVE_MAX_DAYS) {
     throw new DomainError(`Choose a number of days between ${AUTO_ARCHIVE_MIN_DAYS} and ${AUTO_ARCHIVE_MAX_DAYS}.`);
@@ -372,18 +366,16 @@ export async function setProjectAutoArchive(
       .where(and(eq(status.id, statusId), eq(status.projectId, id)));
     if (!chosen) throw new DomainError("Choose a status that belongs to this project.");
   }
-  const permittedRoles = orgMember.role.enumValues.filter((role) => can(role, capability));
-  const stillPermitted = exists(db.select({ userId: orgMember.userId }).from(orgMember)
-    .leftJoin(projectMember, and(
+  const permittedRoles = teamMember.role.enumValues.filter((role) => can(role, capability));
+  const stillPermitted = or(
+    inArray(teamAccess(teamId, actorUserId).role, permittedRoles),
+    exists(db.select({ userId: projectMember.userId }).from(projectMember).where(and(
       eq(projectMember.projectId, id),
-      eq(projectMember.orgId, orgMember.orgId),
-      eq(projectMember.userId, orgMember.userId),
-    ))
-    .where(and(
-      eq(orgMember.orgId, orgId),
-      eq(orgMember.userId, actorUserId),
-      or(inArray(orgMember.role, permittedRoles), eq(projectMember.role, "admin")),
-    )));
+      eq(projectMember.teamId, teamId),
+      eq(projectMember.userId, actorUserId),
+      eq(projectMember.role, "admin"),
+    ))),
+  );
   // `is not` is null-safe, so a status going to/from null is detected too; a
   // no-op change writes no activity row (writeActivityIfChanged).
   const differs = or(sql`${project.autoArchiveStatusId} is not ${statusId}`, ne(project.autoArchiveDays, days));
@@ -410,23 +402,23 @@ export async function addProjectMember(
     "project:manage_members",
   );
 
-  // The composite FK would reject a non-org-member with "FOREIGN KEY
+  // The composite FK would reject a non-team-member with "FOREIGN KEY
   // constraint failed"; this says what actually went wrong.
-  const notOrgMember = new DomainError(
-    "That user must be a member of the organization first.",
+  const notTeamMember = new DomainError(
+    "That user must be a member of the team first.",
   );
   const alreadyMember = new DomainError(
     "That user is already a member of this project.",
   );
   const [target] = await ctx.db
     .select({ displayName: user.name })
-    .from(orgMember)
-    .innerJoin(user, eq(user.id, orgMember.userId))
+    .from(teamMember)
+    .innerJoin(user, eq(user.id, teamMember.userId))
     .where(
-      and(eq(orgMember.orgId, row.orgId), eq(orgMember.userId, input.userId)),
+      and(eq(teamMember.teamId, row.teamId), eq(teamMember.userId, input.userId)),
     );
   if (!target) {
-    throw notOrgMember;
+    throw notTeamMember;
   }
 
   const [existing] = await ctx.db
@@ -445,7 +437,7 @@ export async function addProjectMember(
   try {
     await ctx.db.batch([
       ctx.db.insert(projectMember).values({
-        orgId: row.orgId,
+        teamId: row.teamId,
         projectId: input.projectId,
         userId: input.userId,
       }),
@@ -457,9 +449,9 @@ export async function addProjectMember(
     ]);
   } catch (error) {
     // Both checks above can be raced: a concurrent add, or the user's removal
-    // from the org between the check and this insert.
+    // from the team between the check and this insert.
     if (isConstraintError(error, "UNIQUE")) throw alreadyMember;
-    if (isConstraintError(error, "FOREIGN KEY")) throw notOrgMember;
+    if (isConstraintError(error, "FOREIGN KEY")) throw notTeamMember;
     throw error;
   }
 }
@@ -490,29 +482,20 @@ export async function removeProjectMember(
     throw notMember;
   }
 
-  const managesOrg = can(member.role, "org:manage_members");
-  const orgManagerRoles = orgMember.role.enumValues.filter((role) => can(role, "org:manage_members"));
-  const unprotectedOrgMember = notExists(ctx.db.select({ userId: orgMember.userId })
-    .from(orgMember).where(and(
-      eq(orgMember.orgId, row.orgId),
-      eq(orgMember.userId, input.userId),
-      inArray(orgMember.role, orgManagerRoles),
-    )));
-  const stillPermitted = managesOrg
-    ? exists(ctx.db.select({ userId: orgMember.userId }).from(orgMember).where(and(
-      eq(orgMember.orgId, row.orgId),
-      eq(orgMember.userId, ctx.actorUserId),
-      inArray(orgMember.role, orgManagerRoles),
-    )))
+  const managesTeam = can(member.role, "team:manage_members");
+  const teamManagerRoles = teamMember.role.enumValues.filter((role) => can(role, "team:manage_members"));
+  const unprotectedTeamMember = not(inArray(teamAccess(row.teamId, input.userId).role, teamManagerRoles));
+  const stillPermitted = managesTeam
+    ? inArray(teamAccess(row.teamId, ctx.actorUserId).role, teamManagerRoles)
     : exists(ctx.db.select({ userId: projectMember.userId }).from(projectMember).where(and(
       eq(projectMember.projectId, input.projectId),
-      eq(projectMember.orgId, row.orgId),
+      eq(projectMember.teamId, row.teamId),
       eq(projectMember.userId, ctx.actorUserId),
       eq(projectMember.role, "admin"),
     )));
-  const removable = managesOrg ? undefined : and(
+  const removable = managesTeam ? undefined : and(
     eq(projectMember.role, "member"),
-    unprotectedOrgMember,
+    unprotectedTeamMember,
   );
 
   // A concurrent removal can delete the row between the check and here; the
@@ -537,7 +520,7 @@ export async function removeProjectMember(
     }),
   ]);
   if (deleted.length === 0) {
-    if (!managesOrg) {
+    if (!managesTeam) {
       throw new AccessError("forbidden", "Project admins can only remove project members.");
     }
     throw notMember;
@@ -550,37 +533,35 @@ export async function setProjectMemberRole(
 ) {
   const { db, actorUserId } = ctx;
   const { project: row, member } = await requireProjectMember(db, projectId, actorUserId);
-  requireCapability(member.role, "org:change_role");
+  requireCapability(member.role, "team:change_role");
   if (!projectMember.role.enumValues.includes(role)) {
     throw new DomainError("Choose a valid project role.");
   }
 
-  const stillPermitted = exists(db.select({ userId: orgMember.userId }).from(orgMember)
-    .where(and(
-      eq(orgMember.orgId, row.orgId),
-      eq(orgMember.userId, actorUserId),
-      inArray(orgMember.role, orgMember.role.enumValues.filter((value) => can(value, "org:change_role"))),
-    )));
+  const stillPermitted = inArray(
+    teamAccess(row.teamId, actorUserId).role,
+    teamMember.role.enumValues.filter((value) => can(value, "team:change_role")),
+  );
 
-  const eligibleTarget = db.select({ userId: orgMember.userId }).from(orgMember)
+  const eligibleTarget = db.select({ userId: teamMember.userId }).from(teamMember)
     .where(and(
-      eq(orgMember.orgId, row.orgId),
-      eq(orgMember.userId, userId),
-      eq(orgMember.role, "member"),
+      eq(teamMember.teamId, row.teamId),
+      eq(teamMember.userId, userId),
+      eq(teamMember.role, "member"),
       stillPermitted,
       exists(db.select({ id: project.id }).from(project).where(eq(project.id, projectId))),
     ));
   const from = role === "admin" ? "member" : "admin";
   const write = role === "admin"
     ? db.insert(projectMember).select(sql`
-        select ${row.orgId}, ${projectId}, ${userId}, 'admin' where ${exists(eligibleTarget)}
+        select ${row.teamId}, ${projectId}, ${userId}, 'admin' where ${exists(eligibleTarget)}
       `).onConflictDoUpdate({
         target: [projectMember.projectId, projectMember.userId],
         set: { role },
-        setWhere: and(eq(projectMember.orgId, row.orgId), eq(projectMember.role, from)),
+        setWhere: and(eq(projectMember.teamId, row.teamId), eq(projectMember.role, from)),
       })
     : db.update(projectMember).set({ role }).where(and(
-        eq(projectMember.orgId, row.orgId),
+        eq(projectMember.teamId, row.teamId),
         eq(projectMember.projectId, projectId),
         eq(projectMember.userId, userId),
         eq(projectMember.role, from),
@@ -597,7 +578,7 @@ export async function setProjectMemberRole(
     eligibleTarget,
   ]);
   if (!eligible.length) {
-    throw new DomainError("Only current organization members can be granted project admin access.");
+    throw new DomainError("Only current team members can be granted project admin access.");
   }
 }
 

@@ -1,11 +1,11 @@
 import { renderToStaticMarkup } from "react-dom/server.browser";
 import { expect, it, vi } from "vitest";
 import { ProjectTabs } from "@/components/tab-link";
-import ArchivedLoading from "@/app/[org]/[project]/archived/loading";
-import BoardLoading from "@/app/[org]/[project]/loading";
-import SettingsLoading from "@/app/[org]/[project]/settings/loading";
-import TableLoading from "@/app/[org]/[project]/table/loading";
-import { useTaskPeopleFilters } from "@/app/[org]/[project]/task-people-filters";
+import ArchivedLoading from "@/app/[team]/[project]/archived/loading";
+import BoardLoading from "@/app/[team]/[project]/loading";
+import SettingsLoading from "@/app/[team]/[project]/settings/loading";
+import TableLoading from "@/app/[team]/[project]/table/loading";
+import { useTaskPeopleFilters } from "@/app/[team]/[project]/task-people-filters";
 import { readFilters } from "@/components/use-saved-task-filters";
 
 const route = vi.hoisted(() => ({ pathname: "" }));

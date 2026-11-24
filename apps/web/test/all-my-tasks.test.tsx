@@ -4,13 +4,13 @@ import { drizzle } from "drizzle-orm/d1";
 import { renderToStaticMarkup } from "react-dom/server.browser";
 import { expect, it, vi } from "vitest";
 import {
-  createOrg,
   createProject,
   createTask,
 } from "@tasks/core/domain";
-import { orgMember, task, user } from "@tasks/core/schema";
-import { listAssignmentCreateProjects } from "@/app/[org]/(org)/settings/assignment-create-projects";
-import { WorkspaceAssignmentPage } from "@/app/[org]/(org)/settings/workspace-assignment-page";
+import { createTeam } from "./helpers";
+import { teamMember, task, user } from "@tasks/core/schema";
+import { listAssignmentCreateProjects } from "@/app/[team]/(team)/settings/assignment-create-projects";
+import { WorkspaceAssignmentPage } from "@/app/[team]/(team)/settings/workspace-assignment-page";
 
 const actor = vi.hoisted(() => ({ id: "" }));
 vi.mock("next/navigation", async (importOriginal) => ({
@@ -32,15 +32,15 @@ it("combines reachable assignments and preserves links when project slugs and ke
   })));
 
   const owner = { db, actorUserId: ownerId, source: "web" as const };
-  const alpha = await createOrg(owner, { name: "All Tasks Alpha", slug: "all-tasks-alpha" });
-  const beta = await createOrg(owner, { name: "All Tasks Beta", slug: "all-tasks-beta" });
-  const outside = await createOrg(owner, { name: "All Tasks Outside", slug: "all-tasks-outside" });
-  await db.insert(orgMember).values([alpha.id, beta.id].map((orgId) => ({
-    orgId, userId: memberId, role: "member" as const, createdAt: now,
+  const alpha = await createTeam(owner, { name: "All Tasks Alpha", slug: "all-tasks-alpha" });
+  const beta = await createTeam(owner, { name: "All Tasks Beta", slug: "all-tasks-beta" });
+  const outside = await createTeam(owner, { name: "All Tasks Outside", slug: "all-tasks-outside" });
+  await db.insert(teamMember).values([alpha.id, beta.id].map((teamId) => ({
+    teamId, userId: memberId, role: "member" as const, createdAt: now,
   })));
 
-  const makeProject = (orgId: string, slug = "shared", key = "ALL") =>
-    createProject(owner, { orgId, name: slug, slug, key });
+  const makeProject = (teamId: string, slug = "shared", key = "ALL") =>
+    createProject(owner, { teamId, name: slug, slug, key });
   const [alphaProject, betaProject, outsideProject, anotherProject] = await Promise.all([
     makeProject(alpha.id), makeProject(beta.id), makeProject(outside.id),
     makeProject(alpha.id, "another", "ANT"),
@@ -52,7 +52,7 @@ it("combines reachable assignments and preserves links when project slugs and ke
   ]);
   await createTask(owner, { projectId: anotherProject.id, assigneeUserId: memberId, title: "Another project in Alpha" });
   const outsideTask = await createTask(owner, { projectId: outsideProject.id, title: "Outside membership" });
-  // A stale assignment never confers visibility in an organization.
+  // A stale assignment never confers visibility in a team.
   await db.update(task).set({ assigneeUserId: memberId }).where(eq(task.id, outsideTask.id));
 
   actor.id = memberId;
@@ -64,11 +64,11 @@ it("combines reachable assignments and preserves links when project slugs and ke
     { slug: beta.slug, name: beta.name, projects: [{ slug: "shared", name: "shared", key: "ALL" }] },
   ]);
   const html = renderToStaticMarkup(await WorkspaceAssignmentPage({
-    orgSlug: alpha.slug, view: "mine", allOrganizations: true,
+    teamSlug: alpha.slug, view: "mine", allTeams: true,
   }));
 
   expect(html).toContain("All My Tasks");
-  expect(html).toContain("Organization");
+  expect(html).toContain("Team");
   expect(html).toContain("Alpha visible task");
   expect(html).toContain("Beta visible task");
   expect(html).toContain(`href="/${alpha.slug}/shared/${alphaTask.key}"`);
@@ -76,7 +76,7 @@ it("combines reachable assignments and preserves links when project slugs and ke
   expect(html).toContain("Another project in Alpha");
   expect(html).not.toContain("Outside membership");
 
-  const local = renderToStaticMarkup(await WorkspaceAssignmentPage({ orgSlug: alpha.slug, view: "mine" }));
+  const local = renderToStaticMarkup(await WorkspaceAssignmentPage({ teamSlug: alpha.slug, view: "mine" }));
   expect(local).toContain("Alpha visible task");
   expect(local).not.toContain("Beta visible task");
 
@@ -86,15 +86,15 @@ it("combines reachable assignments and preserves links when project slugs and ke
     createTask(member, { projectId: betaProject.id, assigneeUserId: ownerId, title: "Beta assigned by me" }),
   ]);
   const assigned = renderToStaticMarkup(await WorkspaceAssignmentPage({
-    orgSlug: beta.slug, view: "assigned", allOrganizations: true,
+    teamSlug: beta.slug, view: "assigned", allTeams: true,
   }));
   expect(assigned).toContain("Alpha assigned by me");
   expect(assigned).toContain("Beta assigned by me");
   expect(assigned).not.toContain("Beta visible task");
 
-  await db.delete(orgMember).where(and(eq(orgMember.orgId, beta.id), eq(orgMember.userId, memberId)));
+  await db.delete(teamMember).where(and(eq(teamMember.teamId, beta.id), eq(teamMember.userId, memberId)));
   await expect(WorkspaceAssignmentPage({
-    orgSlug: alpha.slug, view: "mine", allOrganizations: true,
+    teamSlug: alpha.slug, view: "mine", allTeams: true,
   })).rejects.toMatchObject({
     digest: expect.stringContaining(encodeURIComponent("/all-tasks-alpha/settings/your-tasks")),
   });

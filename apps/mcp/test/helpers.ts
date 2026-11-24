@@ -1,6 +1,7 @@
 import { env, SELF } from "cloudflare:test";
 import type { CallToolResult } from "@modelcontextprotocol/server";
-import { drizzle } from "drizzle-orm/d1";
+import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
+import { team, teamMember, type Team } from "@tasks/core/schema";
 
 export const db = drizzle(env.DB);
 export const MCP_URL = "https://mcp.example.test/mcp";
@@ -64,4 +65,17 @@ export async function callResult(
   const msg = await message(response);
   if (msg.error) throw new Error(`JSON-RPC error: ${JSON.stringify(msg.error)}`);
   return msg.result;
+}
+
+/** A team with `actorUserId` as its admin, without the domain's org owner/admin check. */
+export async function createTeam(
+  ctx: { db: DrizzleD1Database; actorUserId: string; source?: "web" | "mcp" },
+  input: { slug: string; name: string },
+): Promise<Team> {
+  const row: Team = { id: crypto.randomUUID(), slug: input.slug, name: input.name.trim(), createdAt: new Date() };
+  await ctx.db.batch([
+    ctx.db.insert(team).values(row),
+    ctx.db.insert(teamMember).values({ teamId: row.id, userId: ctx.actorUserId, role: "admin", createdAt: row.createdAt }),
+  ]);
+  return row;
 }

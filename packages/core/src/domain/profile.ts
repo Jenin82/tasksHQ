@@ -96,15 +96,16 @@ export async function readableProfileAvatarKey(
   version: string,
 ) {
   if (!TASK_IMAGE_ID.test(version)) return null;
-  const ownerMembership = alias(orgMember, "avatar_owner_membership");
-  const sharesOrganization = db.select({ orgId: orgMember.orgId }).from(orgMember)
-    .innerJoin(ownerMembership, and(eq(ownerMembership.orgId, orgMember.orgId), eq(ownerMembership.userId, ownerId)))
+  // Everyone in the org can see each other's photos (a single org).
+  const ownerInOrg = alias(orgMember, "avatar_owner_org_member");
+  const sharesOrg = db.select({ userId: orgMember.userId }).from(orgMember)
+    .innerJoin(ownerInOrg, eq(ownerInOrg.userId, ownerId))
     .where(eq(orgMember.userId, viewerId));
 
   const [row] = await db.select({ id: user.id }).from(user).where(and(
     eq(user.id, ownerId),
     eq(user.image, `${avatarPrefix(ownerId)}${version}`),
-    viewerId === ownerId ? undefined : exists(sharesOrganization),
+    viewerId === ownerId ? undefined : exists(sharesOrg),
   ));
   return row ? avatarKey(ownerId, version) : null;
 }

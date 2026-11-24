@@ -18,7 +18,8 @@ Ask for all of these before running anything that changes their account:
    - workers.dev: their account's workers.dev subdomain. The `cf` CLI (1.0.0-beta.27) has no command to look it up or register it, so ask the user to read it from the Cloudflare dashboard under **Workers & Pages** (an account that has never used Workers registers one there first). The URLs become `https://taskshq-web.<subdomain>.workers.dev` and `https://taskshq-mcp.<subdomain>.workers.dev`.
 3. **Google OAuth client ID and secret** (Google Cloud console, OAuth 2.0 Client ID, type "Web application"). These are required by the deploy. If they do not have one yet, tell them to create it; they register the redirect URI in step 6.
 4. **SMTP settings** (optional, enables email sign-in and notifications): host, `tls` or `starttls`, port (optional), username, password, sender address.
-5. **Signup allowlist** (optional): comma-separated exact addresses and `*@domain` entries. Empty means open signup.
+5. **Owner email** (required): the address that becomes the organization's first Super admin (owner) when it signs in. It is `TASKSHQ_OWNER_EMAIL`.
+6. **Signup allowlist** (optional): comma-separated exact addresses and `*@domain` entries. Without one, signup is invite-only: only the owner email and invited addresses can create accounts.
 
 Removing a line from `secrets.env` does not remove a deployed secret. To turn email or the allowlist off on an existing deployment, delete each secret from the web Worker, for example `pnpm --filter web exec cf workers secrets delete SMTP_HOST --worker taskshq-web` (use the `TASKSHQ_WEB_WORKER` name). Confirm with the user first.
 
@@ -69,6 +70,7 @@ cp secrets.env.example secrets.env
 | `TASKSHQ_MCP_URL` | `https://<mcp host>`, no trailing slash |
 | `TASKSHQ_WEB_DOMAIN`, `TASKSHQ_MCP_DOMAIN` | The hostnames, only for custom domains; otherwise empty |
 | `TASKSHQ_D1_ID` | The ID from step 4 |
+| `TASKSHQ_OWNER_EMAIL` | From the user: the address that becomes the organization's first Super admin |
 | `TASKSHQ_KV_ID` | Empty for a new deployment |
 | Name overrides | Leave the defaults unless the user asks |
 
@@ -156,7 +158,7 @@ Custom domains can take a few minutes to issue certificates after the first depl
 
 Tell the user:
 
-- The web app URL (`TASKSHQ_WEB_URL`). They should open it, sign in, and create an organization.
+- The web app URL (`TASKSHQ_WEB_URL`). They should open it, sign in with `TASKSHQ_OWNER_EMAIL`, and create a team.
 - The MCP server URL: `<TASKSHQ_MCP_URL>/mcp`. Claude Code: `claude mcp add --transport http --scope user taskshq <TASKSHQ_MCP_URL>/mcp`. Other clients: `<TASKSHQ_WEB_URL>/docs/mcp`.
 - Manual steps still outstanding: registering the Google redirect URI (step 6), enabling R2 billing if a deploy reported R2 as unavailable, and configuring sender-domain authentication with their SMTP provider if they use email.
 - That `deploy.env` and `secrets.env` hold their configuration and secrets, are gitignored, and must not be committed or shared.
@@ -173,6 +175,19 @@ pnpm run deploy
 ```
 
 Always apply migrations before deploying either Worker. Then repeat step 9.
+
+**Organization release** (migrations `0020` to `0023`, one release). Before deploying it:
+
+- `TASKSHQ_OWNER_EMAIL` must be set in `deploy.env` first or the deploy scripts stop; ask the user for it. That account becomes the organization's Super admin when it signs in, but only while the organization has none.
+- Run `pnpm run db:migrate:remote`, then `pnpm run deploy` (web, then MCP) immediately after, with nothing in between. `0020_rename_org_to_team.sql` renames tables that the running Workers still use, so the old Workers fail once it is applied. Tell the user to expect errors until the deploy finishes and to reload any open browser tabs.
+
+After deploying, tell the user:
+
+- `0021_org_layer.sql` made every existing team owner an organization Super admin (stored role `owner`), who can open, manage and delete every team. Warn them to check **Settings › Members** (`/settings/members`) and demote anyone who should not have that reach (or `UPDATE org_member SET role = 'member' WHERE user_id IN (...)`). Demoting a former team owner this way leaves them a team admin of their old teams.
+- `0022_org_reporting_and_time.sql` backfilled one organization-wide reporting line per person from their oldest team's line, skipped self-lines and lines with non-members of the organization, and dropped lines left in a loop by the merge (people who only report into a loop keep theirs); it also adds a time index.
+- `0023_team_admin_role.sql` turned every team owner and pending owner invitation into a team admin. Teams have Admin and Member roles only; team admins can delete projects and only a Super admin can delete a team.
+- Signup is now invite-only unless `SIGNUP_EMAIL_ALLOWLIST` is set, so a deployment that relied on open signup needs one, and MCP clients must use `team` instead of `org` (the deprecated `org` input is gone).
+- Rollback: the previous Workers cannot run against the renamed tables, so going back means restoring the database to before the migration with D1 Time Travel and redeploying the previous release; that restore discards everything written after the upgrade. `team_reporting_line` stays until a later release's migration `0024` drops it, but it is no longer updated.
 
 Deployments created before the TasksHQ rename used `tasks-web`, `tasks-mcp`, `tasks-db` and `tasks-images`. If the user has one, set `TASKSHQ_WEB_WORKER`, `TASKSHQ_MCP_WORKER`, `TASKSHQ_D1_NAME`, `TASKSHQ_R2_BUCKET`, `TASKSHQ_D1_ID` and `TASKSHQ_KV_ID` to the existing names and IDs, so the deploy reuses their data instead of creating new resources. Ask the user for these values; do not guess.
 

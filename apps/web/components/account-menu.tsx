@@ -49,7 +49,7 @@ export function AccountMenu({ user }: { user: AccountUser }) {
             onSelect={async () => {
               // Navigate even if signOut rejects: `/` renders whatever the
               // server now believes — sign-in if the session ended, the
-              // org list if it did not — rather than a menu that did nothing.
+              // team list if it did not — rather than a menu that did nothing.
               try {
                 await authClient.signOut();
               } finally {

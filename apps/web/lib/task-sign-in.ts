@@ -8,19 +8,19 @@ export function parseCanonicalTaskPath(value: string): TaskPreviewParams | null 
   if (/[^/A-Za-z0-9-]/.test(value)) return null;
   const segments = value.split("/");
   if (segments.length !== 4 || segments[0] !== "") return null;
-  const [, org, project, key] = segments;
+  const [, team, project, key] = segments;
   const parsed = parseTaskKey(key);
   if (!parsed || !Number.isSafeInteger(parsed.number) || taskKey(parsed.projectKey.toUpperCase(), parsed.number) !== key) {
     return null;
   }
   try {
-    assertValidSlug("Organization slug", org);
+    assertValidSlug("Team slug", team);
     assertValidSlug("Project slug", project);
   } catch (error) {
     if (error instanceof DomainError) return null;
     throw error;
   }
-  return { org, project, task: key };
+  return { team, project, task: key };
 }
 
 export function taskSignInDestination(value: unknown) {

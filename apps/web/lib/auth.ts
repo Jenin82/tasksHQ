@@ -5,9 +5,9 @@ import { nextCookies } from "better-auth/next-js";
 import { emailOTP } from "better-auth/plugins";
 import { env } from "cloudflare:workers";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
-import { and, eq, lte } from "drizzle-orm";
+import { and, eq, lte, sql } from "drizzle-orm";
 import { claimInvites, hasEligibleInvite } from "@tasks/core/domain";
-import { account, session, user, verification } from "@tasks/core/schema";
+import { account, orgMember, session, user, verification } from "@tasks/core/schema";
 import { isEmailAddress, normalizeEmail, signupEmailPolicy } from "./signup-policy";
 import { emailEnabled, sendMail, type MailMessage } from "./smtp";
 
@@ -18,6 +18,8 @@ type AuthOptions = {
   googleClientId: string;
   googleClientSecret: string;
   signupEmailAllowlist?: string;
+  /** TASKSHQ_OWNER_EMAIL: becomes the org owner while the org has none. */
+  ownerEmail?: string;
   sendMail?: (message: MailMessage) => Promise<void>;
 };
 
@@ -59,8 +61,31 @@ function userDatabase(db: DrizzleD1Database) {
   };
 }
 
-async function claimForSignIn(db: DrizzleD1Database, userId: string, email: string) {
+const configuredOwnerEmail = (value?: string) => value?.trim() ? normalizeEmail(value) : undefined;
+
+/**
+ * P2 bootstrap: the configured owner email, once verified, becomes org owner
+ * while the org has no owner. One guarded statement, so two first sign-ins
+ * cannot both win and a later demotion is never undone.
+ */
+async function bootstrapOwner(db: DrizzleD1Database, userId: string, ownerEmail: string) {
+  await db.insert(orgMember).select(
+    db.select({
+      userId: user.id,
+      role: sql<"owner">`'owner'`.as("role"),
+      createdAt: sql<Date>`${Date.now()}`.as("created_at"),
+    }).from(user).where(and(
+      eq(user.id, userId),
+      eq(user.emailVerified, true),
+      sql`lower(${user.email}) = ${ownerEmail}`,
+      sql`not exists (select 1 from ${orgMember} where ${orgMember.role} = 'owner')`,
+    )),
+  ).onConflictDoUpdate({ target: orgMember.userId, set: { role: "owner" } });
+}
+
+async function claimForSignIn(db: DrizzleD1Database, userId: string, email: string, ownerEmail?: string) {
   try {
+    if (ownerEmail && normalizeEmail(email) === ownerEmail) await bootstrapOwner(db, userId, ownerEmail);
     await claimInvites(db, userId, email);
   } catch (error) {
     // A failed claim must leave the user able to sign in and retry.
@@ -85,8 +110,11 @@ async function reserveOtpSend(db: DrizzleD1Database, email: string) {
 export function createTasksAuth(options: AuthOptions) {
   const db = drizzle(options.database);
   const allowedBySetting = signupEmailPolicy(options.signupEmailAllowlist);
-  const canCreate = (email: string, verified: boolean) =>
-    allowedBySetting(email) || (verified && hasEligibleInvite(db, email));
+  const ownerEmail = configuredOwnerEmail(options.ownerEmail);
+  // P3: no allowlist means invite-only. The owner email and live invites
+  // always pass, once verified.
+  const canCreate = async (email: string, verified: boolean) =>
+    allowedBySetting(email) || (verified && (email === ownerEmail || await hasEligibleInvite(db, email)));
   const deniedSignup = () => new APIError("FORBIDDEN", {
     code: "SIGNUP_RESTRICTED",
     message: "Use an allowed email address or ask for an invitation.",
@@ -219,7 +247,15 @@ export function createTasksAuth(options: AuthOptions) {
             return { data: { email, name, image: null } };
           },
           after: async (createdUser) => {
-            if (createdUser.emailVerified) await claimForSignIn(db, createdUser.id, createdUser.email);
+            if (!createdUser.emailVerified) return;
+            await claimForSignIn(db, createdUser.id, createdUser.email, ownerEmail);
+            // An allowlisted signup joins the org with no teams. Only at
+            // creation, so removing someone from the org sticks.
+            if (allowedBySetting(normalizeEmail(createdUser.email))) {
+              await db.insert(orgMember).values({ userId: createdUser.id, role: "member", createdAt: new Date() })
+                .onConflictDoNothing()
+                .catch((error) => console.error("Joining the organization failed.", error));
+            }
           },
         },
       },
@@ -228,7 +264,7 @@ export function createTasksAuth(options: AuthOptions) {
           after: async (createdSession) => {
             const [row] = await db.select({ email: user.email, verified: user.emailVerified })
               .from(user).where(eq(user.id, createdSession.userId));
-            if (row?.verified) await claimForSignIn(db, createdSession.userId, row.email);
+            if (row?.verified) await claimForSignIn(db, createdSession.userId, row.email, ownerEmail);
           },
         },
       },
@@ -251,9 +287,10 @@ export const auth = createTasksAuth({
   googleClientId: env.GOOGLE_CLIENT_ID,
   googleClientSecret: env.GOOGLE_CLIENT_SECRET,
   signupEmailAllowlist: (env as Env & { SIGNUP_EMAIL_ALLOWLIST?: string }).SIGNUP_EMAIL_ALLOWLIST,
+  ownerEmail: env.OWNER_EMAIL,
   sendMail: emailEnabled ? sendMail : undefined,
 });
 
 export function claimInvitesForSignIn(userId: string, email: string) {
-  return claimForSignIn(drizzle(env.DB), userId, email);
+  return claimForSignIn(drizzle(env.DB), userId, email, configuredOwnerEmail(env.OWNER_EMAIL));
 }

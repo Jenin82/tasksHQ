@@ -3,13 +3,13 @@ import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { expect, it } from "vitest";
 import { claimInvites, createProject } from "@tasks/core/domain";
-import { org, orgInvite, orgMember, projectInvite, projectMember, user } from "@tasks/core/schema";
-import { auth } from "@/lib/auth";
+import { team, teamInvite, teamMember, projectInvite, projectMember, user } from "@tasks/core/schema";
+import { createTasksAuth } from "@/lib/auth";
 
 const db = drizzle(env.DB);
 const now = new Date();
 
-// org_invite.invited_by_user_id is a FK to user, so every invite needs one.
+// team_invite.invited_by_user_id is a FK to user, so every invite needs one.
 await db.insert(user).values({
   id: "inv-inviter",
   name: "inviter",
@@ -19,24 +19,24 @@ await db.insert(user).values({
 });
 
 // Storage is shared across the run — no per-test isolation — so each test owns
-// its own org ids and email addresses.
-async function seedOrg(id: string) {
-  await db.insert(org).values({ id, slug: id, name: id, createdAt: now });
-  await db.insert(orgMember).values({
-    orgId: id,
+// its own team ids and email addresses.
+async function seedTeam(id: string) {
+  await db.insert(team).values({ id, slug: id, name: id, createdAt: now });
+  await db.insert(teamMember).values({
+    teamId: id,
     userId: "inv-inviter",
-    role: "owner",
+    role: "admin",
     createdAt: now,
   });
 }
 
 async function seedInvite(
-  orgId: string,
+  teamId: string,
   email: string,
-  role: "owner" | "admin" | "member" = "member",
+  role: "admin" | "member" = "member",
 ) {
-  await db.insert(orgInvite).values({
-    orgId,
+  await db.insert(teamInvite).values({
+    teamId,
     email,
     role,
     invitedByUserId: "inv-inviter",
@@ -52,16 +52,27 @@ async function seedUser(id: string, email: string, emailVerified = true) {
 }
 
 function membersOf(userId: string) {
-  return db.select().from(orgMember).where(eq(orgMember.userId, userId));
+  return db.select().from(teamMember).where(eq(teamMember.userId, userId));
 }
 
-async function inviteRow(orgId: string, email: string) {
+async function inviteRow(teamId: string, email: string) {
   const [row] = await db
     .select()
-    .from(orgInvite)
-    .where(and(eq(orgInvite.orgId, orgId), eq(orgInvite.email, email)));
+    .from(teamInvite)
+    .where(and(eq(teamInvite.teamId, teamId), eq(teamInvite.email, email)));
   return row;
 }
+
+// Signup is invite-only without an allowlist (P3); these tests create some
+// users before their invite exists.
+const auth = createTasksAuth({
+  database: env.DB,
+  secret: env.BETTER_AUTH_SECRET,
+  baseURL: env.BETTER_AUTH_URL,
+  googleClientId: env.GOOGLE_CLIENT_ID,
+  googleClientSecret: env.GOOGLE_CLIENT_SECRET,
+  signupEmailAllowlist: "*@invites.test",
+});
 
 // Drives Better Auth's own user-creation seam, so the databaseHooks in
 // lib/auth.ts fire exactly as they do on a real Google sign-up. The Google
@@ -80,7 +91,7 @@ async function createSessionThroughBetterAuth(userId: string) {
 }
 
 it("claims an invite sent before the user existed, on user create", async () => {
-  await seedOrg("inv-before");
+  await seedTeam("inv-before");
   await seedInvite("inv-before", "before@invites.test", "admin");
 
   const created = await createUserThroughBetterAuth(
@@ -90,7 +101,7 @@ it("claims an invite sent before the user existed, on user create", async () => 
 
   const members = await membersOf(created.id);
   expect(members).toHaveLength(1);
-  expect(members[0]).toMatchObject({ orgId: "inv-before", role: "admin" });
+  expect(members[0]).toMatchObject({ teamId: "inv-before", role: "admin" });
   expect(
     (await inviteRow("inv-before", "before@invites.test")).acceptedAt,
   ).not.toBeNull();
@@ -103,21 +114,21 @@ it("claims an invite sent after the user existed, on session create", async () =
   );
   expect(await membersOf(created.id)).toHaveLength(0);
 
-  await seedOrg("inv-after");
+  await seedTeam("inv-after");
   await seedInvite("inv-after", "after@invites.test", "member");
 
   await createSessionThroughBetterAuth(created.id);
 
   const members = await membersOf(created.id);
   expect(members).toHaveLength(1);
-  expect(members[0]).toMatchObject({ orgId: "inv-after", role: "member" });
+  expect(members[0]).toMatchObject({ teamId: "inv-after", role: "member" });
   expect(
     (await inviteRow("inv-after", "after@invites.test")).acceptedAt,
   ).not.toBeNull();
 });
 
 it("is idempotent: a second call inserts nothing and does not throw", async () => {
-  await seedOrg("inv-idem");
+  await seedTeam("inv-idem");
   await seedUser("inv-u-idem", "idem@invites.test");
   await seedInvite("inv-idem", "idem@invites.test");
 
@@ -129,11 +140,11 @@ it("is idempotent: a second call inserts nothing and does not throw", async () =
 
 it("survives a re-invite to a user who is still a member", async () => {
   // §3's dead end: re-inviting is an upsert that clears acceptedAt, so a user
-  // who never left can reach claimInvites again with a live org_member row.
-  await seedOrg("inv-reinvite");
+  // who never left can reach claimInvites again with a live team_member row.
+  await seedTeam("inv-reinvite");
   await seedUser("inv-u-reinvite", "reinvite@invites.test");
-  await db.insert(orgMember).values({
-    orgId: "inv-reinvite",
+  await db.insert(teamMember).values({
+    teamId: "inv-reinvite",
     userId: "inv-u-reinvite",
     role: "member",
     createdAt: now,
@@ -145,14 +156,14 @@ it("survives a re-invite to a user who is still a member", async () => {
   const members = await membersOf("inv-u-reinvite");
   expect(members).toHaveLength(1);
   // The existing row wins — onConflictDoNothing does not overwrite the role.
-  expect(members[0]).toMatchObject({ orgId: "inv-reinvite", role: "member" });
+  expect(members[0]).toMatchObject({ teamId: "inv-reinvite", role: "member" });
   expect(
     (await inviteRow("inv-reinvite", "reinvite@invites.test")).acceptedAt,
   ).not.toBeNull();
 });
 
 it("matches a mixed-case sign-in email against the lowercased invite", async () => {
-  await seedOrg("inv-case");
+  await seedTeam("inv-case");
   await seedUser("inv-u-case", "Casey@Example.com");
   await seedInvite("inv-case", "casey@example.com");
 
@@ -164,26 +175,26 @@ it("matches a mixed-case sign-in email against the lowercased invite", async () 
   ).not.toBeNull();
 });
 
-it("claims every pending invite for one email across orgs", async () => {
-  await seedOrg("inv-multi-a");
-  await seedOrg("inv-multi-b");
+it("claims every pending invite for one email across teams", async () => {
+  await seedTeam("inv-multi-a");
+  await seedTeam("inv-multi-b");
   await seedUser("inv-u-multi", "multi@invites.test");
-  await seedInvite("inv-multi-a", "multi@invites.test", "owner");
+  await seedInvite("inv-multi-a", "multi@invites.test", "admin");
   await seedInvite("inv-multi-b", "multi@invites.test", "member");
 
   await claimInvites(db, "inv-u-multi", "multi@invites.test");
 
   const members = await membersOf("inv-u-multi");
   expect(
-    members.map((m) => [m.orgId, m.role]).sort((a, b) => (a[0] < b[0] ? -1 : 1)),
+    members.map((m) => [m.teamId, m.role]).sort((a, b) => (a[0] < b[0] ? -1 : 1)),
   ).toEqual([
-    ["inv-multi-a", "owner"],
+    ["inv-multi-a", "admin"],
     ["inv-multi-b", "member"],
   ]);
 });
 
 it("leaves another address's invite untouched", async () => {
-  await seedOrg("inv-other");
+  await seedTeam("inv-other");
   await seedUser("inv-u-other", "mine@invites.test");
   await seedInvite("inv-other", "mine@invites.test");
   await seedInvite("inv-other", "theirs@invites.test");
@@ -193,37 +204,37 @@ it("leaves another address's invite untouched", async () => {
   expect(await membersOf("inv-u-other")).toHaveLength(1);
   const theirs = await inviteRow("inv-other", "theirs@invites.test");
   expect(theirs.acceptedAt).toBeNull();
-  const members = await db.select().from(orgMember).where(eq(orgMember.orgId, "inv-other"));
+  const members = await db.select().from(teamMember).where(eq(teamMember.teamId, "inv-other"));
   expect(members.map((member) => member.userId).sort()).toEqual(["inv-inviter", "inv-u-other"]);
 });
 
-it("requires an org invite claim to use the verified account address", async () => {
-  const orgId = "inv-verified-org";
-  const userId = "inv-u-verified-org";
-  const email = "verified-org@invites.test";
-  await seedOrg(orgId);
+it("requires a team invite claim to use the verified account address", async () => {
+  const teamId = "inv-verified-team";
+  const userId = "inv-u-verified-team";
+  const email = "verified-team@invites.test";
+  await seedTeam(teamId);
   await seedUser(userId, email, false);
-  await seedInvite(orgId, email);
-  await seedInvite(orgId, "unrelated-org@invites.test", "admin");
+  await seedInvite(teamId, email);
+  await seedInvite(teamId, "unrelated-team@invites.test", "admin");
 
   await claimInvites(db, userId, email);
   expect(await membersOf(userId)).toEqual([]);
 
   await db.update(user).set({ emailVerified: true }).where(eq(user.id, userId));
-  await claimInvites(db, userId, "unrelated-org@invites.test");
+  await claimInvites(db, userId, "unrelated-team@invites.test");
   expect(await membersOf(userId)).toEqual([]);
 
   await claimInvites(db, userId, email);
-  expect(await membersOf(userId)).toEqual([expect.objectContaining({ orgId, role: "member" })]);
-  expect((await inviteRow(orgId, "unrelated-org@invites.test")).acceptedAt).toBeNull();
+  expect(await membersOf(userId)).toEqual([expect.objectContaining({ teamId, role: "member" })]);
+  expect((await inviteRow(teamId, "unrelated-team@invites.test")).acceptedAt).toBeNull();
 });
 
 
 it("leaves legacy project invites inactive on verified signup and sign-in", async () => {
-  const orgId = "inv-legacy-project";
+  const teamId = "inv-legacy-project";
   const inviter = { db, actorUserId: "inv-inviter", source: "web" as const };
-  await seedOrg(orgId);
-  const project = await createProject(inviter, { orgId, slug: "invite-target", name: "Invite target", key: "INVT" });
+  await seedTeam(teamId);
+  const project = await createProject(inviter, { teamId, slug: "invite-target", name: "Invite target", key: "INVT" });
   const email = "legacy-project@invites.test";
   await db.insert(projectInvite).values({ projectId: project.id, email, invitedByUserId: inviter.actorUserId, createdAt: now });
 
@@ -233,9 +244,9 @@ it("leaves legacy project invites inactive on verified signup and sign-in", asyn
   expect(await membersOf(created.id)).toEqual([]);
   expect(await db.select().from(projectMember).where(eq(projectMember.userId, created.id))).toEqual([]);
 
-  await seedInvite(orgId, email);
+  await seedInvite(teamId, email);
   await createSessionThroughBetterAuth(created.id);
-  expect(await membersOf(created.id)).toEqual([expect.objectContaining({ orgId, role: "member" })]);
+  expect(await membersOf(created.id)).toEqual([expect.objectContaining({ teamId, role: "member" })]);
   expect(await db.select().from(projectMember).where(eq(projectMember.userId, created.id))).toEqual([]);
   expect(await db.select().from(projectInvite).where(eq(projectInvite.projectId, project.id))).toHaveLength(1);
 });

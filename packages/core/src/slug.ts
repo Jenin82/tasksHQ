@@ -1,14 +1,14 @@
 import { DomainError } from "./errors";
 
 /**
- * Paths the app owns. An org slugged `api` would shadow `/api/auth/...`, and
+ * Paths the app owns. A team slugged `api` would shadow `/api/auth/...`, and
  * `settings`/`consent`/`authorize` collide with routes §4.6 and §5 define.
  * M2's top-level segments are reserved before they exist: `/oauth/token`,
  * `/internal/introspect` (§1, §5.6), and `token`/`register`/`mcp` because the
- * OAuth library's endpoint defaults and the MCP path use those names — an org
+ * OAuth library's endpoint defaults and the MCP path use those names — a team
  * claiming one now would block or shadow the route when it ships.
- * `projects` is reserved because `/[org]/projects` is a static route that
- * would shadow a project with that slug; the list is shared with org slugs,
+ * `projects` is reserved because `/[team]/projects` is a static route that
+ * would shadow a project with that slug; the list is shared with team slugs,
  * where it is harmless.
  *
  * Imported by both the domain layer (on create) and the routing layer, so the
@@ -46,7 +46,7 @@ function nameToSlug(name: string) {
     .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
-export function suggestSlug(name: string, kind: "org" | "project") {
+export function suggestSlug(name: string, kind: "team" | "project") {
   const slug = nameToSlug(name).slice(0, MAX_SLUG_LENGTH).replace(/-$/, "");
   if (!slug) return "";
   return slug.length === 1 || isReservedSlug(slug) ? `${slug}-${kind}` : slug;

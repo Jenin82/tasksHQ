@@ -1,9 +1,11 @@
 import { env } from "cloudflare:test";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { renderToStaticMarkup } from "react-dom/server.browser";
 import { expect, it, vi } from "vitest";
-import { createOrg, createProject, createTask, inviteToOrg } from "@tasks/core/domain";
-import { orgMember, user } from "@tasks/core/schema";
+import { createProject, createTask, inviteToTeam } from "@tasks/core/domain";
+import { createTeam } from "./helpers";
+import { orgMember, teamMember, user } from "@tasks/core/schema";
 import { taskSignInDestination, taskSignInUrl } from "@/lib/task-sign-in";
 
 // Same seam as test/states.test.tsx: the route layer reads the session
@@ -20,7 +22,7 @@ vi.mock("@/lib/session", () => {
 });
 
 const Home = (await import("@/app/page")).default;
-const NewOrgPage = (await import("@/app/new/page")).default;
+const NewTeamPage = (await import("@/app/new/page")).default;
 
 const db = drizzle(env.DB);
 const now = new Date();
@@ -38,45 +40,47 @@ await db.insert(user).values(
   })),
 );
 const ctx = (id: string) => ({ db, actorUserId: id, source: "web" as const });
-const solo = await createOrg(ctx("hm-one"), { slug: "hm-solo", name: "HM Solo" });
+const solo = await createTeam(ctx("hm-one"), { slug: "hm-solo", name: "HM Solo" });
 await createProject(ctx("hm-one"), {
-  orgId: solo.id,
+  teamId: solo.id,
   slug: "only",
   name: "Only",
   key: "HMO",
 });
-const a = await createOrg(ctx("hm-two"), { slug: "hm-a", name: "HM A" });
-await createOrg(ctx("hm-two"), { slug: "hm-b", name: "HM B" });
+const a = await createTeam(ctx("hm-two"), { slug: "hm-a", name: "HM A" });
+await createTeam(ctx("hm-two"), { slug: "hm-b", name: "HM B" });
 await createProject(ctx("hm-two"), {
-  orgId: a.id,
+  teamId: a.id,
   slug: "first",
   name: "First",
   key: "HMF",
 });
 await createProject(ctx("hm-two"), {
-  orgId: a.id,
+  teamId: a.id,
   slug: "second",
   name: "Second",
   key: "HMS",
 });
 await db
-  .insert(orgMember)
-  .values({ orgId: a.id, userId: "hm-member", role: "member", createdAt: now });
+  .insert(teamMember)
+  .values({ teamId: a.id, userId: "hm-member", role: "member", createdAt: now });
+// Only org owners and admins make teams; the team_member trigger made hm-two a member.
+await db.update(orgMember).set({ role: "admin" }).where(eq(orgMember.userId, "hm-two"));
 
 // A redirect() would throw out of Home, so rendering at all is the proof that
-// `/` no longer redirects for any org count.
+// `/` no longer redirects for any team count.
 async function render(userId: string) {
   actor.id = userId;
   return renderToStaticMarkup(await Home());
 }
 
-it("claims a pending organization invite before continuing to a work item", async () => {
+it("claims a pending team invite before continuing to a work item", async () => {
   const owner = ctx("hm-invite-owner");
   const recipientId = "hm-invite-recipient";
-  const workspace = await createOrg(owner, { slug: "hm-invited", name: "Invited Workspace" });
-  const project = await createProject(owner, { orgId: workspace.id, slug: "invited-project", name: "Invited Project", key: "HMI" });
+  const workspace = await createTeam(owner, { slug: "hm-invited", name: "Invited Workspace" });
+  const project = await createProject(owner, { teamId: workspace.id, slug: "invited-project", name: "Invited Project", key: "HMI" });
   const task = await createTask(owner, { projectId: project.id, title: "Invitation destination" });
-  await inviteToOrg(owner, { orgId: workspace.id, email: `${recipientId}@home.test`, role: "member" });
+  await inviteToTeam(owner, { teamId: workspace.id, email: `${recipientId}@home.test`, role: "member" });
 
   expect(await render("hm-zero")).not.toContain('href="/hm-invited"');
   actor.id = recipientId;
@@ -113,31 +117,31 @@ it("accepts only canonical work item and short share paths as sign-in continuati
 
   actor.id = "hm-zero";
   const home = await Home({ searchParams: Promise.resolve({ next: "//example.com/first/HMF-1" }) });
-  expect(renderToStaticMarkup(home)).toContain("No organizations yet");
+  expect(renderToStaticMarkup(home)).toContain("Ask an admin to add you to a team.");
 });
 
-/** The card for one org: from its link to the end of that link. */
+/** The card for one team: from its link to the end of that link. */
 const card = (html: string, slug: string) =>
   html.slice(html.indexOf(`href="/${slug}"`)).split("</a>")[0];
 
-it("with no org, renders one empty-state card and no inline form", async () => {
+it("with no team, someone who cannot make one sees the waiting page", async () => {
   const html = await render("hm-zero");
 
-  expect(html).toContain("No organizations yet");
+  expect(html).toContain("Ask an admin to add you to a team.");
   expect(html).not.toContain('href="/hm-');
-  expect(html).not.toContain('name="slug"');
+  expect(html).not.toContain("New team");
 });
 
-it("puts the account menu in the header and New organization beside the heading", async () => {
-  const html = await render("hm-zero");
+it("puts the account menu in the header and New team beside the heading", async () => {
+  const html = await render("hm-two");
   const header = html.slice(html.indexOf("<header"), html.indexOf("</header>"));
   const main = html.slice(html.indexOf("<main"), html.indexOf("</main>"));
 
   expect(header).toContain('aria-label="Account"');
-  expect(header).not.toContain("New organization");
+  expect(header).not.toContain("New team");
   expect(main).toContain('aria-haspopup="dialog"');
   expect(main.indexOf("Where would you like to work?")).toBeLessThan(
-    main.indexOf("New organization"),
+    main.indexOf("New team"),
   );
   // The theme is an icon button just left of the account trigger.
   expect(header).toContain("Switch to dark theme");
@@ -148,16 +152,16 @@ it("puts the account menu in the header and New organization beside the heading"
   expect(html).toContain('id="iso-lattice"');
 });
 
-it("with one org, shows its card instead of redirecting into it", async () => {
+it("with one team, shows its card instead of redirecting into it", async () => {
   const html = await render("hm-one");
   const solo = card(html, "hm-solo");
 
   expect(solo).toContain("HM Solo");
-  expect(solo).toContain(">owner<");
+  expect(solo).toContain(">Admin<");
   expect(solo).toMatch(/>1<\/span> project</);
 });
 
-it("with two orgs, shows both cards with plural counts and one blue CTA", async () => {
+it("with two teams, shows both cards with plural counts and one blue CTA", async () => {
   const html = await render("hm-two");
 
   expect(card(html, "hm-a")).toMatch(/>2<\/span> projects</);
@@ -169,16 +173,17 @@ it("with two orgs, shows both cards with plural counts and one blue CTA", async 
   expect(classes.filter((c) => c === "bg-primary")).toHaveLength(1);
 });
 
-it("counts all projects in the member's organization", async () => {
+it("counts all projects in the member's team", async () => {
   const html = await render("hm-member");
 
-  expect(card(html, "hm-a")).toContain(">member<");
+  expect(card(html, "hm-a")).toContain(">Member<");
   expect(card(html, "hm-a")).toMatch(/>2<\/span> projects</);
   expect(html).not.toContain('href="/hm-b"');
+  expect(html).not.toContain("New team");
 });
 
 it("/new redirects to /", () => {
-  expect(() => NewOrgPage()).toThrow(
+  expect(() => NewTeamPage()).toThrow(
     expect.objectContaining({
       digest: expect.stringMatching(`^NEXT_REDIRECT;[^;]*;${encodeURIComponent("/")}(;|$)`),
     }),

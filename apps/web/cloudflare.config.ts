@@ -55,6 +55,8 @@ export default defineConfig({
       OAUTH_KV: bindings.kv({ id: env.TASKSHQ_KV_ID || undefined }),
       // The MCP Worker's resource URL. Tokens are audience-bound to it.
       MCP_RESOURCE: bindings.text(`${origin(env.TASKSHQ_MCP_URL, "http://localhost:8787")}/mcp`),
+      // Becomes the org owner on first verified sign-in while there is none.
+      OWNER_EMAIL: env.TASKSHQ_OWNER_EMAIL?.trim() ? bindings.text(env.TASKSHQ_OWNER_EMAIL) : undefined,
       CONSENT_SECRET: bindings.secret(),
       INTROSPECT_SECRET: bindings.secret(),
       BETTER_AUTH_SECRET: bindings.secret(),

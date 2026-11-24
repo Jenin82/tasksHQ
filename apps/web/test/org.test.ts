@@ -1,358 +1,222 @@
 import { env } from "cloudflare:test";
 import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
-import { expect, it } from "vitest";
-import { RESERVED_SLUGS } from "@tasks/core/slug";
+import { beforeEach, expect, it, vi } from "vitest";
 import {
   changeOrgMemberRole,
-  createOrg,
+  claimInvites,
+  createProject,
+  createTask,
+  createTeam,
+  hasEligibleInvite,
   inviteToOrg,
   removeOrgMember,
+  renameOrg,
+  revokeOrgInvite,
+  startTimer,
 } from "@tasks/core/domain";
 import {
+  activity,
+  mailOutbox,
   org,
   orgInvite,
   orgMember,
-  project,
   projectMember,
-  status,
   task,
+  teamInvite,
+  teamMember,
+  timeEntry,
   user,
 } from "@tasks/core/schema";
+import { drainMailOutbox } from "@/lib/mail-outbox";
+import { createTeam as createFixtureTeam } from "./helpers";
 
+// Storage is shared across this file's tests, so beforeEach resets org state.
 const db = drizzle(env.DB);
 const now = new Date();
+const OWNER = "og2-owner";
+const ADMIN = "og2-admin";
+const MEMBER = "og2-member";
+const TARGET = "og2-target";
+const ctx = (actorUserId: string, emailNotifications = false) =>
+  ({ db, actorUserId, source: "web" as const, emailNotifications });
 
-// Shared storage, so every id and email here is prefixed `og-`.
-const IDS = ["og-a", "og-b", "og-c", "og-d"];
-await db.insert(user).values(
-  IDS.map((id) => ({
-    id,
-    name: id.toUpperCase(),
-    email: `${id}@org.test`,
-    createdAt: now,
-    updatedAt: now,
-  })),
-);
+await db.insert(user).values([OWNER, ADMIN, MEMBER, TARGET].map((id) => ({
+  id, name: id, email: `${id}@org.test`, emailVerified: true, createdAt: now, updatedAt: now,
+})));
+const ROLES = [[OWNER, "owner"], [ADMIN, "admin"], [MEMBER, "member"], [TARGET, "member"]] as const;
 
-function ctxFor(userId: string) {
-  return { db, actorUserId: userId, source: "web" as const };
+beforeEach(async () => {
+  await db.batch([
+    db.delete(orgInvite),
+    db.delete(mailOutbox),
+    db.delete(orgMember).where(eq(orgMember.role, "owner")),
+    ...ROLES.map(([userId, role]) => db.insert(orgMember).values({ userId, role, createdAt: now })
+      .onConflictDoUpdate({ target: orgMember.userId, set: { role } })),
+  ]);
+});
+
+async function signUp(id: string, email: string) {
+  await db.insert(user).values({ id, name: id, email, emailVerified: true, createdAt: now, updatedAt: now });
+  await claimInvites(db, id, email);
+  return (await db.select().from(orgMember).where(eq(orgMember.userId, id)))[0];
 }
 
-async function membersOf(orgId: string) {
-  return db.select().from(orgMember).where(eq(orgMember.orgId, orgId));
-}
-
-it("createOrg makes the creator an owner", async () => {
-  const created = await createOrg(ctxFor("og-a"), {
-    slug: "og-acme",
-    name: "  Acme  ",
-  });
-
-  expect(created.name).toBe("Acme");
-  expect(await membersOf(created.id)).toMatchObject([
-    { userId: "og-a", role: "owner" },
-  ]);
+it("renames the org for owners and admins only", async () => {
+  expect(await renameOrg(ctx(ADMIN), { name: "  Acme Inc  " })).toBe("Acme Inc");
+  expect((await db.select().from(org))[0].name).toBe("Acme Inc");
+  await expect(renameOrg(ctx(OWNER), { name: "  " })).rejects.toThrow(/name is required/);
+  await expect(renameOrg(ctx(MEMBER), { name: "Nope" })).rejects.toMatchObject({ reason: "forbidden" });
+  await expect(renameOrg(ctx("og2-nobody"), { name: "Nope" })).rejects.toMatchObject({ reason: "not_a_member" });
 });
 
-it("createOrg rejects reserved and malformed slugs and accepts a valid one", async () => {
-  // §4.6's list, plus §5's M2 endpoints, the static `/docs` route, and
-  // `projects`, whose static route would collide with a project slug.
-  expect(RESERVED_SLUGS).toEqual([
-    "api",
-    "login",
-    "new",
-    "settings",
-    "consent",
-    "authorize",
-    "_next",
-    ".well-known",
-    "oauth",
-    "internal",
-    "token",
-    "register",
-    "mcp",
-    "projects",
-    "docs",
-  ]);
+it("invites by email, mails the invite, and claims it with its role", async () => {
+  await renameOrg(ctx(OWNER), { name: "Org Two" });
+  await inviteToOrg(ctx(ADMIN, true), { email: "  New@Org.test ", role: "admin" });
+  expect(await db.select().from(orgInvite)).toMatchObject([{ email: "new@org.test", role: "admin", invitedByUserId: ADMIN }]);
+  expect(await hasEligibleInvite(db, "new@org.test")).toBe(true);
 
-  for (const slug of RESERVED_SLUGS) {
-    await expect(
-      createOrg(ctxFor("og-a"), { slug, name: "X" }),
-    ).rejects.toMatchObject({ name: "DomainError" });
+  const send = vi.fn(async (_message: { to: string; subject: string; text: string }) => {});
+  await drainMailOutbox(db, "https://tasks.example", send);
+  expect(send).toHaveBeenCalledWith(expect.objectContaining({
+    to: "new@org.test",
+    subject: "You’re invited to join Org Two on TasksHQ",
+    text: expect.stringContaining("https://tasks.example/"),
+  }));
+
+  expect(await signUp("og2-new", "new@org.test")).toMatchObject({ role: "admin" });
+  expect((await db.select().from(orgInvite))[0].acceptedAt).not.toBeNull();
+
+  await expect(inviteToOrg(ctx(ADMIN), { email: "og2-member@org.test", role: "member" })).rejects.toThrow(/already a member/);
+  await expect(inviteToOrg(ctx(MEMBER), { email: "x@org.test", role: "member" })).rejects.toMatchObject({ reason: "forbidden" });
+});
+
+it("raises an existing org role on claim but never lowers one", async () => {
+  // A team invite's trigger made them an org member first.
+  await db.insert(user).values({ id: "og2-joined", name: "J", email: "joined@org.test", emailVerified: true, createdAt: now, updatedAt: now });
+  await db.insert(orgMember).values({ userId: "og2-joined", role: "member", createdAt: now });
+  await db.insert(orgInvite).values({ email: "joined@org.test", role: "admin", invitedByUserId: OWNER, createdAt: now });
+  await claimInvites(db, "og2-joined", "joined@org.test");
+  expect((await db.select().from(orgMember).where(eq(orgMember.userId, "og2-joined")))[0].role).toBe("admin");
+
+  await db.insert(orgInvite).values({ email: "og2-owner@org.test", role: "member", invitedByUserId: ADMIN, createdAt: now });
+  await claimInvites(db, OWNER, "og2-owner@org.test");
+  expect((await db.select().from(orgMember).where(eq(orgMember.userId, OWNER)))[0].role).toBe("owner");
+});
+
+it("drops an invite whose inviter no longer manages the org: not claimable and not mailed", async () => {
+  await inviteToOrg(ctx(ADMIN, true), { email: "stale@org.test", role: "member" });
+  await db.update(orgMember).set({ role: "member" }).where(eq(orgMember.userId, ADMIN));
+
+  expect(await hasEligibleInvite(db, "stale@org.test")).toBe(false);
+  const send = vi.fn(async (_message: { to: string }) => {});
+  await drainMailOutbox(db, "https://tasks.example", send);
+  expect(send).not.toHaveBeenCalled();
+  expect(await signUp("og2-stale", "stale@org.test")).toBeUndefined();
+});
+
+it("lets only an owner grant owner, including through an invite", async () => {
+  await expect(inviteToOrg(ctx(ADMIN), { email: "boss@org.test", role: "owner" })).rejects.toThrow(/Only a Super admin/);
+  await inviteToOrg(ctx(OWNER), { email: "boss@org.test", role: "owner" });
+  // An admin can neither overwrite nor revoke a pending owner invite.
+  await expect(inviteToOrg(ctx(ADMIN), { email: "boss@org.test", role: "member" })).rejects.toThrow(/pending Super admin invite/);
+  await revokeOrgInvite(ctx(ADMIN), { email: "boss@org.test" });
+  expect(await db.select().from(orgInvite)).toHaveLength(1);
+
+  // An owner invite whose inviter is now only an admin is no longer claimable.
+  await db.update(orgMember).set({ role: "admin" }).where(eq(orgMember.userId, OWNER));
+  expect(await hasEligibleInvite(db, "boss@org.test")).toBe(false);
+  await db.update(orgMember).set({ role: "owner" }).where(eq(orgMember.userId, OWNER));
+  expect(await signUp("og2-boss", "boss@org.test")).toMatchObject({ role: "owner" });
+});
+
+it("changes roles within the matrix and keeps an owner", async () => {
+  await expect(changeOrgMemberRole(ctx(ADMIN), { userId: OWNER, role: "member" })).rejects.toMatchObject({ reason: "forbidden" });
+  await expect(changeOrgMemberRole(ctx(ADMIN), { userId: MEMBER, role: "owner" })).rejects.toThrow(/Only a Super admin/);
+  await expect(changeOrgMemberRole(ctx(MEMBER), { userId: TARGET, role: "admin" })).rejects.toMatchObject({ reason: "forbidden" });
+  await changeOrgMemberRole(ctx(ADMIN), { userId: MEMBER, role: "admin" });
+
+  await expect(changeOrgMemberRole(ctx(OWNER), { userId: OWNER, role: "admin" })).rejects.toThrow(/at least one Super admin/);
+  await changeOrgMemberRole(ctx(OWNER), { userId: MEMBER, role: "owner" });
+  await changeOrgMemberRole(ctx(OWNER), { userId: OWNER, role: "admin" });
+  expect(await db.select({ userId: orgMember.userId }).from(orgMember).where(eq(orgMember.role, "owner")))
+    .toEqual([{ userId: MEMBER }]);
+});
+
+it("removes someone from the org and every team in one batch", async () => {
+  const first = await createTeam(ctx(ADMIN), { slug: "og2-first", name: "First" });
+  const second = await createTeam(ctx(ADMIN), { slug: "og2-second", name: "Second" });
+  const elsewhere = await createFixtureTeam(ctx(ADMIN), { slug: "og2-elsewhere", name: "Elsewhere" });
+  await db.insert(teamMember).values([first.id, second.id].map((teamId) => ({ teamId, userId: TARGET, role: "member" as const, createdAt: now })));
+  const p1 = await createProject(ctx(ADMIN), { teamId: first.id, slug: "one", name: "One", key: "ONE" });
+  const p2 = await createProject(ctx(ADMIN), { teamId: second.id, slug: "two", name: "Two", key: "TWO" });
+  const p3 = await createProject(ctx(ADMIN), { teamId: elsewhere.id, slug: "three", name: "Three", key: "THR" });
+  await db.insert(projectMember).values({ teamId: first.id, projectId: p1.id, userId: TARGET, role: "admin" });
+  const t1 = await createTask(ctx(ADMIN), { projectId: p1.id, title: "One", assigneeUserId: TARGET });
+  const t2 = await createTask(ctx(ADMIN), { projectId: p2.id, title: "Two", assigneeUserId: TARGET });
+  // Outside their teams: a stale assignment the removal leaves alone.
+  const t3 = await createTask(ctx(ADMIN), { projectId: p3.id, title: "Three" });
+  await db.update(task).set({ assigneeUserId: TARGET }).where(eq(task.id, t3.id));
+  const timer = await startTimer(ctx(TARGET), { taskId: t1.id, projectId: p1.id });
+  // Pending invites go with them; an accepted one is history and stays.
+  const invite = { email: `${TARGET}@org.test`, role: "member" as const, invitedByUserId: ADMIN, createdAt: now };
+  await db.insert(teamInvite).values([
+    { ...invite, teamId: elsewhere.id },
+    { ...invite, teamId: second.id, acceptedAt: now },
+  ]);
+  await db.insert(orgInvite).values(invite);
+
+  await removeOrgMember(ctx(ADMIN), { userId: TARGET });
+
+  expect(await db.select({ teamId: teamInvite.teamId }).from(teamInvite).where(eq(teamInvite.email, invite.email)))
+    .toEqual([{ teamId: second.id }]);
+  expect(await db.select().from(orgInvite).where(eq(orgInvite.email, invite.email))).toEqual([]);
+
+  const assignees = await db.select({ id: task.id, assignee: task.assigneeUserId }).from(task);
+  expect(assignees.find((t) => t.id === t1.id)?.assignee).toBeNull();
+  expect(assignees.find((t) => t.id === t2.id)?.assignee).toBeNull();
+  expect(assignees.find((t) => t.id === t3.id)?.assignee).toBe(TARGET);
+  for (const t of [t1, t2]) {
+    const log = await db.select().from(activity).where(and(eq(activity.taskId, t.id), eq(activity.type, "task.updated")));
+    expect(log).toHaveLength(1);
+    expect(JSON.parse(String(log[0].data))).toEqual({ fields: { assignee: { from: { id: TARGET, displayName: TARGET }, to: null } } });
   }
-  // `_next` and `.well-known` are unspellable as slugs anyway; the other six
-  // are well-formed and only the denylist stops them.
-  for (const slug of ["api", "login", "new", "settings", "consent", "authorize"]) {
-    await expect(
-      createOrg(ctxFor("og-a"), { slug, name: "X" }),
-    ).rejects.toThrowError(/reserved/);
-  }
-
-  for (const slug of ["Acme", "a", "has space", "trailing-", "-leading", "a_b"]) {
-    await expect(
-      createOrg(ctxFor("og-a"), { slug, name: "X" }),
-    ).rejects.toMatchObject({ name: "DomainError" });
-  }
-
-  const ok = await createOrg(ctxFor("og-a"), { slug: "og-v4lid-x", name: "X" });
-  expect(ok.slug).toBe("og-v4lid-x");
-
-  await expect(
-    createOrg(ctxFor("og-b"), { slug: "og-v4lid-x", name: "X" }),
-  ).rejects.toThrowError(/already taken/);
+  expect((await db.select().from(timeEntry).where(eq(timeEntry.id, timer.id)))[0].endedAt).not.toBeNull();
+  expect(await db.select().from(teamMember).where(eq(teamMember.userId, TARGET))).toEqual([]);
+  expect(await db.select().from(projectMember).where(eq(projectMember.userId, TARGET))).toEqual([]);
+  expect(await db.select().from(orgMember).where(eq(orgMember.userId, TARGET))).toEqual([]);
 });
 
-it("inviteToOrg refuses an address that already belongs to a member", async () => {
-  const o = await createOrg(ctxFor("og-a"), { slug: "og-dup", name: "Dup" });
+it("refuses to remove the last owner, and an admin cannot remove an owner", async () => {
+  const team = await createTeam(ctx(OWNER), { slug: "og2-keep", name: "Keep" });
+  const p = await createProject(ctx(OWNER), { teamId: team.id, slug: "keep", name: "Keep", key: "KEP" });
+  const t = await createTask(ctx(OWNER), { projectId: p.id, title: "Mine", assigneeUserId: OWNER });
+  const invite = { email: `${OWNER}@org.test`, role: "member" as const, invitedByUserId: ADMIN, createdAt: now };
+  await db.insert(teamInvite).values({ ...invite, teamId: team.id });
 
-  // og-a's own address, in the casing Google would return it.
-  await expect(
-    inviteToOrg(ctxFor("og-a"), {
-      orgId: o.id,
-      email: "OG-A@Org.test",
-      role: "member",
-    }),
-  ).rejects.toThrowError(/already a member/);
+  await expect(removeOrgMember(ctx(OWNER), { userId: OWNER })).rejects.toThrow(/at least one Super admin/);
+  await expect(removeOrgMember(ctx(ADMIN), { userId: OWNER })).rejects.toMatchObject({ reason: "forbidden" });
+  await expect(removeOrgMember(ctx(MEMBER), { userId: TARGET })).rejects.toMatchObject({ reason: "forbidden" });
+  // The refused batch rolled back its unassignment.
+  expect((await db.select().from(task).where(eq(task.id, t.id)))[0].assigneeUserId).toBe(OWNER);
+  expect(await db.select().from(orgMember).where(eq(orgMember.userId, OWNER))).toHaveLength(1);
+  // ...and its invite cleanup.
+  expect(await db.select().from(teamInvite).where(eq(teamInvite.email, invite.email))).toHaveLength(1);
 });
 
-it("inviteToOrg upserts a removed-then-reinvited user, clearing acceptedAt", async () => {
-  const o = await createOrg(ctxFor("og-a"), { slug: "og-re", name: "Re" });
+it("lets an org admin remove a team admin from the org", async () => {
+  const owned = await createFixtureTeam(ctx(ADMIN), { slug: "og2-owned", name: "Owned" });
+  await db.insert(teamMember).values({ teamId: owned.id, userId: TARGET, role: "admin", createdAt: now });
 
-  await inviteToOrg(ctxFor("og-a"), {
-    orgId: o.id,
-    email: "og-b@org.test",
-    role: "member",
-  });
-  // Accepted, the way claimInvites would stamp it.
-  await db
-    .update(orgInvite)
-    .set({ acceptedAt: now })
-    .where(
-      and(eq(orgInvite.orgId, o.id), eq(orgInvite.email, "og-b@org.test")),
-    );
-  await db.insert(orgMember).values({
-    orgId: o.id,
-    userId: "og-b",
-    role: "member",
-    createdAt: now,
-  });
-
-  await removeOrgMember(ctxFor("og-a"), { orgId: o.id, userId: "og-b" });
-
-  await inviteToOrg(ctxFor("og-a"), {
-    orgId: o.id,
-    email: "  OG-B@org.test  ",
-    role: "admin",
-  });
-
-  const invites = await db
-    .select()
-    .from(orgInvite)
-    .where(eq(orgInvite.orgId, o.id));
-  expect(invites).toHaveLength(1);
-  expect(invites[0]).toMatchObject({
-    email: "og-b@org.test",
-    role: "admin",
-    acceptedAt: null,
-  });
+  await removeOrgMember(ctx(ADMIN), { userId: TARGET });
+  expect(await db.select().from(orgMember).where(eq(orgMember.userId, TARGET))).toEqual([]);
+  expect(await db.select().from(teamMember).where(eq(teamMember.userId, TARGET))).toEqual([]);
 });
 
-it("refuses to remove or demote the final owner, and allows both once there are two", async () => {
-  const o = await createOrg(ctxFor("og-a"), { slug: "og-last", name: "Last" });
-
-  await expect(
-    removeOrgMember(ctxFor("og-a"), { orgId: o.id, userId: "og-a" }),
-  ).rejects.toThrowError(/at least one owner/);
-  await expect(
-    changeOrgMemberRole(ctxFor("og-a"), {
-      orgId: o.id,
-      userId: "og-a",
-      role: "admin",
-    }),
-  ).rejects.toThrowError(/at least one owner/);
-
-  await db.insert(orgMember).values({
-    orgId: o.id,
-    userId: "og-b",
-    role: "owner",
-    createdAt: now,
-  });
-
-  await changeOrgMemberRole(ctxFor("og-a"), {
-    orgId: o.id,
-    userId: "og-a",
-    role: "admin",
-  });
-  await changeOrgMemberRole(ctxFor("og-b"), {
-    orgId: o.id,
-    userId: "og-a",
-    role: "owner",
-  });
-  await removeOrgMember(ctxFor("og-b"), { orgId: o.id, userId: "og-b" });
-
-  expect(await membersOf(o.id)).toMatchObject([
-    { userId: "og-a", role: "owner" },
-  ]);
-});
-
-it("an admin cannot grant or target owner, nor remove one", async () => {
-  const o = await createOrg(ctxFor("og-a"), { slug: "og-admin", name: "Adm" });
-  await db.insert(orgMember).values([
-    { orgId: o.id, userId: "og-b", role: "admin", createdAt: now },
-    { orgId: o.id, userId: "og-c", role: "member", createdAt: now },
-  ]);
-
-  await expect(
-    changeOrgMemberRole(ctxFor("og-b"), {
-      orgId: o.id,
-      userId: "og-c",
-      role: "owner",
-    }),
-    // A DomainError, so a stale form gets an inline sentence, not a 403.
-  ).rejects.toMatchObject({ name: "DomainError" });
-
-  await expect(
-    changeOrgMemberRole(ctxFor("og-b"), {
-      orgId: o.id,
-      userId: "og-a",
-      role: "member",
-    }),
-  ).rejects.toMatchObject({ reason: "forbidden" });
-
-  await expect(
-    removeOrgMember(ctxFor("og-b"), { orgId: o.id, userId: "og-a" }),
-  ).rejects.toMatchObject({ reason: "forbidden" });
-
-  await expect(
-    inviteToOrg(ctxFor("og-b"), {
-      orgId: o.id,
-      email: "og-d@org.test",
-      role: "owner",
-    }),
-  ).rejects.toMatchObject({ name: "DomainError" });
-
-  // A plain member has none of this authority at all.
-  await expect(
-    changeOrgMemberRole(ctxFor("og-c"), {
-      orgId: o.id,
-      userId: "og-b",
-      role: "member",
-    }),
-  ).rejects.toMatchObject({ reason: "forbidden" });
-
-  // But an admin may still change a non-owner's role.
-  await changeOrgMemberRole(ctxFor("og-b"), {
-    orgId: o.id,
-    userId: "og-c",
-    role: "admin",
-  });
-  const [c] = await db
-    .select()
-    .from(orgMember)
-    .where(and(eq(orgMember.orgId, o.id), eq(orgMember.userId, "og-c")));
-  expect(c.role).toBe("admin");
-});
-
-it("removing an org member nulls their task assignments and drops their project_member rows", async () => {
-  const o = await createOrg(ctxFor("og-a"), { slug: "og-casc", name: "Casc" });
-  await db.insert(orgMember).values({
-    orgId: o.id,
-    userId: "og-b",
-    role: "member",
-    createdAt: now,
-  });
-  await db.insert(project).values({
-    id: "og-casc-p",
-    orgId: o.id,
-    slug: "p",
-    name: "P",
-    key: "OGC",
-    createdAt: now,
-  });
-  await db.insert(projectMember).values({
-    orgId: o.id,
-    projectId: "og-casc-p",
-    userId: "og-b",
-  });
-  await db.insert(status).values({
-    id: "og-casc-s",
-    projectId: "og-casc-p",
-    name: "Todo",
-    color: "gray",
-    position: "a0",
-    createdAt: now,
-  });
-  await db.insert(task).values({
-    id: "og-casc-t",
-    projectId: "og-casc-p",
-    number: 1,
-    title: "Assigned to the leaver",
-    statusId: "og-casc-s",
-    assigneeUserId: "og-b",
-    position: "a0",
-    createdByUserId: "og-a",
-    createdAt: now,
-    updatedAt: now,
-  });
-
-  // A second org whose task is assigned to the same user, to prove the update
-  // is scoped to the org being left rather than nulling every assignment.
-  const other = await createOrg(ctxFor("og-c"), {
-    slug: "og-casc-other",
-    name: "Other",
-  });
-  await db.insert(orgMember).values({
-    orgId: other.id,
-    userId: "og-b",
-    role: "member",
-    createdAt: now,
-  });
-  await db.insert(project).values({
-    id: "og-casc-p2",
-    orgId: other.id,
-    slug: "p",
-    name: "P",
-    key: "OGD",
-    createdAt: now,
-  });
-  await db.insert(status).values({
-    id: "og-casc-s2",
-    projectId: "og-casc-p2",
-    name: "Todo",
-    color: "gray",
-    position: "a0",
-    createdAt: now,
-  });
-  await db.insert(task).values({
-    id: "og-casc-t2",
-    projectId: "og-casc-p2",
-    number: 1,
-    title: "Still theirs",
-    statusId: "og-casc-s2",
-    assigneeUserId: "og-b",
-    position: "a0",
-    createdByUserId: "og-c",
-    createdAt: now,
-    updatedAt: now,
-  });
-
-  await removeOrgMember(ctxFor("og-a"), { orgId: o.id, userId: "og-b" });
-
-  const [t] = await db.select().from(task).where(eq(task.id, "og-casc-t"));
-  expect(t.assigneeUserId).toBeNull();
-  const [t2] = await db.select().from(task).where(eq(task.id, "og-casc-t2"));
-  expect(t2.assigneeUserId).toBe("og-b");
-
-  // The composite FK's ON DELETE CASCADE, not code in removeOrgMember.
-  expect(
-    await db
-      .select()
-      .from(projectMember)
-      .where(eq(projectMember.projectId, "og-casc-p")),
-  ).toEqual([]);
-
-  expect(await membersOf(o.id)).toMatchObject([
-    { userId: "og-a", role: "owner" },
-  ]);
+it("lets only org owners and admins create teams", async () => {
+  await expect(createTeam(ctx(MEMBER), { slug: "og2-nope", name: "Nope" })).rejects.toMatchObject({ reason: "forbidden" });
+  await expect(createTeam(ctx("og2-nobody"), { slug: "og2-nope", name: "Nope" })).rejects.toMatchObject({ reason: "not_a_member" });
+  const created = await createTeam(ctx(ADMIN), { slug: "og2-made", name: "Made" });
+  expect(await db.select().from(teamMember).where(eq(teamMember.teamId, created.id)))
+    .toMatchObject([{ userId: ADMIN, role: "admin" }]);
 });

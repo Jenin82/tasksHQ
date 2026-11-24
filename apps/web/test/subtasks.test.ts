@@ -4,11 +4,10 @@ import { drizzle } from "drizzle-orm/d1";
 import { expect, it, vi } from "vitest";
 import {
   archiveTask,
-  createOrg,
   createProject,
   createTask,
   deleteArchivedTask,
-  deleteOrg,
+  deleteTeam,
   deleteProject,
   getTaskByKey,
   getTaskDetail,
@@ -17,8 +16,9 @@ import {
   transferTask,
   updateTask,
 } from "@tasks/core/domain";
+import { createTeam } from "./helpers";
 import { isTaskParentError } from "@tasks/core/errors";
-import { orgMember, task, user } from "@tasks/core/schema";
+import { orgMember, teamMember, task, user } from "@tasks/core/schema";
 import { readFilters } from "@/components/use-saved-task-filters";
 
 const db = drizzle(env.DB);
@@ -33,10 +33,10 @@ await db.insert(user).values([ownerId, memberId].map((id) => ({
 const ctx = (actorUserId: string) => ({ db, actorUserId, source: "web" as const });
 const owner = ctx(ownerId);
 const member = ctx(memberId);
-const workspace = await createOrg(owner, { slug: "subtasks", name: "Subtasks" });
-await db.insert(orgMember).values({ orgId: workspace.id, userId: memberId, role: "member", createdAt: new Date() });
+const workspace = await createTeam(owner, { slug: "subtasks", name: "Subtasks" });
+await db.insert(teamMember).values({ teamId: workspace.id, userId: memberId, role: "member", createdAt: new Date() });
 const makeProject = (slug: string, key: string) => createProject(owner, {
-  orgId: workspace.id,
+  teamId: workspace.id,
   slug,
   key,
   name: slug,
@@ -229,13 +229,15 @@ it("detaches sub-tasks when their parent is deleted, and deletes projects holdin
   expect(await db.select().from(task).where(eq(task.projectId, doomed.id))).toEqual([]);
 });
 
-it("deletes an organization holding a parent and its sub-task", async () => {
-  const doomed = await createOrg(owner, { slug: "subtasks-doomed", name: "Doomed" });
-  const project = await createProject(owner, { orgId: doomed.id, slug: "doomed", key: "DOO", name: "doomed" });
+it("deletes a team holding a parent and its sub-task", async () => {
+  const doomed = await createTeam(owner, { slug: "subtasks-doomed", name: "Doomed" });
+  const project = await createProject(owner, { teamId: doomed.id, slug: "doomed", key: "DOO", name: "doomed" });
   const parent = await createTask(owner, { projectId: project.id, title: "Parent" });
   await createTask(owner, { projectId: project.id, title: "Child", parentTaskId: parent.id });
 
-  await deleteOrg(owner, { orgId: doomed.id, confirmation: doomed.slug });
+  // Only org owners delete teams.
+  await db.update(orgMember).set({ role: "owner" }).where(eq(orgMember.userId, ownerId));
+  await deleteTeam(owner, { teamId: doomed.id, confirmation: doomed.slug });
   expect(await db.select().from(task).where(eq(task.projectId, project.id))).toEqual([]);
 });
 

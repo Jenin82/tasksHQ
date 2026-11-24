@@ -4,8 +4,8 @@ import type { Project } from "@tasks/core/schema";
 import { TASK_IMAGE_ID, taskImageKey, taskImagePath } from "@tasks/core/task-images";
 import { createDescriptionMarked } from "./description-markdown";
 
-export async function transferTaskImages(description: string, org: string, source: Project, target: Project) {
-  const prefix = taskImagePath(org, source.slug, "");
+export async function transferTaskImages(description: string, team: string, source: Project, target: Project) {
+  const prefix = taskImagePath(team, source.slug, "");
   if (!description.includes("images")) return description;
 
   const ids = new Map<string, { id: string; offset: number }>();
@@ -17,7 +17,7 @@ export async function transferTaskImages(description: string, org: string, sourc
     const normalized = path.replace(/\\([/-])/g, "$1");
     const id = normalized.slice(prefix.length);
     if (!normalized.startsWith(prefix) || !TASK_IMAGE_ID.test(id)) return path;
-    const probe = taskImagePath(org, source.slug, crypto.randomUUID());
+    const probe = taskImagePath(team, source.slug, crypto.randomUUID());
     ids.set(probe, { id, offset });
     return probe;
   });
@@ -47,7 +47,7 @@ export async function transferTaskImages(description: string, org: string, sourc
         await env.TASK_IMAGES.put(taskImageKey(target.id, destinationId), object.body, {
           httpMetadata: { contentType: "image/webp" },
         });
-        copied.set(id, taskImagePath(org, target.slug, destinationId));
+        copied.set(id, taskImagePath(team, target.slug, destinationId));
       }
       const path = copied.get(id);
       if (path) replacements.set(offset, path);

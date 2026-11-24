@@ -141,6 +141,34 @@
       "when": 1794993222882,
       "tag": "0019_project_slug_alias",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1795076492677,
+      "tag": "0020_rename_org_to_team",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1795084030479,
+      "tag": "0021_org_layer",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1795090594024,
+      "tag": "0022_org_reporting_and_time",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1795161604853,
+      "tag": "0023_team_admin_role",
+      "breakpoints": true
     }
   ]
 }

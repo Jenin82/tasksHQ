@@ -7,38 +7,39 @@ import {
   addComment,
   addProjectMember,
   archiveTask,
-  changeOrgMemberRole,
-  createOrg,
+  changeTeamMemberRole,
   createProject,
   createTask,
   deleteArchivedTask,
-  deleteOrg,
+  deleteTeam,
   deleteProject,
   getTaskDetail,
-  inviteToOrg,
+  inviteToTeam,
   listTasks,
   unarchiveTask,
 } from "@tasks/core/domain";
+import { createTeam } from "./helpers";
 import {
   activity,
   comment,
-  org,
-  orgInvite,
   orgMember,
+  team as teamTable,
+  teamInvite,
+  teamMember,
   project,
   projectMember,
   status,
   task,
   user,
 } from "@tasks/core/schema";
-import { deleteOrgAction, renameOrgAction } from "@/app/[org]/(org)/settings/general/actions";
-import OrganizationGeneralPage from "@/app/[org]/(org)/settings/general/page";
-import MembersPage from "@/app/[org]/(org)/settings/members/page";
-import { deleteProjectAction } from "@/app/[org]/[project]/settings/actions";
-import ProjectSettingsPage from "@/app/[org]/[project]/settings/page";
-import { archiveAction } from "@/app/[org]/[project]/[task]/actions";
-import { deleteArchivedTaskAction } from "@/app/[org]/[project]/archived/actions";
-import ArchivedPage from "@/app/[org]/[project]/archived/page";
+import { deleteTeamAction, renameTeamAction } from "@/app/[team]/(team)/settings/general/actions";
+import TeamGeneralPage from "@/app/[team]/(team)/settings/general/page";
+import MembersPage from "@/app/[team]/(team)/settings/members/page";
+import { deleteProjectAction } from "@/app/[team]/[project]/settings/actions";
+import ProjectSettingsPage from "@/app/[team]/[project]/settings/page";
+import { archiveAction } from "@/app/[team]/[project]/[task]/actions";
+import { deleteArchivedTaskAction } from "@/app/[team]/[project]/archived/actions";
+import ArchivedPage from "@/app/[team]/[project]/archived/page";
 
 const actor = vi.hoisted(() => ({ id: "" }));
 vi.mock("@/lib/session", () => ({
@@ -51,11 +52,14 @@ vi.mock("@/lib/session", () => ({
 
 const db = drizzle(env.DB);
 const now = new Date();
+// `ownerId` creates the fixture teams, so it is their first team admin; only
+// `orgOwnerId`, an org owner outside every team, may delete a team.
 const ownerId = "del-owner";
 const adminId = "del-admin";
 const memberId = "del-member";
 const outsiderId = "del-outsider";
-const ids = [ownerId, adminId, memberId, outsiderId];
+const orgOwnerId = "del-org-owner";
+const ids = [ownerId, adminId, memberId, outsiderId, orgOwnerId];
 await db.insert(user).values(
   ids.map((id) => ({
     id,
@@ -65,6 +69,8 @@ await db.insert(user).values(
     updatedAt: now,
   })),
 );
+
+await db.insert(orgMember).values({ userId: orgOwnerId, role: "owner", createdAt: now });
 
 function context(actorUserId = ownerId) {
   return { db, actorUserId, source: "web" as const };
@@ -84,8 +90,8 @@ function redirectTo(path: string) {
   };
 }
 
-async function projectWithTasks(orgId: string, slug: string, key: string) {
-  const row = await createProject(context(), { orgId, slug, key, name: slug });
+async function projectWithTasks(teamId: string, slug: string, key: string) {
+  const row = await createProject(context(), { teamId, slug, key, name: slug });
   const live = await createTask(context(), { projectId: row.id, title: "Live" });
   const archived = await createTask(context(), {
     projectId: row.id,
@@ -108,66 +114,69 @@ async function projectContents(row: Awaited<ReturnType<typeof projectWithTasks>>
   return records.map((rows) => rows.length);
 }
 
-async function orgContents(orgId: string) {
+async function teamContents(teamId: string) {
   const records = await db.batch([
-    db.select().from(org).where(eq(org.id, orgId)),
-    db.select().from(orgMember).where(eq(orgMember.orgId, orgId)),
-    db.select().from(orgInvite).where(eq(orgInvite.orgId, orgId)),
+    db.select().from(teamTable).where(eq(teamTable.id, teamId)),
+    db.select().from(teamMember).where(eq(teamMember.teamId, teamId)),
+    db.select().from(teamInvite).where(eq(teamInvite.teamId, teamId)),
   ]);
   return records.map((rows) => rows.length);
 }
 
-it("shows deletion only to org owners and denies direct requests from other roles", async () => {
-  const organization = await createOrg(context(), {
+it("shows team deletion only to org owners and project deletion to team admins, and denies other roles", async () => {
+  const team = await createTeam(context(), {
     slug: "del-permissions",
     name: "Permissions",
   });
   const target = await createProject(context(), {
-    orgId: organization.id,
+    teamId: team.id,
     slug: "del-restricted",
     name: "Restricted",
     key: "DRS",
   });
-  await db.insert(orgMember).values([
-    { orgId: organization.id, userId: adminId, role: "admin", createdAt: now },
-    { orgId: organization.id, userId: memberId, role: "member", createdAt: now },
+  await db.insert(teamMember).values([
+    { teamId: team.id, userId: adminId, role: "admin", createdAt: now },
+    { teamId: team.id, userId: memberId, role: "member", createdAt: now },
   ]);
   await addProjectMember(context(), { projectId: target.id, userId: memberId });
 
-  const orgParams = { org: organization.slug };
+  const teamParams = { team: team.slug };
   const forbidden = { digest: "NEXT_HTTP_ERROR_FALLBACK;403" };
-  for (const actorId of [ownerId, adminId, memberId]) {
+  for (const actorId of [ownerId, adminId, memberId, orgOwnerId]) {
     actor.id = actorId;
-    const general = OrganizationGeneralPage({ params: Promise.resolve(orgParams) });
+    const general = TeamGeneralPage({ params: Promise.resolve(teamParams) });
     if (actorId === memberId) {
       await expect(general).rejects.toMatchObject(forbidden);
     } else {
-      const orgHtml = renderToStaticMarkup(await general);
-      expect(orgHtml).toContain("Organization name");
-      expect(orgHtml.includes("Delete organization")).toBe(actorId === ownerId);
+      const teamHtml = renderToStaticMarkup(await general);
+      expect(teamHtml).toContain("Team name");
+      expect(teamHtml.includes("Delete team")).toBe(actorId === orgOwnerId);
     }
     if (actorId === memberId) {
-      await expect(MembersPage({ params: Promise.resolve(orgParams) })).rejects.toMatchObject(forbidden);
+      await expect(MembersPage({ params: Promise.resolve(teamParams) })).rejects.toMatchObject(forbidden);
     } else {
-      const membersHtml = renderToStaticMarkup(await MembersPage({ params: Promise.resolve(orgParams) }));
-      expect(membersHtml).not.toContain("Delete organization");
+      const membersHtml = renderToStaticMarkup(await MembersPage({ params: Promise.resolve(teamParams) }));
+      expect(membersHtml).not.toContain("Delete team");
     }
     const projectSettings = ProjectSettingsPage({
-      params: Promise.resolve({ ...orgParams, project: target.slug }),
+      params: Promise.resolve({ ...teamParams, project: target.slug }),
     });
     if (actorId === memberId) {
       await expect(projectSettings).rejects.toMatchObject(forbidden);
     } else {
       const projectHtml = renderToStaticMarkup(await projectSettings);
-      expect(projectHtml.includes("Delete project")).toBe(actorId === ownerId);
+      expect(projectHtml).toContain("Delete project");
     }
   }
 
-  for (const actorId of [adminId, memberId, outsiderId]) {
+  for (const actorId of [ownerId, adminId, memberId, outsiderId]) {
     const reason = actorId === outsiderId ? "not_a_member" : "forbidden";
     await expect(
-      deleteOrg(context(actorId), { orgId: organization.id, confirmation: organization.slug }),
+      deleteTeam(context(actorId), { teamId: team.id, confirmation: team.slug }),
     ).rejects.toMatchObject({ name: "AccessError", reason });
+  }
+  for (const actorId of [memberId, outsiderId]) {
+    const reason = actorId === outsiderId ? "not_a_member" : "forbidden";
     await expect(
       deleteProject(context(actorId), { projectId: target.id, confirmation: target.slug }),
     ).rejects.toMatchObject({ name: "AccessError", reason });
@@ -175,23 +184,31 @@ it("shows deletion only to org owners and denies direct requests from other role
 
   actor.id = adminId;
   await expect(
-    deleteOrgAction(organization.slug, organization.id, {}, form(organization.slug)),
+    deleteTeamAction(team.slug, team.id, {}, form(team.slug)),
   ).rejects.toMatchObject(forbidden);
+  actor.id = memberId;
   await expect(
-    deleteProjectAction(organization.slug, target.slug, target.id, {}, form(target.slug)),
+    deleteProjectAction(team.slug, target.slug, target.id, {}, form(target.slug)),
   ).rejects.toMatchObject(forbidden);
+
+  // Any team admin, not only the team's creator, deletes a project.
+  actor.id = adminId;
+  await expect(
+    deleteProjectAction(team.slug, target.slug, target.id, {}, form(target.slug)),
+  ).rejects.toMatchObject(redirectTo(`/${team.slug}`));
+  expect(await db.select().from(project).where(eq(project.id, target.id))).toEqual([]);
 });
 
-it("lets owners and admins rename an organization while preserving its slug", async () => {
-  const organization = await createOrg(context(), { slug: "del-rename", name: "Before" });
-  await db.insert(orgMember).values([
-    { orgId: organization.id, userId: adminId, role: "admin", createdAt: now },
-    { orgId: organization.id, userId: memberId, role: "member", createdAt: now },
+it("lets team admins rename a team while preserving its slug", async () => {
+  const team = await createTeam(context(), { slug: "del-rename", name: "Before" });
+  await db.insert(teamMember).values([
+    { teamId: team.id, userId: adminId, role: "admin", createdAt: now },
+    { teamId: team.id, userId: memberId, role: "member", createdAt: now },
   ]);
   const submit = (name: string) => {
     const data = new FormData();
     data.set("name", name);
-    return renameOrgAction(organization.slug, organization.id, {}, data);
+    return renameTeamAction(team.slug, team.id, {}, data);
   };
 
   actor.id = memberId;
@@ -199,96 +216,96 @@ it("lets owners and admins rename an organization while preserving its slug", as
   actor.id = outsiderId;
   await expect(submit("Hidden")).rejects.toMatchObject({ digest: "NEXT_HTTP_ERROR_FALLBACK;404" });
   actor.id = ownerId;
-  await expect(submit("  ")).resolves.toMatchObject({ error: "Organization name is required." });
+  await expect(submit("  ")).resolves.toMatchObject({ error: "Team name is required." });
   await expect(submit("Owner name")).resolves.toEqual({ values: { name: "Owner name" } });
   actor.id = adminId;
   await expect(submit("  Admin name  ")).resolves.toEqual({ values: { name: "Admin name" } });
 
-  const [stored] = await db.select().from(org).where(eq(org.id, organization.id));
-  expect(stored).toMatchObject({ name: "Admin name", slug: organization.slug });
+  const [stored] = await db.select().from(teamTable).where(eq(teamTable.id, team.id));
+  expect(stored).toMatchObject({ name: "Admin name", slug: team.slug });
 });
 
 it("deletes only the confirmed project and refuses a stale form after slug reuse", async () => {
   actor.id = ownerId;
-  const organization = await createOrg(context(), {
-    slug: "del-project-org",
+  const team = await createTeam(context(), {
+    slug: "del-project-team",
     name: "Project deletion",
   });
-  const target = await projectWithTasks(organization.id, "del-target", "DLT");
-  const neighbor = await projectWithTasks(organization.id, "del-neighbor", "DLN");
+  const target = await projectWithTasks(team.id, "del-target", "DLT");
+  const neighbor = await projectWithTasks(team.id, "del-neighbor", "DLN");
   const targetBefore = await projectContents(target);
   const neighborBefore = await projectContents(neighbor);
   const submit = (confirmation: string) =>
-    deleteProjectAction(organization.slug, target.slug, target.id, {}, form(confirmation));
+    deleteProjectAction(team.slug, target.slug, target.id, {}, form(confirmation));
 
   expect(await submit(`${target.slug} `)).toMatchObject({ error: expect.any(String) });
   expect(await projectContents(target)).toEqual(targetBefore);
 
-  await expect(submit(target.slug)).rejects.toMatchObject(redirectTo(`/${organization.slug}`));
+  await expect(submit(target.slug)).rejects.toMatchObject(redirectTo(`/${team.slug}`));
   expect(await projectContents(target)).toEqual([0, 0, 0, 0, 0, 0]);
   expect(await projectContents(neighbor)).toEqual(neighborBefore);
-  expect(await orgContents(organization.id)).toEqual([1, 1, 0]);
+  expect(await teamContents(team.id)).toEqual([1, 1, 0]);
 
-  const replacement = await projectWithTasks(organization.id, target.slug, target.key);
+  const replacement = await projectWithTasks(team.id, target.slug, target.key);
   await expect(submit(target.slug)).rejects.toMatchObject({
     digest: "NEXT_HTTP_ERROR_FALLBACK;404",
   });
   expect(await projectContents(replacement)).toEqual(targetBefore);
 });
 
-it("deletes an organization's projects, memberships and invites while preserving other organizations and users", async () => {
-  actor.id = ownerId;
-  const organization = await createOrg(context(), {
-    slug: "del-org-target",
-    name: "Organization deletion",
+it("deletes a team's projects, memberships and invites while preserving other teams and users", async () => {
+  actor.id = orgOwnerId;
+  const team = await createTeam(context(), {
+    slug: "del-team-target",
+    name: "Team deletion",
   });
-  const neighbor = await createOrg(context(), {
-    slug: "del-org-neighbor",
-    name: "Neighboring organization",
+  const neighbor = await createTeam(context(), {
+    slug: "del-team-neighbor",
+    name: "Neighboring team",
   });
-  await db.insert(orgMember).values({
-    orgId: organization.id,
+  await db.insert(teamMember).values({
+    teamId: team.id,
     userId: memberId,
-    role: "owner",
+    role: "admin",
     createdAt: now,
   });
-  for (const orgId of [organization.id, neighbor.id]) {
-    await inviteToOrg(context(), { orgId, email: "pending@deletion.test", role: "member" });
+  for (const teamId of [team.id, neighbor.id]) {
+    await inviteToTeam(context(), { teamId, email: "pending@deletion.test", role: "member" });
   }
-  const first = await projectWithTasks(organization.id, "del-first", "DLF");
-  const second = await projectWithTasks(organization.id, "del-second", "DLS");
+  const first = await projectWithTasks(team.id, "del-first", "DLF");
+  const second = await projectWithTasks(team.id, "del-second", "DLS");
   const preserved = await projectWithTasks(neighbor.id, first.slug, first.key);
   const preservedBefore = await projectContents(preserved);
   const submit = (confirmation: string) =>
-    deleteOrgAction(organization.slug, organization.id, {}, form(confirmation));
+    deleteTeamAction(team.slug, team.id, {}, form(confirmation));
 
   expect(await submit("")).toMatchObject({ error: expect.any(String) });
-  expect(await orgContents(organization.id)).toEqual([1, 2, 1]);
+  expect(await teamContents(team.id)).toEqual([1, 2, 1]);
 
-  await expect(submit(organization.slug)).rejects.toMatchObject(redirectTo("/"));
-  expect(await orgContents(organization.id)).toEqual([0, 0, 0]);
+  await expect(submit(team.slug)).rejects.toMatchObject(redirectTo("/"));
+  expect(await teamContents(team.id)).toEqual([0, 0, 0]);
   expect(await projectContents(first)).toEqual([0, 0, 0, 0, 0, 0]);
   expect(await projectContents(second)).toEqual([0, 0, 0, 0, 0, 0]);
-  expect(await orgContents(neighbor.id)).toEqual([1, 1, 1]);
+  expect(await teamContents(neighbor.id)).toEqual([1, 1, 1]);
   expect(await projectContents(preserved)).toEqual(preservedBefore);
   expect(await db.select().from(user).where(inArray(user.id, ids))).toHaveLength(ids.length);
 
-  const replacement = await createOrg(context(), {
-    slug: organization.slug,
+  const replacement = await createTeam(context(), {
+    slug: team.slug,
     name: "Replacement",
   });
-  await expect(submit(organization.slug)).rejects.toMatchObject({
+  await expect(submit(team.slug)).rejects.toMatchObject({
     digest: "NEXT_HTTP_ERROR_FALLBACK;404",
   });
-  expect(await orgContents(replacement.id)).toEqual([1, 1, 0]);
+  expect(await teamContents(replacement.id)).toEqual([1, 1, 0]);
 });
 
 it("rolls back project cleanup if the final delete fails", async () => {
-  const organization = await createOrg(context(), {
+  const team = await createTeam(context(), {
     slug: "del-rollback",
     name: "Rollback",
   });
-  const target = await projectWithTasks(organization.id, "del-atomic", "DLA");
+  const target = await projectWithTasks(team.id, "del-atomic", "DLA");
   const before = await projectContents(target);
   await env.DB.exec(
     `CREATE TRIGGER del_test_abort BEFORE DELETE ON project WHEN OLD.id = '${target.id}' BEGIN SELECT RAISE(ABORT, 'del_test_abort'); END;`,
@@ -303,41 +320,43 @@ it("rolls back project cleanup if the final delete fails", async () => {
   }
 });
 
-it.each(["project", "organization"] as const)(
-  "preserves %s data if the actor loses ownership before the delete batch",
+it.each(["project", "team"] as const)(
+  "preserves %s data if the actor loses the deleting role before the delete batch",
   async (kind) => {
-    const organization = await createOrg(context(), {
+    const team = await createTeam(context(), {
       slug: `del-demoted-${kind}`,
       name: "Demotion during deletion",
     });
-    await db.insert(orgMember).values({
-      orgId: organization.id,
+    await db.insert(teamMember).values({
+      teamId: team.id,
       userId: memberId,
-      role: "owner",
+      role: "admin",
       createdAt: now,
     });
-    await inviteToOrg(context(), {
-      orgId: organization.id,
+    await inviteToTeam(context(), {
+      teamId: team.id,
       email: "demoted@deletion.test",
       role: "member",
     });
-    const target = await projectWithTasks(organization.id, "del-race", "DLR");
+    const target = await projectWithTasks(team.id, "del-race", "DLR");
     const before = await projectContents(target);
 
     const racingDb = drizzle(env.DB);
     const batch = racingDb.batch.bind(racingDb);
+    // Project deletion needs a team admin, team deletion an org owner.
+    const actorId = kind === "project" ? ownerId : orgOwnerId;
     const intercepted = vi.spyOn(racingDb, "batch").mockImplementation(async (queries) => {
-      await changeOrgMemberRole(context(memberId), {
-        orgId: organization.id,
-        userId: ownerId,
-        role: "admin",
-      });
+      if (kind === "project") {
+        await changeTeamMemberRole(context(memberId), { teamId: team.id, userId: ownerId, role: "member" });
+      } else {
+        await db.update(orgMember).set({ role: "admin" }).where(eq(orgMember.userId, orgOwnerId));
+      }
       return batch(queries);
     });
-    const ctx = { ...context(), db: racingDb };
+    const ctx = { ...context(actorId), db: racingDb };
     const deletion = kind === "project"
       ? deleteProject(ctx, { projectId: target.id, confirmation: target.slug })
-      : deleteOrg(ctx, { orgId: organization.id, confirmation: organization.slug });
+      : deleteTeam(ctx, { teamId: team.id, confirmation: team.slug });
 
     await expect(deletion).rejects.toMatchObject({
       name: "AccessError",
@@ -345,21 +364,22 @@ it.each(["project", "organization"] as const)(
     });
     expect(intercepted).toHaveBeenCalledTimes(1);
     expect(await projectContents(target)).toEqual(before);
-    expect(await orgContents(organization.id)).toEqual([1, 2, 1]);
+    expect(await teamContents(team.id)).toEqual([1, 2, 1]);
+    await db.update(orgMember).set({ role: "owner" }).where(eq(orgMember.userId, orgOwnerId));
   },
 );
 
 it("lists only archived tasks and lets a member restore them without granting permanent deletion", async () => {
-  const organization = await createOrg(context(), { slug: "del-archive-view", name: "Archive view" });
-  const target = await projectWithTasks(organization.id, "del-archive-list", "DAV");
+  const team = await createTeam(context(), { slug: "del-archive-view", name: "Archive view" });
+  const target = await projectWithTasks(team.id, "del-archive-list", "DAV");
   const [liveId, archivedId] = target.taskIds;
-  await db.insert(orgMember).values([
-    { orgId: organization.id, userId: adminId, role: "admin", createdAt: now },
-    { orgId: organization.id, userId: memberId, role: "member", createdAt: now },
+  await db.insert(teamMember).values([
+    { teamId: team.id, userId: adminId, role: "admin", createdAt: now },
+    { teamId: team.id, userId: memberId, role: "member", createdAt: now },
   ]);
   await addProjectMember(context(), { projectId: target.id, userId: memberId });
 
-  const params = Promise.resolve({ org: organization.slug, project: target.slug });
+  const params = Promise.resolve({ team: team.slug, project: target.slug });
   for (const actorId of [ownerId, adminId, memberId]) {
     actor.id = actorId;
     const html = renderToStaticMarkup(await ArchivedPage({ params }));
@@ -375,7 +395,7 @@ it("lists only archived tasks and lets a member restore them without granting pe
   });
 
   actor.id = memberId;
-  await expect(deleteArchivedTaskAction(organization.slug, target.slug, archivedId, {}, form("DAV-2")))
+  await expect(deleteArchivedTaskAction(team.slug, target.slug, archivedId, {}, form("DAV-2")))
     .rejects.toMatchObject({ digest: "NEXT_HTTP_ERROR_FALLBACK;403" });
 
   const query = { projectId: target.id };
@@ -387,7 +407,7 @@ it("lists only archived tasks and lets a member restore them without granting pe
     .toEqual(new Set([liveId, archivedId]));
 
   const restore = new FormData();
-  restore.set("org", organization.slug);
+  restore.set("team", team.slug);
   restore.set("project", target.slug);
   restore.set("taskId", archivedId);
   restore.set("intent", "unarchive");
@@ -398,12 +418,12 @@ it("lists only archived tasks and lets a member restore them without granting pe
 });
 
 it("deletes an archived task and its history only within the confirmed project", async () => {
-  const organization = await createOrg(context(), { slug: "del-archive-scope", name: "Archive scope" });
-  await db.insert(orgMember).values({
-    orgId: organization.id, userId: adminId, role: "admin", createdAt: now,
+  const team = await createTeam(context(), { slug: "del-archive-scope", name: "Archive scope" });
+  await db.insert(teamMember).values({
+    teamId: team.id, userId: adminId, role: "admin", createdAt: now,
   });
-  const target = await projectWithTasks(organization.id, "del-archive-target", "DAT");
-  const neighbor = await projectWithTasks(organization.id, "del-archive-neighbor", "DAN");
+  const target = await projectWithTasks(team.id, "del-archive-target", "DAT");
+  const neighbor = await projectWithTasks(team.id, "del-archive-neighbor", "DAN");
   const [liveId, archivedId] = target.taskIds;
   const before = await projectContents(target);
   const neighborBefore = await projectContents(neighbor);
@@ -418,7 +438,7 @@ it("deletes an archived task and its history only within the confirmed project",
   expect(await projectContents(target)).toEqual(before);
 
   actor.id = adminId;
-  expect(await deleteArchivedTaskAction(organization.slug, target.slug, archivedId, {}, form("DAT-2")))
+  expect(await deleteArchivedTaskAction(team.slug, target.slug, archivedId, {}, form("DAT-2")))
     .toEqual({});
   await expect(getTaskDetail(context(), { taskId: archivedId })).rejects.toMatchObject({ reason: "not_a_member" });
   expect(await db.select().from(comment).where(eq(comment.taskId, archivedId))).toEqual([]);
@@ -433,10 +453,10 @@ it("deletes an archived task and its history only within the confirmed project",
 it.each(["restore", "demotion"] as const)(
   "preserves the task and its history when a %s wins the race with deletion",
   async (race) => {
-    const organization = await createOrg(context(), { slug: `del-archive-${race}`, name: "Archive race" });
-    const target = await projectWithTasks(organization.id, "del-archive-race", "DAR");
-    await db.insert(orgMember).values({
-      orgId: organization.id, userId: adminId, role: "admin", createdAt: now,
+    const team = await createTeam(context(), { slug: `del-archive-${race}`, name: "Archive race" });
+    const target = await projectWithTasks(team.id, "del-archive-race", "DAR");
+    await db.insert(teamMember).values({
+      teamId: team.id, userId: adminId, role: "admin", createdAt: now,
     });
     await addProjectMember(context(), { projectId: target.id, userId: adminId });
     const taskId = target.taskIds[1];
@@ -448,8 +468,8 @@ it.each(["restore", "demotion"] as const)(
       if (race === "restore") {
         await unarchiveTask(context(), { taskId });
       } else {
-        await changeOrgMemberRole(context(), {
-          orgId: organization.id, userId: adminId, role: "member",
+        await changeTeamMemberRole(context(), {
+          teamId: team.id, userId: adminId, role: "member",
         });
       }
       return batch(queries);

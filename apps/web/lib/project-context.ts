@@ -7,9 +7,9 @@ import { findProjectByAlias } from "@tasks/core/domain";
 import type { Project, ProjectRole } from "@tasks/core/schema";
 import { project } from "@tasks/core/schema";
 import { db } from "@/lib/db";
-import { getOrgContext, type OrgContext } from "@/lib/org-context";
+import { getTeamContext, type TeamContext } from "@/lib/team-context";
 
-export type ProjectContext = OrgContext & { project: Project; projectRole: ProjectRole | null };
+export type ProjectContext = TeamContext & { project: Project; projectRole: ProjectRole | null };
 
 /** Set by `worker/index.ts` on GET and HEAD requests, overwriting any client value. */
 export const REQUEST_PATH_HEADER = "x-taskshq-path";
@@ -17,12 +17,12 @@ export const REQUEST_PATH_HEADER = "x-taskshq-path";
 /**
  * The redirect target for a request under a former project slug: the request
  * path with the slug segment replaced, when the trusted header holds a path
- * under `/${orgSlug}/${oldSlug}`; otherwise the project's root. Always a path
+ * under `/${teamSlug}/${oldSlug}`; otherwise the project's root. Always a path
  * on this host.
  */
-function renamedProjectPath(requestPath: string, orgSlug: string, oldSlug: string, newSlug: string) {
-  const prefix = `/${orgSlug}/${oldSlug}`;
-  const fallback = `/${orgSlug}/${newSlug}`;
+function renamedProjectPath(requestPath: string, teamSlug: string, oldSlug: string, newSlug: string) {
+  const prefix = `/${teamSlug}/${oldSlug}`;
+  const fallback = `/${teamSlug}/${newSlug}`;
   if (!requestPath.startsWith(prefix)) return fallback;
   const rest = requestPath.slice(prefix.length);
   if (rest && !rest.startsWith("/") && !rest.startsWith("?")) return fallback;
@@ -34,8 +34,8 @@ function renamedProjectPath(requestPath: string, orgSlug: string, oldSlug: strin
   return url.pathname + url.search;
 }
 
-async function redirectFromFormerSlug(ctx: OrgContext, projectSlug: string) {
-  const target = await findProjectByAlias(db, ctx.org.id, projectSlug);
+async function redirectFromFormerSlug(ctx: TeamContext, projectSlug: string) {
+  const target = await findProjectByAlias(db, ctx.team.id, projectSlug);
   if (!target) return;
   const requestHeaders = await headers();
   // Only GET and HEAD carry the path header (worker/index.ts). Anything else,
@@ -50,29 +50,29 @@ async function redirectFromFormerSlug(ctx: OrgContext, projectSlug: string) {
     throw error;
   }
   // Temporary: a permanent redirect could be cached past a later slug takeover.
-  redirect(renamedProjectPath(requestPath, ctx.org.slug, projectSlug, target.projectSlug));
+  redirect(renamedProjectPath(requestPath, ctx.team.slug, projectSlug, target.projectSlug));
 }
 
 /**
- * Resolves an org slug and a project slug to the project and the caller's
- * membership, for the `/[org]/[project]` layout and every page under it.
+ * Resolves a team slug and a project slug to the project and the caller's
+ * membership, for the `/[team]/[project]` layout and every page under it.
  *
- * Same non-leaking contract as `getOrgContext` (PLAN §4.6): a project that
+ * Same non-leaking contract as `getTeamContext` (PLAN §4.6): a project that
  * does not exist and one the caller cannot reach are the identical
- * `notFound()`. `requireProjectMember` applies organization membership and
+ * `notFound()`. `requireProjectMember` applies team membership and
  * reads the caller's project role for settings permissions. A former slug of
- * a project redirects org members to the current one.
+ * a project redirects team members to the current one.
  */
 export const getProjectContext = cache(async function getProjectContext(
-  orgSlug: string,
+  teamSlug: string,
   projectSlug: string,
 ): Promise<ProjectContext> {
-  const ctx = await getOrgContext(orgSlug);
+  const ctx = await getTeamContext(teamSlug);
 
   const [row] = await db
     .select({ id: project.id })
     .from(project)
-    .where(and(eq(project.orgId, ctx.org.id), eq(project.slug, projectSlug)));
+    .where(and(eq(project.teamId, ctx.team.id), eq(project.slug, projectSlug)));
   if (!row) {
     await redirectFromFormerSlug(ctx, projectSlug);
     notFound();

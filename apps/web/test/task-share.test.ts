@@ -4,9 +4,17 @@ import { drizzle } from "drizzle-orm/d1";
 import { Buffer } from "node:buffer";
 import { expect, it, vi } from "vitest";
 import {
-  addComment, archiveTask, createOrg, createProject, createProjectTaskType, createTask, deleteArchivedTask, parseTaskKey, transferTask,
+  addComment,
+  archiveTask,
+  createProject,
+  createProjectTaskType,
+  createTask,
+  deleteArchivedTask,
+  parseTaskKey,
+  transferTask,
 } from "@tasks/core/domain";
-import { orgMember, taskShare, user } from "@tasks/core/schema";
+import { createTeam } from "./helpers";
+import { teamMember, taskShare, user } from "@tasks/core/schema";
 import type { TaskPreview, TaskPreviewParams } from "@/lib/task-preview";
 
 const viewer = vi.hoisted(() => ({ id: "" }));
@@ -22,11 +30,11 @@ vi.mock("@/lib/task-preview-image", () => ({
     Response.json(task, { headers }),
 }));
 
-const { default: taskPage, generateMetadata } = await import("@/app/[org]/[project]/[task]/page");
-const { createTaskShareLink } = await import("@/app/[org]/[project]/[task]/share-task-action");
-const { GET: privateImage } = await import("@/app/[org]/[project]/[task]/preview.png/route");
-const { GET: legacyPage } = await import("@/app/share/tasks/[org]/[project]/[task]/route");
-const { GET: legacyImage } = await import("@/app/share/tasks/[org]/[project]/[task]/preview.png/route");
+const { default: taskPage, generateMetadata } = await import("@/app/[team]/[project]/[task]/page");
+const { createTaskShareLink } = await import("@/app/[team]/[project]/[task]/share-task-action");
+const { GET: privateImage } = await import("@/app/[team]/[project]/[task]/preview.png/route");
+const { GET: legacyPage } = await import("@/app/share/tasks/[team]/[project]/[task]/route");
+const { GET: legacyImage } = await import("@/app/share/tasks/[team]/[project]/[task]/preview.png/route");
 const { GET: sharedPage } = await import("@/app/s/[code]/route");
 const { GET: sharedImage } = await import("@/app/s/[code]/preview.png/route");
 const { renderCanonicalTaskShare } = await import("@/lib/task-share-page");
@@ -42,9 +50,9 @@ await db.insert(user).values([
   { id: outsiderId, name: "Outsider", email: "outsider@share.test" },
 ]);
 const owner = { db, actorUserId: ownerId, source: "web" as const };
-const org = await createOrg(owner, { slug: "share-test", name: "Share test" });
-await db.insert(orgMember).values({ orgId: org.id, userId: memberId, role: "member", createdAt: new Date() });
-const project = await createProject(owner, { orgId: org.id, slug: "work", name: "Work", key: "SHR" });
+const team = await createTeam(owner, { slug: "share-test", name: "Share test" });
+await db.insert(teamMember).values({ teamId: team.id, userId: memberId, role: "member", createdAt: new Date() });
+const project = await createProject(owner, { teamId: team.id, slug: "work", name: "Work", key: "SHR" });
 const type = await createProjectTaskType(owner, { projectId: project.id, name: "Preview feature", color: "purple", icon: "feature" });
 const item = await createTask(owner, {
   projectId: project.id,
@@ -56,14 +64,14 @@ const item = await createTask(owner, {
 });
 await addComment(owner, { taskId: item.id, body: "Private comment" });
 
-const route = { org: org.slug, project: project.slug, task: item.key };
+const route = { team: team.slug, project: project.slug, task: item.key };
 const origin = "http://localhost:5173";
 const context = (params: TaskPreviewParams = route) => ({ params: Promise.resolve(params) });
 const shareContext = (code: string) => ({ params: Promise.resolve({ code }) });
 const request = (path: string, init?: RequestInit) => new Request(new URL(path, origin), init);
-const taskPath = (key: string) => `/${org.slug}/${project.slug}/${key}`;
+const taskPath = (key: string) => `/${team.slug}/${project.slug}/${key}`;
 const privatePath = `${taskPath(item.key)}/preview.png`;
-const shareInput = { orgSlug: org.slug, projectSlug: project.slug, taskKey: item.key };
+const shareInput = { teamSlug: team.slug, projectSlug: project.slug, taskKey: item.key };
 
 async function share(key = item.key) {
   const path = taskPath(key);
@@ -231,13 +239,13 @@ it("keeps old signed links working with image-only previews", async () => {
 it("stops disclosing the old card after a move, including a return to its former project", async () => {
   viewer.id = ownerId;
   const task = await createTask(owner, { projectId: project.id, title: "Private after moving" });
-  const destination = await createProject(owner, { orgId: org.id, slug: "delivery", name: "Delivery", key: "SDL" });
+  const destination = await createProject(owner, { teamId: team.id, slug: "delivery", name: "Delivery", key: "SDL" });
   const { path, shortPath, image, code } = await share(task.key);
   const moved = await transferTask(owner, { taskId: task.id, sourceProjectId: project.id, destinationProjectId: destination.id });
   viewer.id = "";
 
   expect(await renderCanonicalTaskShare(request(path))).toBeNull();
-  expect(await renderCanonicalTaskShare(request(`/${org.slug}/${destination.slug}/${moved.key}`))).toBeNull();
+  expect(await renderCanonicalTaskShare(request(`/${team.slug}/${destination.slug}/${moved.key}`))).toBeNull();
   const response = await sharedPage(request(shortPath), shareContext(code));
   expect(response.status).toBe(200);
   const html = await response.text();

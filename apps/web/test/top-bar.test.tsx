@@ -24,8 +24,8 @@ function render(
   return renderToStaticMarkup(
     <ProjectViewHref.Provider value={projectHref}>
       <TopBar
-        org={{ slug: "acme", name: "Acme Corp" }}
-        role="owner"
+        team={{ slug: "acme", name: "Acme Corp" }}
+        role="Super admin"
         projects={[{ slug: "web", name: "Website", key: "WEB" }]}
         user={{ name: "Ada Lovelace", email: "ada@example.test" }}
         runningTimer={runningTimer}
@@ -34,39 +34,39 @@ function render(
   );
 }
 
-it("renders the org and project crumbs on a project route", () => {
-  const html = render({ org: "acme", project: "web" });
+it("renders the team and project crumbs on a project route", () => {
+  const html = render({ team: "acme", project: "web" });
 
   expect(html).toContain("Acme Corp");
-  expect(html).toContain(">owner<");
+  expect(html).toContain(">Super admin<");
   expect(html).toContain("Website");
   expect(html).toContain(">WEB<");
   expect(html).toContain(">AL<");
 });
 
 it("links the project name to its saved view", () => {
-  const html = render({ org: "acme", project: "web" }, (base) => `${base}/table`);
+  const html = render({ team: "acme", project: "web" }, (base) => `${base}/table`);
 
   expect(html).toContain('href="/acme/web/table"');
   expect(html).not.toContain('href="/acme/web"');
 });
 
-it("links the org crumb to /[org] without a switcher", () => {
-  const html = render({ org: "acme", project: "web" });
+it("links the team crumb to /[team] without a switcher", () => {
+  const html = render({ team: "acme", project: "web" });
   const link = [...html.matchAll(/<a\b([^>]*)>(.*?)<\/a>/g)].find(([, attributes]) =>
     attributes.includes('href="/acme"'),
   );
 
   expect(link?.[2]).toContain(">Acme Corp<");
-  expect(link?.[2]).toContain(">owner<");
-  expect(html).not.toMatch(/<button\b[^>]*aria-label="[^"]*Switch organization/);
+  expect(link?.[2]).toContain(">Super admin<");
+  expect(html).not.toMatch(/<button\b[^>]*aria-label="[^"]*Switch team/);
 });
 
 it("links the project name and opens its switcher from the icon", () => {
   const href = "/acme/web";
   const name = "Website";
   const label = "Switch project";
-  const html = render({ org: "acme", project: "web" });
+  const html = render({ team: "acme", project: "web" });
   const link = [...html.matchAll(/<a\b([^>]*)>(.*?)<\/a>/g)].find(([, attributes]) =>
     attributes.includes(`href="${href}"`),
   );
@@ -81,7 +81,7 @@ it("links the project name and opens its switcher from the icon", () => {
 });
 
 it("puts the theme button just left of the account trigger", () => {
-  const html = render({ org: "acme" });
+  const html = render({ team: "acme" });
 
   expect(html).toContain("Switch to dark theme");
   expect(html).toContain("Switch to light theme");
@@ -90,15 +90,15 @@ it("puts the theme button just left of the account trigger", () => {
   );
 });
 
-it("renders only the org crumb off a project route", () => {
-  const html = render({ org: "acme" });
+it("renders only the team crumb off a project route", () => {
+  const html = render({ team: "acme" });
 
   expect(html).toContain("Acme Corp");
   expect(html).not.toContain("Website");
   expect(html).not.toContain("WEB");
 });
 
-it.each([{ org: "acme" }, { org: "acme", project: "web" }] as Record<string, string>[])(
+it.each([{ team: "acme" }, { team: "acme", project: "web" }] as Record<string, string>[])(
   "links to public docs from the app header on %o",
   (params) => {
     const html = render(params);
@@ -111,18 +111,18 @@ it.each([{ org: "acme" }, { org: "acme", project: "web" }] as Record<string, str
 );
 
 it("ignores a project slug the server did not list", () => {
-  const html = render({ org: "acme", project: "secret" });
+  const html = render({ team: "acme", project: "secret" });
 
   expect(html).not.toContain("secret");
   expect(html).not.toContain("Website");
 });
 
-it("links nowhere into org settings", () => {
-  expect(render({ org: "acme", project: "web" })).not.toContain("settings/members");
+it("links nowhere into team settings", () => {
+  expect(render({ team: "acme", project: "web" })).not.toContain("settings/members");
 });
 
 it("renders the What's new button without a dot before storage is read", () => {
-  const html = render({ org: "acme" });
+  const html = render({ team: "acme" });
   const trigger = [...html.matchAll(/<button\b([^>]*)>/g)].find(([, attributes]) =>
     attributes.includes(`aria-label="What&#x27;s new"`),
   );
@@ -141,11 +141,11 @@ it("hides What's new with Docs on narrow screens while a timer runs", () => {
     projectId: "project",
     projectSlug: "web",
     projectKey: "WEB",
-    orgSlug: "acme",
+    teamSlug: "acme",
     startedAt: new Date(),
     note: null,
   };
-  const html = render({ org: "acme" }, undefined, timer);
+  const html = render({ team: "acme" }, undefined, timer);
   // Between the wrapper's opening tag and the theme button, which sits outside it.
   const start = html.indexOf('<div class="hidden lg:contents">');
   const wrapper = html.slice(start, html.indexOf("Switch to dark theme", start));

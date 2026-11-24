@@ -3,8 +3,8 @@ import { drizzle } from "drizzle-orm/d1";
 import { eq, inArray } from "drizzle-orm";
 import { expect, it } from "vitest";
 import {
-  org,
-  orgMember,
+  team,
+  teamMember,
   project,
   projectMember,
   status,
@@ -27,15 +27,15 @@ await db.insert(user).values(
   })),
 );
 
-// Storage is shared across tests in this pool, so each test uses its own org.
-async function seedOrg(id: string) {
-  await db.insert(org).values({ id, slug: id, name: id, createdAt: now });
+// Storage is shared across tests in this pool, so each test uses its own team.
+async function seedTeam(id: string) {
+  await db.insert(team).values({ id, slug: id, name: id, createdAt: now });
 }
 
-async function seedProject(id: string, orgId: string) {
+async function seedProject(id: string, teamId: string) {
   await db.insert(project).values({
     id,
-    orgId,
+    teamId,
     slug: id,
     name: id,
     key: id.toUpperCase(),
@@ -68,34 +68,33 @@ async function rejectionReason(promise: Promise<unknown>) {
   }
 }
 
-it("accepts an org and a member, and rejects a duplicate (orgId, userId)", async () => {
-  await seedOrg("o-member");
+it("accepts a team and a member, and rejects a duplicate (teamId, userId)", async () => {
+  await seedTeam("o-member");
   await db
-    .insert(orgMember)
-    .values({ orgId: "o-member", userId: "u1", role: "owner", createdAt: now });
+    .insert(teamMember)
+    .values({ teamId: "o-member", userId: "u1", role: "admin", createdAt: now });
 
   expect(
-    await db.select().from(orgMember).where(eq(orgMember.orgId, "o-member")),
+    await db.select().from(teamMember).where(eq(teamMember.teamId, "o-member")),
   ).toHaveLength(1);
 
   expect(
     await rejectionReason(
-      db.insert(orgMember).values({
-        orgId: "o-member",
+      db.insert(teamMember).values({
+        teamId: "o-member",
         userId: "u1",
         role: "member",
         createdAt: now,
       }),
     ),
-  ).toMatch(/UNIQUE constraint failed: org_member.org_id, org_member.user_id/);
+  ).toMatch(/UNIQUE constraint failed: team_member.team_id, team_member.user_id/);
 });
 
-it("accepts every org_member role and the four default status colors", async () => {
-  await seedOrg("o-enums");
-  await db.insert(orgMember).values([
-    { orgId: "o-enums", userId: "u1", role: "owner", createdAt: now },
-    { orgId: "o-enums", userId: "u2", role: "admin", createdAt: now },
-    { orgId: "o-enums", userId: "u3", role: "member", createdAt: now },
+it("accepts every team_member role and the four default status colors", async () => {
+  await seedTeam("o-enums");
+  await db.insert(teamMember).values([
+    { teamId: "o-enums", userId: "u2", role: "admin", createdAt: now },
+    { teamId: "o-enums", userId: "u3", role: "member", createdAt: now },
   ]);
   await seedProject("p-enums", "o-enums");
   await db.insert(status).values([
@@ -107,12 +106,11 @@ it("accepts every org_member role and the four default status colors", async () 
 
   const members = await db
     .select()
-    .from(orgMember)
-    .where(eq(orgMember.orgId, "o-enums"));
+    .from(teamMember)
+    .where(eq(teamMember.teamId, "o-enums"));
   expect(members.map((m) => m.role).sort()).toEqual([
     "admin",
     "member",
-    "owner",
   ]);
 
   const statuses = await db
@@ -127,33 +125,33 @@ it("accepts every org_member role and the four default status colors", async () 
   ]);
 });
 
-it("rejects a project_member whose (orgId, userId) is not an org_member", async () => {
+it("rejects a project_member whose (teamId, userId) is not a team_member", async () => {
   // D1 pins foreign key enforcement on; `PRAGMA foreign_keys = ...` is a no-op.
   expect((await env.DB.prepare("PRAGMA foreign_keys").all()).results).toEqual([
     { foreign_keys: 1 },
   ]);
 
-  await seedOrg("o-fk");
+  await seedTeam("o-fk");
   await seedProject("p-fk", "o-fk");
   await db
-    .insert(orgMember)
-    .values({ orgId: "o-fk", userId: "u1", role: "owner", createdAt: now });
+    .insert(teamMember)
+    .values({ teamId: "o-fk", userId: "u1", role: "admin", createdAt: now });
 
   await db
     .insert(projectMember)
-    .values({ orgId: "o-fk", projectId: "p-fk", userId: "u1" });
+    .values({ teamId: "o-fk", projectId: "p-fk", userId: "u1" });
 
   expect(
     await rejectionReason(
       db
         .insert(projectMember)
-        .values({ orgId: "o-fk", projectId: "p-fk", userId: "stranger" }),
+        .values({ teamId: "o-fk", projectId: "p-fk", userId: "stranger" }),
     ),
   ).toMatch(/FOREIGN KEY constraint failed/);
 });
 
 it("rejects a duplicate task number in a project but allows it in another", async () => {
-  await seedOrg("o-task");
+  await seedTeam("o-task");
   await seedProject("p-task-a", "o-task");
   await seedProject("p-task-b", "o-task");
   await seedStatus("s-task-a", "p-task-a");
@@ -209,13 +207,13 @@ it("rejects a duplicate task number in a project but allows it in another", asyn
   ).toEqual(["t1", "t3"]);
 });
 
-it("rejects an org_member whose userId is not a user", async () => {
-  await seedOrg("o-user-fk");
+it("rejects a team_member whose userId is not a user", async () => {
+  await seedTeam("o-user-fk");
 
   expect(
     await rejectionReason(
-      db.insert(orgMember).values({
-        orgId: "o-user-fk",
+      db.insert(teamMember).values({
+        teamId: "o-user-fk",
         userId: "ghost",
         role: "member",
         createdAt: now,

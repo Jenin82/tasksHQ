@@ -1,12 +1,14 @@
-import { and, asc, eq, gte, inArray, lt, or, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNotNull, lt, or, sql } from "drizzle-orm";
+import { requireOrgMember, requireTeamMember, teamAccess } from "../access";
 import type { DomainContext } from "../activity";
 import { activity } from "../schema/activity";
 import { project, status } from "../schema/project";
 import { task } from "../schema/task";
+import { team } from "../schema/team";
 import { timeEntry } from "../schema/time";
 import { ACTIVITY_ROWID, taskKey } from "./task";
 import { MAX_ENTRY_MS, overlapMs } from "./time";
-import { listTimeReportEntries } from "./time-report";
+import { assertReportRange, listTimeReportEntries } from "./time-report";
 
 export type WorkSummaryTask = {
   key: string;
@@ -14,6 +16,9 @@ export type WorkSummaryTask = {
   /** Project slug, as the sibling tools return it. */
   project: string;
   projectName: string;
+  /** Team slug: task keys repeat across teams. */
+  team: string;
+  teamName: string;
   status: string;
   archived: boolean;
   minutes: number;
@@ -24,7 +29,8 @@ export type WorkSummaryTask = {
 };
 
 /**
- * The caller's own work in one organization over `[from, to)`, for an MCP
+ * The caller's own work over `[from, to)`, in every team they can open now
+ * (or only `teamId`), for an MCP
  * client to write a summary from: tasks they logged time on, created, moved or
  * commented on, archived ones included. Status changes made by a transfer are
  * `task.transferred` and intentionally not listed; the task shows under its
@@ -32,12 +38,15 @@ export type WorkSummaryTask = {
  */
 export async function getWorkSummaryData(
   ctx: DomainContext,
-  input: { orgId: string; from: Date; to: Date },
+  input: { teamId?: string; from: Date; to: Date },
 ): Promise<{ totalMinutes: number; tasks: WorkSummaryTask[] }> {
   const { db, actorUserId } = ctx;
-  const { orgId, from, to } = input;
+  const { teamId, from, to } = input;
   // Checks membership and the range before anything else is read.
-  const entries = await listTimeReportEntries(ctx, { orgId, from, to, userId: actorUserId });
+  await requireOrgMember(db, actorUserId);
+  if (teamId) await requireTeamMember(db, teamId, actorUserId);
+  assertReportRange(input);
+  const entries = await listTimeReportEntries(ctx, { teamId, from, to, userId: actorUserId });
 
   const acted = and(
     eq(activity.actorUserId, actorUserId),
@@ -45,7 +54,10 @@ export async function getWorkSummaryData(
     gte(activity.createdAt, from),
     lt(activity.createdAt, to),
   );
-  const inOrg = and(eq(project.id, task.projectId), eq(project.orgId, orgId));
+  const inTeam = and(
+    eq(project.id, task.projectId),
+    teamId ? eq(project.teamId, teamId) : isNotNull(teamAccess(project.teamId, actorUserId).role),
+  );
 
   // Subqueries, not ID lists, so a busy range stays under D1's parameter limit.
   // Every selected column name is unique within its statement: D1's batch
@@ -62,7 +74,7 @@ export async function getWorkSummaryData(
       excerpt: sql<string | null>`json_extract(${activity.data}, '$.excerpt')`,
     }).from(activity)
       .innerJoin(task, eq(task.id, activity.taskId))
-      .innerJoin(project, inOrg)
+      .innerJoin(project, inTeam)
       .where(acted)
       .orderBy(asc(activity.createdAt), ACTIVITY_ROWID),
     db.select({
@@ -73,15 +85,18 @@ export async function getWorkSummaryData(
       projectSlug: project.slug,
       // Aliased: both are `name`.
       projectName: sql<string>`${project.name}`.as("project_name"),
+      // Aliased: `slug` and `name` repeat on project.
+      teamSlug: sql<string>`${team.slug}`.as("team_slug"),
+      teamName: sql<string>`${team.name}`.as("team_name"),
       status: sql<string>`${status.name}`.as("status_name"),
       archived: sql<number>`${task.archivedAt} is not null`,
     }).from(task)
-      .innerJoin(project, inOrg)
+      .innerJoin(project, inTeam)
+      .innerJoin(team, eq(team.id, project.teamId))
       .innerJoin(status, eq(status.id, task.statusId))
       .where(or(
         inArray(task.id, db.select({ id: timeEntry.taskId }).from(timeEntry).where(and(
           eq(timeEntry.userId, actorUserId),
-          eq(timeEntry.orgId, orgId),
           gte(timeEntry.startedAt, new Date(from.getTime() - MAX_ENTRY_MS)),
           lt(timeEntry.startedAt, to),
         ))),
@@ -132,6 +147,8 @@ export async function getWorkSummaryData(
       title: d.title,
       project: d.projectSlug,
       projectName: d.projectName,
+      team: d.teamSlug,
+      teamName: d.teamName,
       status: d.status,
       archived: Boolean(d.archived),
       minutes: Math.floor((ms.get(d.id) ?? 0) / 60_000),
@@ -159,6 +176,6 @@ export async function getWorkSummaryData(
     tasks: [...tasks.entries()]
       .filter(([id]) => (ms.get(id) ?? 0) > 0 || active.has(id))
       .map(([, t]) => t)
-      .sort((a, b) => b.minutes - a.minutes || a.key.localeCompare(b.key, "en", { numeric: true })),
+      .sort((a, b) => b.minutes - a.minutes || a.key.localeCompare(b.key, "en", { numeric: true }) || a.team.localeCompare(b.team)),
   };
 }

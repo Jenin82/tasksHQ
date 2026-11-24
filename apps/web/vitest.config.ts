@@ -22,6 +22,7 @@ const testDefaults = {
   CONSENT_SECRET: "test-only-mcp-consent-secret-0123456789",
   INTROSPECT_SECRET: "test-only-mcp-introspection-secret-0123456789",
   MCP_RESOURCE: "https://mcp.example.test/mcp",
+  OWNER_EMAIL: "",
 };
 
 export default defineConfig({
@@ -36,7 +37,9 @@ export default defineConfig({
         // same runtime date.
         compatibilityDate: "2026-11-05",
         compatibilityFlags: ["nodejs_compat", "global_fetch_strictly_public"],
-        d1Databases: ["DB"],
+        // MIGRATION_DB stays empty until a test/migration-*.test.ts file migrates it
+        // step by step, so it can observe the schema before 0020 runs.
+        d1Databases: ["DB", "MIGRATION_DB"],
         kvNamespaces: ["OAUTH_KV"],
         r2Buckets: ["TASK_IMAGES"],
         images: { binding: "IMAGES" },

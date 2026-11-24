@@ -1,4 +1,4 @@
-import { DocLink, Note, Screenshot, Steps, type GuideSection } from "../guide";
+import { Note, Screenshot, Steps, type GuideSection } from "../guide";
 
 export const sections: GuideSection[] = [
   {
@@ -16,13 +16,12 @@ export const sections: GuideSection[] = [
   },
   {
     id: "assignment-views",
-    title: "Find work assigned to you or your team",
-    searchTerms: ["switch organization", "change organization", "organizations", "collapse sidebar", "show more organizations"],
+    title: "Find work assigned to you",
+    searchTerms: ["switch team", "change team", "teams", "your team", "collapse sidebar", "show more teams"],
     content: <>
       <ul className="list-disc space-y-2 pl-6 marker:text-muted-foreground">
-        <li><strong>Your Tasks</strong> shows active work in the current organization. Switch between <strong>Assigned to you</strong> and <strong>Assigned by you</strong>.</li>
-        <li><strong>All My Tasks</strong> combines those views across your organizations. The sidebar shows this option when you belong to more than one organization, with your organizations listed below it. Choose one to switch to it. Use the arrow beside a sidebar heading to collapse that section.</li>
-        <li><strong>Your Team</strong> shows active tasks assigned to your direct reports. See <DocLink topic="organization-settings">Organization settings</DocLink> for reporting lines.</li>
+        <li><strong>Your Tasks</strong> shows active work in the current team. Switch between <strong>Assigned to you</strong> and <strong>Assigned by you</strong>.</li>
+        <li><strong>All My Tasks</strong> combines those views across your teams. The sidebar shows this option when you belong to more than one team, with your teams listed below it. Choose one to switch to it. Use the arrow beside a sidebar heading to collapse that section.</li>
       </ul>
     </>,
   },
@@ -32,7 +31,7 @@ export const sections: GuideSection[] = [
     content: <>
       <Steps>
         <li>Open <strong>Your Tasks</strong> or <strong>All My Tasks</strong> from the sidebar.</li>
-        <li>Choose <strong>Filters</strong> and select a project from <strong>All projects</strong>. On <strong>All My Tasks</strong>, project names include their organization so you can tell similarly named projects apart.</li>
+        <li>Choose <strong>Filters</strong> and select a project from <strong>All projects</strong>. On <strong>All My Tasks</strong>, project names include their team so you can tell similarly named projects apart.</li>
         <li>Combine the project with other filters as needed. Choose <strong>Clear filters</strong> to start over.</li>
       </Steps>
       <Screenshot name="task-filters" alt="Task list Filters menu with the project, assignee, creator, and reporter selectors" caption="Use the project selector to narrow an assignment view to one project." />

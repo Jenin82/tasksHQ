@@ -1,85 +1,54 @@
-import {
-  foreignKey,
-  index,
-  integer,
-  sqliteTable,
-  text,
-  uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
+import { check, index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { user } from "./auth";
 
+// One deployment is one organization, so `org` holds a single row and the
+// member and invite tables carry no org_id.
 export const org = sqliteTable("org", {
   id: text("id").primaryKey(),
-  slug: text("slug").notNull().unique(),
   name: text("name").notNull(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
 
-export const orgMember = sqliteTable(
-  "org_member",
+export const orgMember = sqliteTable("org_member", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id),
+  role: text("role", { enum: ["owner", "admin", "member"] }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+export const orgInvite = sqliteTable("org_invite", {
+  // Stored lowercased; lowercased on lookup too.
+  email: text("email").primaryKey(),
+  role: text("role", { enum: ["owner", "admin", "member"] }).notNull(),
+  invitedByUserId: text("invited_by_user_id")
+    .notNull()
+    .references(() => user.id),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  acceptedAt: integer("accepted_at", { mode: "timestamp_ms" }),
+});
+
+// One lead per person across the whole org. Leaving the org drops lines on
+// both sides through the cascades.
+export const reportingLine = sqliteTable(
+  "reporting_line",
   {
-    orgId: text("org_id")
-      .notNull()
-      .references(() => org.id),
     userId: text("user_id")
+      .primaryKey()
+      .references(() => orgMember.userId, { onDelete: "cascade" }),
+    leadUserId: text("lead_user_id")
       .notNull()
-      .references(() => user.id),
-    role: text("role", { enum: ["owner", "admin", "member"] }).notNull(),
+      .references(() => orgMember.userId, { onDelete: "cascade" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (t) => [
-    // Also the parent key of project_member's composite FK, so it must exist.
-    uniqueIndex("org_member_org_id_user_id_unique").on(t.orgId, t.userId),
-  ],
-);
-
-export const orgInvite = sqliteTable(
-  "org_invite",
-  {
-    orgId: text("org_id")
-      .notNull()
-      .references(() => org.id),
-    // Stored lowercased; lowercased on lookup too.
-    email: text("email").notNull(),
-    role: text("role", { enum: ["owner", "admin", "member"] }).notNull(),
-    invitedByUserId: text("invited_by_user_id")
-      .notNull()
-      .references(() => user.id),
-    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-    acceptedAt: integer("accepted_at", { mode: "timestamp_ms" }),
-  },
-  (t) => [
-    uniqueIndex("org_invite_org_id_email_unique").on(t.orgId, t.email),
-    // claimInvites looks up by email alone on every session create. The unique
-    // index above leads with orgId, so it cannot serve that lookup.
-    index("org_invite_email_idx").on(t.email),
-  ],
-);
-
-export const orgReportingLine = sqliteTable(
-  "org_reporting_line",
-  {
-    orgId: text("org_id").notNull(),
-    userId: text("user_id").notNull(),
-    leadUserId: text("lead_user_id").notNull(),
-  },
-  (t) => [
-    uniqueIndex("org_reporting_line_org_user_unique").on(t.orgId, t.userId),
-    index("org_reporting_line_org_lead_idx").on(t.orgId, t.leadUserId),
-    foreignKey({
-      columns: [t.orgId, t.userId],
-      foreignColumns: [orgMember.orgId, orgMember.userId],
-    }).onDelete("cascade"),
-    foreignKey({
-      columns: [t.orgId, t.leadUserId],
-      foreignColumns: [orgMember.orgId, orgMember.userId],
-    }).onDelete("cascade"),
+    index("reporting_line_lead_user_id_idx").on(t.leadUserId),
+    check("reporting_line_not_self", sql`${t.userId} <> ${t.leadUserId}`),
   ],
 );
 
 export type Org = typeof org.$inferSelect;
-export type NewOrg = typeof org.$inferInsert;
 export type OrgMember = typeof orgMember.$inferSelect;
-export type NewOrgMember = typeof orgMember.$inferInsert;
+export type OrgRole = OrgMember["role"];
 export type OrgInvite = typeof orgInvite.$inferSelect;
-export type NewOrgInvite = typeof orgInvite.$inferInsert;

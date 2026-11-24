@@ -1,13 +1,13 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { createOrg } from "@tasks/core/domain";
-import type { Org } from "@tasks/core/schema";
+import { createTeam } from "@tasks/core/domain";
+import type { Team } from "@tasks/core/schema";
 import { NO_ERROR, toActionState, type ActionState } from "@/lib/action-result";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/session";
 
-export async function createOrgAction(
+export async function createTeamAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
@@ -17,9 +17,9 @@ export async function createOrgAction(
     name: String(formData.get("name") ?? ""),
   };
 
-  let created: Org;
+  let created: Team;
   try {
-    created = await createOrg({ db, actorUserId: user.id, source: "web" }, input);
+    created = await createTeam({ db, actorUserId: user.id, source: "web" }, input);
   } catch (error) {
     return toActionState(error, input);
   }
