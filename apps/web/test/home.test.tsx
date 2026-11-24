@@ -157,7 +157,7 @@ it("with one team, shows its card instead of redirecting into it", async () => {
   const solo = card(html, "hm-solo");
 
   expect(solo).toContain("HM Solo");
-  expect(solo).toContain(">owner<");
+  expect(solo).toContain(">Admin<");
   expect(solo).toMatch(/>1<\/span> project</);
 });
 
@@ -176,7 +176,7 @@ it("with two teams, shows both cards with plural counts and one blue CTA", async
 it("counts all projects in the member's team", async () => {
   const html = await render("hm-member");
 
-  expect(card(html, "hm-a")).toContain(">member<");
+  expect(card(html, "hm-a")).toContain(">Member<");
   expect(card(html, "hm-a")).toMatch(/>2<\/span> projects</);
   expect(html).not.toContain('href="/hm-b"');
   expect(html).not.toContain("New team");

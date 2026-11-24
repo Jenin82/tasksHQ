@@ -6,10 +6,12 @@ import { getProjectContext } from "@/lib/project-context";
 
 export const dynamic = "force-dynamic";
 
-/** The task panel lists this many of the viewer's entries; Your Time has the rest. */
+/** The task panel lists this many of the viewer's entries; the Time page has the rest. */
 const LISTED = 5;
 
 export type TaskTimePayload = {
+  /** The viewer, for the "See all in Time" link. */
+  viewerId: string;
   totalMs: number;
   mineMs: number;
   /** The viewer's running timer on this task, which may not be among `entries`. */
@@ -38,6 +40,7 @@ export async function GET(
 
   const { totalMs, mineMs, myEntries } = totals;
   const payload: TaskTimePayload = {
+    viewerId: user.id,
     totalMs,
     mineMs,
     runningSince: myEntries.find((entry) => entry.endedAt === null)?.startedAt.toISOString() ?? null,

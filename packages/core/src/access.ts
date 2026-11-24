@@ -39,7 +39,6 @@ export const CAPABILITIES = [
   "project:manage_statuses",
   "project:manage_members",
   "project:manage_task_editing",
-  "team:delete",
   "task:delete_archived",
   "team:view_time_reports",
   "project:rename",
@@ -48,16 +47,11 @@ export const CAPABILITIES = [
 export type Capability = (typeof CAPABILITIES)[number];
 
 /**
- * PLAN §3's role matrix, transcribed once and only here.
- *
- * The matrix's two parenthesised qualifiers — admin "(not owners)" and
- * "(cannot grant or target owner)" — depend on the *target* member, not on the
- * capability, so they cannot live in this table. They are enforced in
- * `domain/team.ts` where the target is known.
+ * PLAN §3's role matrix, transcribed once and only here. Teams have admins
+ * and members only; deleting a team is an org capability (`org:delete_team`).
  */
 const TEAM_ROLE_CAPABILITIES: Record<TeamRole, readonly Capability[]> = {
-  owner: CAPABILITIES,
-  admin: CAPABILITIES.filter((c) => c !== "team:delete" && c !== "project:delete"),
+  admin: CAPABILITIES,
   member: [],
 };
 
@@ -86,6 +80,7 @@ export const ORG_CAPABILITIES = [
   "org:change_role",
   "org:create_team",
   "org:rename",
+  "org:delete_team",
 ] as const;
 
 export type OrgCapability = (typeof ORG_CAPABILITIES)[number];
@@ -96,7 +91,7 @@ export type OrgCapability = (typeof ORG_CAPABILITIES)[number];
  */
 const ORG_ROLE_CAPABILITIES: Record<OrgRole, readonly OrgCapability[]> = {
   owner: ORG_CAPABILITIES,
-  admin: ORG_CAPABILITIES,
+  admin: ORG_CAPABILITIES.filter((c) => c !== "org:delete_team"),
   member: [],
 };
 
@@ -106,7 +101,7 @@ export function canOrg(role: OrgRole, capability: OrgCapability): boolean {
 
 export function requireOrgCapability(role: OrgRole, capability: OrgCapability) {
   if (!canOrg(role, capability)) {
-    throw new AccessError("forbidden", `An org ${role} cannot perform "${capability}".`);
+    throw new AccessError("forbidden", `An org ${role === "owner" ? "Super admin" : role} cannot perform "${capability}".`);
   }
 }
 
@@ -127,19 +122,22 @@ const accessOrgMemberFrom = sql`${orgMember} ${sql.identifier("access_org_member
 
 /**
  * The one SQL source of team access. `role` is the higher of the user's real
- * team role and their org-derived one (org owner -> owner, org admin -> admin,
- * org member -> none), or NULL for no access. `implicit` is true when the user
+ * team role and their org-derived one (org owner or admin -> admin, org
+ * member -> none), or NULL for no access. Migration 0023 turned every team
+ * owner into an admin; the real-row CASE still ranks a stray 'owner' as admin
+ * defensively only (no older Worker can write one, since 0020 renames the
+ * tables they use). `implicit` is true when the user
  * has no real `team_member` row. Scalar subqueries over aliased tables, so it
  * nests in any statement (including batch guards) and never takes an ID list.
  */
 export function teamAccess(teamId: SQLWrapper | string, userId: SQLWrapper | string) {
   const realRow = and(eq(accessTeamMember.teamId, teamId), eq(accessTeamMember.userId, userId));
   const role = sql<TeamRole | null>`(case max(
-    coalesce((select case ${accessTeamMember.role} when 'owner' then 3 when 'admin' then 2 when 'member' then 1 end
+    coalesce((select case ${accessTeamMember.role} when 'owner' then 2 when 'admin' then 2 when 'member' then 1 end
       from ${accessTeamMemberFrom} where ${realRow}), 0),
-    coalesce((select case ${accessOrgMember.role} when 'owner' then 3 when 'admin' then 2 end
+    coalesce((select case ${accessOrgMember.role} when 'owner' then 2 when 'admin' then 2 end
       from ${accessOrgMemberFrom} where ${eq(accessOrgMember.userId, userId)}), 0)
-  ) when 3 then 'owner' when 2 then 'admin' when 1 then 'member' end)`;
+  ) when 2 then 'admin' when 1 then 'member' end)`;
   const implicit = sql<boolean>`(not exists (select 1 from ${accessTeamMemberFrom} where ${realRow}))`.mapWith(Boolean);
   return { role, implicit };
 }

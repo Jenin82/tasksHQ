@@ -67,14 +67,13 @@ const comparators: Record<SortId, (a: Assignment, b: Assignment) => number> = {
   updated: (a, b) => a.updatedAt - b.updatedAt,
 };
 
-export function WorkspaceAssignmentTable({ title, tasks, editors, emptyMessage, filterScope, teams, showProjectFilter = true }: {
+export function WorkspaceAssignmentTable({ title, tasks, editors, emptyMessage, filterScope, teams }: {
   title: string;
   tasks: Assignment[];
   editors: AssignmentEditors;
   emptyMessage: string;
   filterScope: string;
   teams?: { slug: string; name: string }[];
-  showProjectFilter?: boolean;
 }) {
   const [sort, setSort] = useState<Sort>(DEFAULT_SORT);
   const showTeam = teams !== undefined;
@@ -88,7 +87,6 @@ export function WorkspaceAssignmentTable({ title, tasks, editors, emptyMessage, 
     new Map(rows.map(({ statusId, status }) => [statusId, { id: statusId, name: status.name }])).values(),
   ).sort((a, b) => compareText(a.name, b.name)), [rows]);
   const projectOptions = useMemo(() => {
-    if (!showProjectFilter) return undefined;
     const options = new Map(tasks.map(({ projectId, projectName, projectSlug, teamName, teamSlug }) => [
       projectId, {
         id: projectId,
@@ -101,7 +99,7 @@ export function WorkspaceAssignmentTable({ title, tasks, editors, emptyMessage, 
     return [...options.values()].map(({ id, name, path }) => ({
       id, name: labelCounts.get(name) === 1 ? name : `${name} · ${path}`,
     })).sort((a, b) => compareText(a.name, b.name));
-  }, [tasks, showProjectFilter, showTeam]);
+  }, [tasks, showTeam]);
   const filters = useTaskPeopleFilters(rows, filterScope);
   const visible = useMemo(() => [...filters.visible].sort((a, b) => {
     if (sort.id === "dueDate" && Boolean(a.dueDate) !== Boolean(b.dueDate)) {

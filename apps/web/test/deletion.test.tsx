@@ -22,6 +22,7 @@ import { createTeam } from "./helpers";
 import {
   activity,
   comment,
+  orgMember,
   team as teamTable,
   teamInvite,
   teamMember,
@@ -51,11 +52,14 @@ vi.mock("@/lib/session", () => ({
 
 const db = drizzle(env.DB);
 const now = new Date();
+// `ownerId` creates the fixture teams, so it is their first team admin; only
+// `orgOwnerId`, an org owner outside every team, may delete a team.
 const ownerId = "del-owner";
 const adminId = "del-admin";
 const memberId = "del-member";
 const outsiderId = "del-outsider";
-const ids = [ownerId, adminId, memberId, outsiderId];
+const orgOwnerId = "del-org-owner";
+const ids = [ownerId, adminId, memberId, outsiderId, orgOwnerId];
 await db.insert(user).values(
   ids.map((id) => ({
     id,
@@ -65,6 +69,8 @@ await db.insert(user).values(
     updatedAt: now,
   })),
 );
+
+await db.insert(orgMember).values({ userId: orgOwnerId, role: "owner", createdAt: now });
 
 function context(actorUserId = ownerId) {
   return { db, actorUserId, source: "web" as const };
@@ -117,7 +123,7 @@ async function teamContents(teamId: string) {
   return records.map((rows) => rows.length);
 }
 
-it("shows deletion only to team owners and denies direct requests from other roles", async () => {
+it("shows team deletion only to org owners and project deletion to team admins, and denies other roles", async () => {
   const team = await createTeam(context(), {
     slug: "del-permissions",
     name: "Permissions",
@@ -136,7 +142,7 @@ it("shows deletion only to team owners and denies direct requests from other rol
 
   const teamParams = { team: team.slug };
   const forbidden = { digest: "NEXT_HTTP_ERROR_FALLBACK;403" };
-  for (const actorId of [ownerId, adminId, memberId]) {
+  for (const actorId of [ownerId, adminId, memberId, orgOwnerId]) {
     actor.id = actorId;
     const general = TeamGeneralPage({ params: Promise.resolve(teamParams) });
     if (actorId === memberId) {
@@ -144,7 +150,7 @@ it("shows deletion only to team owners and denies direct requests from other rol
     } else {
       const teamHtml = renderToStaticMarkup(await general);
       expect(teamHtml).toContain("Team name");
-      expect(teamHtml.includes("Delete team")).toBe(actorId === ownerId);
+      expect(teamHtml.includes("Delete team")).toBe(actorId === orgOwnerId);
     }
     if (actorId === memberId) {
       await expect(MembersPage({ params: Promise.resolve(teamParams) })).rejects.toMatchObject(forbidden);
@@ -159,15 +165,18 @@ it("shows deletion only to team owners and denies direct requests from other rol
       await expect(projectSettings).rejects.toMatchObject(forbidden);
     } else {
       const projectHtml = renderToStaticMarkup(await projectSettings);
-      expect(projectHtml.includes("Delete project")).toBe(actorId === ownerId);
+      expect(projectHtml).toContain("Delete project");
     }
   }
 
-  for (const actorId of [adminId, memberId, outsiderId]) {
+  for (const actorId of [ownerId, adminId, memberId, outsiderId]) {
     const reason = actorId === outsiderId ? "not_a_member" : "forbidden";
     await expect(
       deleteTeam(context(actorId), { teamId: team.id, confirmation: team.slug }),
     ).rejects.toMatchObject({ name: "AccessError", reason });
+  }
+  for (const actorId of [memberId, outsiderId]) {
+    const reason = actorId === outsiderId ? "not_a_member" : "forbidden";
     await expect(
       deleteProject(context(actorId), { projectId: target.id, confirmation: target.slug }),
     ).rejects.toMatchObject({ name: "AccessError", reason });
@@ -177,12 +186,20 @@ it("shows deletion only to team owners and denies direct requests from other rol
   await expect(
     deleteTeamAction(team.slug, team.id, {}, form(team.slug)),
   ).rejects.toMatchObject(forbidden);
+  actor.id = memberId;
   await expect(
     deleteProjectAction(team.slug, target.slug, target.id, {}, form(target.slug)),
   ).rejects.toMatchObject(forbidden);
+
+  // Any team admin, not only the team's creator, deletes a project.
+  actor.id = adminId;
+  await expect(
+    deleteProjectAction(team.slug, target.slug, target.id, {}, form(target.slug)),
+  ).rejects.toMatchObject(redirectTo(`/${team.slug}`));
+  expect(await db.select().from(project).where(eq(project.id, target.id))).toEqual([]);
 });
 
-it("lets owners and admins rename a team while preserving its slug", async () => {
+it("lets team admins rename a team while preserving its slug", async () => {
   const team = await createTeam(context(), { slug: "del-rename", name: "Before" });
   await db.insert(teamMember).values([
     { teamId: team.id, userId: adminId, role: "admin", createdAt: now },
@@ -237,7 +254,7 @@ it("deletes only the confirmed project and refuses a stale form after slug reuse
 });
 
 it("deletes a team's projects, memberships and invites while preserving other teams and users", async () => {
-  actor.id = ownerId;
+  actor.id = orgOwnerId;
   const team = await createTeam(context(), {
     slug: "del-team-target",
     name: "Team deletion",
@@ -249,7 +266,7 @@ it("deletes a team's projects, memberships and invites while preserving other te
   await db.insert(teamMember).values({
     teamId: team.id,
     userId: memberId,
-    role: "owner",
+    role: "admin",
     createdAt: now,
   });
   for (const teamId of [team.id, neighbor.id]) {
@@ -304,7 +321,7 @@ it("rolls back project cleanup if the final delete fails", async () => {
 });
 
 it.each(["project", "team"] as const)(
-  "preserves %s data if the actor loses ownership before the delete batch",
+  "preserves %s data if the actor loses the deleting role before the delete batch",
   async (kind) => {
     const team = await createTeam(context(), {
       slug: `del-demoted-${kind}`,
@@ -313,7 +330,7 @@ it.each(["project", "team"] as const)(
     await db.insert(teamMember).values({
       teamId: team.id,
       userId: memberId,
-      role: "owner",
+      role: "admin",
       createdAt: now,
     });
     await inviteToTeam(context(), {
@@ -326,15 +343,17 @@ it.each(["project", "team"] as const)(
 
     const racingDb = drizzle(env.DB);
     const batch = racingDb.batch.bind(racingDb);
+    // Project deletion needs a team admin, team deletion an org owner.
+    const actorId = kind === "project" ? ownerId : orgOwnerId;
     const intercepted = vi.spyOn(racingDb, "batch").mockImplementation(async (queries) => {
-      await changeTeamMemberRole(context(memberId), {
-        teamId: team.id,
-        userId: ownerId,
-        role: "admin",
-      });
+      if (kind === "project") {
+        await changeTeamMemberRole(context(memberId), { teamId: team.id, userId: ownerId, role: "member" });
+      } else {
+        await db.update(orgMember).set({ role: "admin" }).where(eq(orgMember.userId, orgOwnerId));
+      }
       return batch(queries);
     });
-    const ctx = { ...context(), db: racingDb };
+    const ctx = { ...context(actorId), db: racingDb };
     const deletion = kind === "project"
       ? deleteProject(ctx, { projectId: target.id, confirmation: target.slug })
       : deleteTeam(ctx, { teamId: team.id, confirmation: team.slug });
@@ -346,6 +365,7 @@ it.each(["project", "team"] as const)(
     expect(intercepted).toHaveBeenCalledTimes(1);
     expect(await projectContents(target)).toEqual(before);
     expect(await teamContents(team.id)).toEqual([1, 2, 1]);
+    await db.update(orgMember).set({ role: "owner" }).where(eq(orgMember.userId, orgOwnerId));
   },
 );
 

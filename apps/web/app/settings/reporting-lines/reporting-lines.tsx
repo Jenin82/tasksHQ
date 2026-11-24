@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { Input } from "@/components/ui/input";
 import { ReportingLineForm, type Person } from "./reporting-line-form";
 
-function PersonCell({ person }: { person: Person }) {
+function PersonCell({ person }: { person: { name: string; email: string } }) {
   return (
     <>
       <span className="block font-medium wrap-anywhere">{person.name}</span>
@@ -16,7 +16,7 @@ function PersonCell({ person }: { person: Person }) {
   );
 }
 
-export function ReportingLines({ teamSlug, people }: { teamSlug: string; people: Person[] }) {
+export function ReportingLines({ people }: { people: Person[] }) {
   const [search, setSearch] = useState("");
   const [leadFilter, setLeadFilter] = useState("");
   const [dialog, setDialog] = useState<{ person?: Person } | null>(null);
@@ -24,11 +24,13 @@ export function ReportingLines({ teamSlug, people }: { teamSlug: string; people:
   const trigger = useRef<HTMLButtonElement | null>(null);
   const addButton = useRef<HTMLButtonElement | null>(null);
   const peopleById = new Map(people.map((person) => [person.userId, person]));
+  // A lead is always an org member, so every line's lead is in `people`.
   const lines = people.flatMap((person) => {
-    const lead = peopleById.get(person.leadUserId ?? "");
+    const lead = person.leadUserId ? peopleById.get(person.leadUserId) : undefined;
     return lead ? [{ person, lead }] : [];
   });
-  const leadIds = new Set(lines.map(({ lead }) => lead.userId));
+  const leadOptions = new Map(lines.map(({ lead }) => [lead.userId, lead.name]));
+  const leadIds = new Set(leadOptions.keys());
   const selectedLead = leadIds.has(leadFilter) ? leadFilter : "";
   const query = search.trim().toLowerCase();
   const visibleLines = lines.filter(({ person, lead }) =>
@@ -58,7 +60,7 @@ export function ReportingLines({ teamSlug, people }: { teamSlug: string; people:
         </Button>
       </div>
       <p className="mt-2 text-sm text-muted-foreground">
-        Each person can have one direct lead. Leads get access to their direct reports’ projects and can track their assignments in Your Reports.
+        Each person in the organization can have one direct lead. Leads see their direct reports’ time on the Time page, in every team they share.
       </p>
       <section aria-label="Reporting lines" className="mt-6 overflow-hidden rounded-xl border border-border bg-card">
         <div className="flex flex-wrap gap-3 border-b border-border p-3">
@@ -80,7 +82,7 @@ export function ReportingLines({ teamSlug, people }: { teamSlug: string; people:
             onChange={(event) => setLeadFilter(event.currentTarget.value)}
           >
             <option value="">All leads</option>
-            {people.filter(({ userId }) => leadIds.has(userId)).map(({ userId, name }) => (
+            {[...leadOptions].sort(([, a], [, b]) => a.localeCompare(b)).map(([userId, name]) => (
               <option key={userId} value={userId}>{name}</option>
             ))}
           </select>
@@ -139,7 +141,6 @@ export function ReportingLines({ teamSlug, people }: { teamSlug: string; people:
           <DialogDescription>Set who this member reports to directly.</DialogDescription>
           {dialog && (
             <ReportingLineForm
-              teamSlug={teamSlug}
               people={people}
               person={dialog.person}
               onPendingChange={setPending}

@@ -14,6 +14,7 @@ import { claimInvitesForSignIn } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getUser } from "@/lib/session";
 import { getOrgMembership } from "@/lib/org-context";
+import { teamRoleLabel } from "@/lib/role-label";
 import { listUserTeams } from "@/lib/team-context";
 import { emailEnabled } from "@/lib/smtp";
 import { taskSignInDestination, taskSignInUrl } from "@/lib/task-sign-in";
@@ -39,7 +40,7 @@ export default async function Home({ searchParams }: {
   // can follow it without reauthenticating to pick up a new invite.
   await claimInvitesForSignIn(user.id, user.email);
   if (taskPath) redirect(taskPath);
-  const [memberships, { canManage }] = await Promise.all([listUserTeams(user.id), getOrgMembership(user.id)]);
+  const [memberships, { canManage, role: orgRole }] = await Promise.all([listUserTeams(user.id), getOrgMembership(user.id)]);
   const teams = await Promise.all(
     memberships.map(async (o) => {
       const [row] = await db
@@ -111,7 +112,7 @@ export default async function Home({ searchParams }: {
                     <span className="truncate text-base">{o.name}</span>
                     {/* §7.1: words beside the numeral, spaced, no divider. */}
                     <span className="flex items-baseline justify-between gap-4">
-                      <span className="stutter">{o.role}</span>
+                      <span className="stutter">{teamRoleLabel(o.role, orgRole)}</span>
                       <span className="stutter">
                         <span className="numeral">{o.projects}</span>{" "}
                         {o.projects === 1 ? "project" : "projects"}

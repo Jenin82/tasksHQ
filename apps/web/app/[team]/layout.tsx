@@ -1,11 +1,12 @@
 import { and, asc, eq } from "drizzle-orm";
 import { can, canProject } from "@tasks/core/access";
 import { getRunningTimer } from "@tasks/core/domain";
-import { teamReportingLine, project, projectMember } from "@tasks/core/schema";
+import { project, projectMember } from "@tasks/core/schema";
 import { TopBar } from "@/components/top-bar";
 import { WorkspaceShell } from "@/components/workspace-shell";
 import { db } from "@/lib/db";
 import { getOrgMembership } from "@/lib/org-context";
+import { teamRoleLabel } from "@/lib/role-label";
 import { getTeamContext, listUserTeams } from "@/lib/team-context";
 
 export default async function TeamLayout({
@@ -18,7 +19,7 @@ export default async function TeamLayout({
   const { team: slug } = await params;
   const { team, member, user } = await getTeamContext(slug);
 
-  const [teams, orgMembership, projectRows, reports, runningTimer] = await Promise.all([
+  const [teams, { role: orgRole, canManage }, projectRows, runningTimer] = await Promise.all([
     listUserTeams(user.id),
     getOrgMembership(user.id),
     db.select({ slug: project.slug, name: project.name, key: project.key, role: projectMember.role })
@@ -31,10 +32,6 @@ export default async function TeamLayout({
       ))
       .where(eq(project.teamId, team.id))
       .orderBy(asc(project.name)),
-    db.select({ userId: teamReportingLine.userId })
-      .from(teamReportingLine)
-      .where(and(eq(teamReportingLine.teamId, team.id), eq(teamReportingLine.leadUserId, user.id)))
-      .limit(1),
     getRunningTimer({ db, actorUserId: user.id, source: "web" }),
   ]);
   const projects = projectRows.map(({ role, ...item }) => ({
@@ -46,16 +43,14 @@ export default async function TeamLayout({
     <WorkspaceShell
       key={team.slug}
       team={team.slug}
-      org={{ canManage: orgMembership.canManage }}
+      org={{ canManage }}
       projects={projects}
       canManageWorkspace={can(member.role, "team:manage_members")}
       teams={teams.map(({ slug, name, implicit }) => ({ slug, name, member: !implicit }))}
-      hasReports={reports.length > 0}
-      canViewTimeReports={!member.implicit && can(member.role, "team:view_time_reports")}
       header={
         <TopBar
           team={{ slug: team.slug, name: team.name }}
-          role={member.role}
+          role={teamRoleLabel(member.role, orgRole)}
           projects={projects}
           user={{ name: user.name, email: user.email, image: user.image }}
           runningTimer={runningTimer}

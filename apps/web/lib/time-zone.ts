@@ -1,6 +1,6 @@
 /**
  * Calendar dates (`YYYY-MM-DD`) and wall-clock times (`HH:MM`) in an IANA
- * zone. Your Time and the time entry form share these, so a list and the form
+ * zone. The Time page and the time entry form share these, so a list and the form
  * that edits it always read the same zone.
  */
 

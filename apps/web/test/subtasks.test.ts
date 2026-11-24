@@ -18,7 +18,7 @@ import {
 } from "@tasks/core/domain";
 import { createTeam } from "./helpers";
 import { isTaskParentError } from "@tasks/core/errors";
-import { teamMember, task, user } from "@tasks/core/schema";
+import { orgMember, teamMember, task, user } from "@tasks/core/schema";
 import { readFilters } from "@/components/use-saved-task-filters";
 
 const db = drizzle(env.DB);
@@ -235,6 +235,8 @@ it("deletes a team holding a parent and its sub-task", async () => {
   const parent = await createTask(owner, { projectId: project.id, title: "Parent" });
   await createTask(owner, { projectId: project.id, title: "Child", parentTaskId: parent.id });
 
+  // Only org owners delete teams.
+  await db.update(orgMember).set({ role: "owner" }).where(eq(orgMember.userId, ownerId));
   await deleteTeam(owner, { teamId: doomed.id, confirmation: doomed.slug });
   expect(await db.select().from(task).where(eq(task.projectId, project.id))).toEqual([]);
 });

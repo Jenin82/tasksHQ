@@ -98,11 +98,14 @@ it("lists org members, leaving owners out of an admin's reach", async () => {
   expect(asAdmin).not.toContain(OUTSIDER.toUpperCase());
   expect(asAdmin).toContain(`aria-label="Role for ${MEMBER.toUpperCase()}"`);
   expect(asAdmin).not.toContain(`aria-label="Role for ${OWNER.toUpperCase()}"`);
-  expect(asAdmin).not.toContain('value="owner">Owner');
+  expect(asAdmin).not.toContain('value="owner">Super admin');
+  // An admin sees the owner's role as a label, never the stored value.
+  expect(asAdmin).toContain('<span class="stutter">Super admin</span>');
+  expect(asAdmin).not.toMatch(/>owner</i);
 
   const asOwner = await renderPage(MembersPage, OWNER);
   expect(asOwner).toContain(`aria-label="Role for ${ADMIN.toUpperCase()}"`);
-  expect(asOwner).toContain('<option value="owner">Owner</option>');
+  expect(asOwner).toContain('<option value="owner">Super admin</option>');
 });
 
 it("invites and revokes through the domain, refusing an admin's owner invite", async () => {
@@ -112,7 +115,7 @@ it("invites and revokes through the domain, refusing an admin's owner invite", a
   expect(await renderPage(MembersPage, ADMIN)).toContain("new@os.test");
 
   const refused = await act(ADMIN, inviteOrgMemberAction, { email: "boss@os.test", role: "owner" });
-  expect(refused.error).toMatch(/Only an owner/);
+  expect(refused.error).toMatch(/Only a Super admin/);
   expect(refused.values).toEqual({ email: "boss@os.test", role: "owner" });
   // Access denials surface as the 403 page, as in team settings.
   await expect(act(MEMBER, inviteOrgMemberAction, { email: "x@os.test", role: "member" })).rejects.toMatchObject(digest(403));
@@ -152,4 +155,23 @@ it("lists every team with its member count, and New team, for org admins", async
   expect(html).toContain('href="/os-beta"');
   expect(html).toMatch(/>1<\/span> member</);
   expect(html).toContain("New team");
+});
+
+it("labels the org owner role Super admin in the header and on team cards", async () => {
+  await createTeam({ db, actorUserId: MEMBER }, { slug: "os-labels", name: "OS Labels" });
+  // The layout's shell needs a router, so read the header badge from the element tree.
+  const badge = (node: unknown): unknown => {
+    if (!node || typeof node !== "object") return undefined;
+    if (Array.isArray(node)) return node.map(badge).find((found) => found !== undefined);
+    const props = (node as { props?: { className?: string; children?: unknown; header?: unknown } }).props;
+    if (props?.className === "stutter hidden shrink-0 sm:inline") return props.children;
+    return badge(props?.header) ?? badge(props?.children);
+  };
+  const card = (html: string) => html.match(/href="\/os-labels"[^>]*>[\s\S]*?<span class="stutter">([^<]*)<\/span>/)?.[1];
+  for (const [id, label, teamLabel] of [[OWNER, "Super admin", "Super admin"], [ADMIN, "Admin", "Admin"], [MEMBER, "Member", "Admin"]] as const) {
+    actor.id = id;
+    expect(badge(await Layout({ children: null }))).toBe(label);
+    // An org owner's implicit team access shows their org role; everyone else shows the team role.
+    expect(card(renderToStaticMarkup(await Home()))).toBe(teamLabel);
+  }
 });

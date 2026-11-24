@@ -79,7 +79,14 @@ it("finds status setup and distinguishes task and team permissions", async () =>
 
   expect(searchDocs(entries, "organization roles")[0]?.href).toBe("/docs/organization#roles");
   expect(searchDocs(entries, "team roles")[0]?.href).toBe("/docs/team-settings#roles");
-  expect(searchDocs(entries, "Your Reports").map(({ href }) => href)).toContain("/docs/views#assignment-views");
+  expect(searchDocs(entries, "reporting lines")[0]?.href).toBe("/docs/organization#reporting-lines");
+  expect(searchDocs(entries, "team time")[0]?.href).toBe("/docs/organization#time");
+  expect(searchDocs(entries, "your time")[0]?.href).toBe("/docs/organization#time");
+  expect(searchDocs(entries, "super admin")[0]?.href).toBe("/docs/organization#roles");
+  expect(searchDocs(entries, "owner").map(({ href }) => href)).toEqual(expect.arrayContaining([
+    "/docs/organization#roles",
+    "/docs/team-settings#roles",
+  ]));
 });
 
 it("searches section prose and requires each significant word to match", async () => {

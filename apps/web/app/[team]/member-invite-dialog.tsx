@@ -1,7 +1,6 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import type { TeamRole } from "@tasks/core/access";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -13,11 +12,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NO_ERROR, type ActionState } from "@/lib/action-result";
-import { RoleSelect } from "./(team)/settings/members/role-select";
+import { RoleSelect, type RoleOption } from "./(team)/settings/members/role-select";
 
 export function MemberInviteDialog({
   teamSlug,
-  actorRole,
+  roleOptions,
   inviteAction,
   title = "Invite to team",
   description = "The recipient can access all projects after signing in with the invited address.",
@@ -26,7 +25,7 @@ export function MemberInviteDialog({
   teamSlug?: string;
   title?: string;
   description?: string;
-  actorRole: TeamRole;
+  roleOptions: readonly RoleOption[];
   inviteAction: (state: ActionState, formData: FormData) => Promise<ActionState>;
 }) {
   const [open, setOpen] = useState(false);
@@ -78,7 +77,7 @@ export function MemberInviteDialog({
               id={`${idPrefix}-role`}
               name="role"
               defaultValue={state.values?.role ?? "member"}
-              actorRole={actorRole}
+              options={roleOptions}
             />
           </div>
           {state.error && <p role="alert" className="text-sm text-destructive">{state.error}</p>}

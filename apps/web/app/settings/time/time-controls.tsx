@@ -6,18 +6,19 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { TimeEntryItem, TimeEntryPopover } from "@/components/time-tracking";
 import { Button } from "@/components/ui/button";
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { createTimeEntryAction, setTimezoneAction, type TaskTimeEntry } from "../../../time-actions";
+import { createTimeEntryAction, setTimezoneAction, type TaskTimeEntry } from "@/app/time-actions";
 
-type ListedEntry = TaskTimeEntry & { key: string; title: string; href: string };
+type ListedEntry = TaskTimeEntry & { key: string; title: string; teamName: string; href: string; editable: boolean };
 
 export function TimeEntryList({ entries, timeZone }: { entries: ListedEntry[]; timeZone: string }) {
   return (
     <ul className="mt-2 divide-y divide-border/50">
-      {entries.map(({ key, title, href, ...entry }) => (
-        <TimeEntryItem key={entry.id} entry={entry} timeZone={timeZone}>
+      {entries.map(({ key, title, teamName, href, editable, ...entry }) => (
+        <TimeEntryItem key={entry.id} entry={entry} timeZone={timeZone} readOnly={!editable}>
           <Link href={href} prefetch={false} className="mb-0.5 flex min-w-0 items-baseline gap-2 rounded-sm outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">
             <span className="stutter numeral shrink-0">{key}</span>
             <span className="truncate">{title}</span>
+            <span className="shrink-0 text-xs text-muted-foreground">{teamName}</span>
           </Link>
         </TimeEntryItem>
       ))}
@@ -27,8 +28,9 @@ export function TimeEntryList({ entries, timeZone }: { entries: ListedEntry[]; t
 
 type FoundTask = { key: string; title: string; href: string; projectSlug: string };
 
-/** Picks a task through the workspace search route, then logs a manual entry on it. */
-export function AddTimeEntry({ teamSlug, timeZone }: { teamSlug: string; timeZone: string }) {
+/** Picks a team, then a task through that team's search route, then logs a manual entry on it. */
+export function AddTimeEntry({ teams, timeZone }: { teams: { slug: string; name: string }[]; timeZone: string }) {
+  const [teamSlug, setTeamSlug] = useState(teams[0].slug);
   const [task, setTask] = useState<FoundTask | null>(null);
 
   return (
@@ -46,13 +48,26 @@ export function AddTimeEntry({ teamSlug, timeZone }: { teamSlug: string; timeZon
         );
       }}
     >
+      {teams.length > 1 && (
+        <select
+          aria-label="Team"
+          className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm"
+          value={teamSlug}
+          onChange={(event) => {
+            setTeamSlug(event.currentTarget.value);
+            setTask(null);
+          }}
+        >
+          {teams.map(({ slug, name }) => <option key={slug} value={slug}>{name}</option>)}
+        </select>
+      )}
       {task ? (
         <div className="flex min-w-0 items-baseline gap-2 text-sm">
           <span className="stutter numeral shrink-0">{task.key}</span>
           <span className="min-w-0 flex-1 truncate">{task.title}</span>
           <Button type="button" variant="ghost" size="xs" onClick={() => setTask(null)}>Change</Button>
         </div>
-      ) : <TaskSearch teamSlug={teamSlug} onSelect={setTask} />}
+      ) : <TaskSearch key={teamSlug} teamSlug={teamSlug} onSelect={setTask} />}
     </TimeEntryPopover>
   );
 }

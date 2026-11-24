@@ -391,7 +391,7 @@ export function StatusList({
           This project has no statuses, so it can hold no tasks.
           {canManage
             ? " Add the first one below."
-            : " An owner or an admin adds the first one."}
+            : " An admin adds the first one."}
         </p>
         {canManage ? (
           <AddStatusForm teamSlug={teamSlug} projectSlug={projectSlug} />

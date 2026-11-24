@@ -116,10 +116,10 @@ it("drops an invite whose inviter no longer manages the org: not claimable and n
 });
 
 it("lets only an owner grant owner, including through an invite", async () => {
-  await expect(inviteToOrg(ctx(ADMIN), { email: "boss@org.test", role: "owner" })).rejects.toThrow(/Only an owner/);
+  await expect(inviteToOrg(ctx(ADMIN), { email: "boss@org.test", role: "owner" })).rejects.toThrow(/Only a Super admin/);
   await inviteToOrg(ctx(OWNER), { email: "boss@org.test", role: "owner" });
   // An admin can neither overwrite nor revoke a pending owner invite.
-  await expect(inviteToOrg(ctx(ADMIN), { email: "boss@org.test", role: "member" })).rejects.toThrow(/pending owner invite/);
+  await expect(inviteToOrg(ctx(ADMIN), { email: "boss@org.test", role: "member" })).rejects.toThrow(/pending Super admin invite/);
   await revokeOrgInvite(ctx(ADMIN), { email: "boss@org.test" });
   expect(await db.select().from(orgInvite)).toHaveLength(1);
 
@@ -132,11 +132,11 @@ it("lets only an owner grant owner, including through an invite", async () => {
 
 it("changes roles within the matrix and keeps an owner", async () => {
   await expect(changeOrgMemberRole(ctx(ADMIN), { userId: OWNER, role: "member" })).rejects.toMatchObject({ reason: "forbidden" });
-  await expect(changeOrgMemberRole(ctx(ADMIN), { userId: MEMBER, role: "owner" })).rejects.toThrow(/Only an owner/);
+  await expect(changeOrgMemberRole(ctx(ADMIN), { userId: MEMBER, role: "owner" })).rejects.toThrow(/Only a Super admin/);
   await expect(changeOrgMemberRole(ctx(MEMBER), { userId: TARGET, role: "admin" })).rejects.toMatchObject({ reason: "forbidden" });
   await changeOrgMemberRole(ctx(ADMIN), { userId: MEMBER, role: "admin" });
 
-  await expect(changeOrgMemberRole(ctx(OWNER), { userId: OWNER, role: "admin" })).rejects.toThrow(/at least one owner/);
+  await expect(changeOrgMemberRole(ctx(OWNER), { userId: OWNER, role: "admin" })).rejects.toThrow(/at least one Super admin/);
   await changeOrgMemberRole(ctx(OWNER), { userId: MEMBER, role: "owner" });
   await changeOrgMemberRole(ctx(OWNER), { userId: OWNER, role: "admin" });
   expect(await db.select({ userId: orgMember.userId }).from(orgMember).where(eq(orgMember.role, "owner")))
@@ -194,7 +194,7 @@ it("refuses to remove the last owner, and an admin cannot remove an owner", asyn
   const invite = { email: `${OWNER}@org.test`, role: "member" as const, invitedByUserId: ADMIN, createdAt: now };
   await db.insert(teamInvite).values({ ...invite, teamId: team.id });
 
-  await expect(removeOrgMember(ctx(OWNER), { userId: OWNER })).rejects.toThrow(/at least one owner/);
+  await expect(removeOrgMember(ctx(OWNER), { userId: OWNER })).rejects.toThrow(/at least one Super admin/);
   await expect(removeOrgMember(ctx(ADMIN), { userId: OWNER })).rejects.toMatchObject({ reason: "forbidden" });
   await expect(removeOrgMember(ctx(MEMBER), { userId: TARGET })).rejects.toMatchObject({ reason: "forbidden" });
   // The refused batch rolled back its unassignment.
@@ -204,16 +204,13 @@ it("refuses to remove the last owner, and an admin cannot remove an owner", asyn
   expect(await db.select().from(teamInvite).where(eq(teamInvite.email, invite.email))).toHaveLength(1);
 });
 
-it("lets only an org owner remove someone who owns a team", async () => {
+it("lets an org admin remove a team admin from the org", async () => {
   const owned = await createFixtureTeam(ctx(ADMIN), { slug: "og2-owned", name: "Owned" });
-  await db.insert(teamMember).values({ teamId: owned.id, userId: TARGET, role: "owner", createdAt: now });
+  await db.insert(teamMember).values({ teamId: owned.id, userId: TARGET, role: "admin", createdAt: now });
 
-  await expect(removeOrgMember(ctx(ADMIN), { userId: TARGET }))
-    .rejects.toMatchObject({ reason: "forbidden", message: "An admin cannot remove a team owner." });
-  expect(await db.select().from(orgMember).where(eq(orgMember.userId, TARGET))).toHaveLength(1);
-
-  await removeOrgMember(ctx(OWNER), { userId: TARGET });
+  await removeOrgMember(ctx(ADMIN), { userId: TARGET });
   expect(await db.select().from(orgMember).where(eq(orgMember.userId, TARGET))).toEqual([]);
+  expect(await db.select().from(teamMember).where(eq(teamMember.userId, TARGET))).toEqual([]);
 });
 
 it("lets only org owners and admins create teams", async () => {
@@ -221,5 +218,5 @@ it("lets only org owners and admins create teams", async () => {
   await expect(createTeam(ctx("og2-nobody"), { slug: "og2-nope", name: "Nope" })).rejects.toMatchObject({ reason: "not_a_member" });
   const created = await createTeam(ctx(ADMIN), { slug: "og2-made", name: "Made" });
   expect(await db.select().from(teamMember).where(eq(teamMember.teamId, created.id)))
-    .toMatchObject([{ userId: ADMIN, role: "owner" }]);
+    .toMatchObject([{ userId: ADMIN, role: "admin" }]);
 });

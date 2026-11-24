@@ -1,11 +1,10 @@
 "use client";
 
 import { useActionState, useRef, useState } from "react";
-import type { TeamRole } from "@tasks/core/access";
 import { Button } from "@/components/ui/button";
 import { NO_ERROR } from "@/lib/action-result";
 import { changeMemberRoleAction, removeMemberAction, revokeMemberInviteAction } from "./actions";
-import { RoleSelect } from "./role-select";
+import { RoleSelect, TEAM_ROLE_OPTIONS } from "./role-select";
 
 export function RevokeMemberInvite({ teamSlug, email }: { teamSlug: string; email: string }) {
   const [state, revoke, pending] = useActionState(revokeMemberInviteAction, NO_ERROR);
@@ -26,13 +25,11 @@ export function MemberControls({
   userId,
   role,
   name,
-  actorRole,
 }: {
   teamSlug: string;
   userId: string;
   role: string;
   name: string;
-  actorRole: TeamRole;
 }) {
   const roleForm = useRef<HTMLFormElement>(null);
   const [roleState, changeRole, changing] = useActionState(
@@ -59,7 +56,7 @@ export function MemberControls({
             // the control when the server reports the new one, so a saved
             // change does not snap back to the old value.
             key={role}
-            actorRole={actorRole}
+            options={TEAM_ROLE_OPTIONS}
             name="role"
             defaultValue={role}
             disabled={changing}

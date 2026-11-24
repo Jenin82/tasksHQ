@@ -62,7 +62,7 @@ async function log(userId: string, taskId: string, startedAt: number, endedAt: n
 const now = Date.now();
 const from = now - DAY_MS;
 const range = { teamId: workspace.id, from: new Date(from), to: new Date(now + HOUR_MS) };
-const summary = (userId: string, input = range) => getWorkSummaryData(ctx(userId), input);
+const summary = (userId: string, input: Parameters<typeof getWorkSummaryData>[1] = range) => getWorkSummaryData(ctx(userId), input);
 const find = async (userId: string, key: string) => (await summary(userId)).tasks.find((t) => t.key === key);
 
 describe("included", () => {
@@ -76,7 +76,7 @@ describe("included", () => {
     const result = await summary(userId);
     expect(result.totalMinutes).toBe(75);
     expect(result.tasks).toEqual([{
-      key: t.key, title: "Summarize me", project: expect.stringMatching(/^ws-\d+$/), projectName: "P", status: "Todo", archived: false, minutes: 75,
+      key: t.key, title: "Summarize me", project: expect.stringMatching(/^ws-\d+$/), projectName: "P", team: "ws-space", teamName: "Summary", status: "Todo", archived: false, minutes: 75,
       notes: ["Fix bug", "Review"], created: null, statusChanges: [], comments: [],
     }]);
   });
@@ -108,6 +108,28 @@ describe("included", () => {
     const t = await makeTask();
     await addComment(ctx(userId), { taskId: t.id, body: "Looks good" });
     expect((await find(userId, t.key))?.comments).toEqual([{ at: expect.any(Date), excerpt: "Looks good" }]);
+  });
+});
+
+describe("across teams", () => {
+  it("spans every team the caller can open without teamId, keeps same keys apart, and drops a team they left", async () => {
+    const userId = await makeMember("member", [workspace.id, otherWorkspace.id]);
+    const here = await makeTask();
+    const there = await makeTask(otherWorkspace.id);
+    await log(userId, here.id, from + HOUR_MS, from + 2 * HOUR_MS);
+    await log(userId, there.id, from + HOUR_MS, from + 2 * HOUR_MS, null, otherWorkspace.id);
+    const all = { from: range.from, to: range.to };
+    const result = await summary(userId, all);
+    expect(result.tasks.map((t) => [t.team, t.key]).sort()).toEqual([
+      ["ws-space", here.key], ["ws-summary-other", there.key],
+    ].sort());
+    expect(result.totalMinutes).toBe(120);
+
+    await db.delete(teamMember).where(and(eq(teamMember.teamId, otherWorkspace.id), eq(teamMember.userId, userId)));
+    const after = await summary(userId, all);
+    expect(after.tasks.map((t) => t.key)).toEqual([here.key]);
+    expect(after.totalMinutes).toBe(60);
+    await expect(summary(userId, { ...all, teamId: otherWorkspace.id })).rejects.toMatchObject({ reason: "not_a_member" });
   });
 });
 

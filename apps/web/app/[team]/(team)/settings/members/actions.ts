@@ -17,7 +17,7 @@ import { getTeamContext } from "@/lib/team-context";
 
 function parseRole(value: FormDataEntryValue | null): TeamMember["role"] {
   const role = String(value ?? "");
-  if (role === "owner" || role === "admin" || role === "member") return role;
+  if (role === "admin" || role === "member") return role;
   throw new DomainError("Pick a role.");
 }
 

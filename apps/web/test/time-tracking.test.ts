@@ -25,7 +25,7 @@ import {
   updateTimeEntry,
 } from "@tasks/core/domain";
 import { createTeam } from "./helpers";
-import { activity, teamMember, status, task, timeEntry, user } from "@tasks/core/schema";
+import { activity, orgMember, teamMember, status, task, timeEntry, user } from "@tasks/core/schema";
 import { zonedDate, zonedMidnight, zonedTime } from "@/lib/time-zone";
 
 const db = drizzle(env.DB);
@@ -222,6 +222,35 @@ it("listMyTimeEntries returns the actor's overlapping entries in one team", asyn
   expect(listed[0]).toMatchObject({ taskId: here.t.id, projectId: here.p.id, key: here.t.key });
 });
 
+it("listMyTimeEntries spans teams the actor can open, drops teams they left, and marks implicit-only teams read-only", async () => {
+  const userId = await makeMember([workspace.id, otherWorkspace.id]);
+  const left = await createTeam(owner, { slug: "tt-left", name: "Left" });
+  await db.insert(teamMember).values({ teamId: left.id, userId, role: "member", createdAt: new Date() });
+  const here = await makeTask();
+  const there = await makeTask(otherWorkspace.id);
+  const gone = await makeTask(left.id);
+  const now = Date.now();
+  const from = new Date(now - 10 * HOUR_MS);
+  const to = new Date(now);
+  const log = (target: { taskId: string; projectId: string }, start: number) =>
+    createTimeEntry(ctx(userId), { ...target, startedAt: new Date(now - start * HOUR_MS), endedAt: new Date(now - (start - 1) * HOUR_MS) });
+  const a = await log(here.target, 3);
+  const b = await log(there.target, 4);
+  const c = await log(gone.target, 5);
+  await db.delete(teamMember).where(and(eq(teamMember.teamId, left.id), eq(teamMember.userId, userId)));
+
+  const listed = await listMyTimeEntries(ctx(userId), { from, to });
+  expect(listed.map((e) => [e.id, e.teamSlug, e.editable])).toEqual([[a.id, "tt-space", true], [b.id, "tt-other", true]]);
+  expect(listed[1]).toMatchObject({ teamId: otherWorkspace.id, teamName: "Other", projectId: there.p.id });
+  await expect(listMyTimeEntries(ctx(userId), { teamId: left.id, from, to })).rejects.toMatchObject({ reason: "not_a_member" });
+
+  // As an org admin they can open the team again, but only read their entries there.
+  await db.update(orgMember).set({ role: "admin" }).where(eq(orgMember.userId, userId));
+  const asAdmin = await listMyTimeEntries(ctx(userId), { from, to });
+  expect(asAdmin.map((e) => [e.id, e.editable])).toEqual([[a.id, true], [b.id, true], [c.id, false]]);
+  expect(await listMyTimeEntries(ctx(userId), { teamId: left.id, from, to })).toMatchObject([{ id: c.id, editable: false }]);
+});
+
 it("getTaskTimeTotals sums everyone's time and the actor's own, counting running timers", async () => {
   const userId = await makeMember();
   const otherId = await makeMember();
@@ -293,7 +322,7 @@ it("removeTeamMember stops the member's running timer in that team only", async 
 
 it("removeTeamMember of the last owner (allowed, P5) stops that owner's timer", async () => {
   const soleId = await makeUser();
-  const space = await createTeam(ctx(soleId), { slug: "tt-sole", name: "Sole owner" });
+  const space = await createTeam(ctx(soleId), { slug: "tt-sole", name: "Sole admin" });
   const p = await createProject(ctx(soleId), { teamId: space.id, slug: "tt-sole-p", key: "TTS", name: "P" });
   const t = await createTask(ctx(soleId), { projectId: p.id, title: "Mine" });
   const timer = await startTimer(ctx(soleId), { taskId: t.id, projectId: p.id });
@@ -312,6 +341,8 @@ it("deleteTeam removes the team's time entries, running or not", async () => {
   const logged = await createTimeEntry(ctx(soleId), { ...target, startedAt: new Date(now - 2 * HOUR_MS), endedAt: new Date(now - HOUR_MS) });
   const timer = await startTimer(ctx(soleId), target);
 
+  // Only org owners delete teams.
+  await db.update(orgMember).set({ role: "owner" }).where(eq(orgMember.userId, soleId));
   await deleteTeam(ctx(soleId), { teamId: space.id, confirmation: space.slug });
   expect(await entry(logged.id)).toBeUndefined();
   expect(await entry(timer.id)).toBeUndefined();

@@ -9,7 +9,7 @@ export const sections: GuideSection[] = [
       <>
         <p>
           Open the project, then choose <strong>Settings</strong> beneath its name in the sidebar.
-          Team owners and admins can manage any project’s settings. A project admin can manage
+          Team admins can manage any project’s settings. A project admin can manage
           settings for that project.
         </p>
         <p>Once Settings is open, its four pages are listed beneath it in the sidebar:</p>
@@ -30,7 +30,7 @@ export const sections: GuideSection[] = [
     content: (
       <>
         <p>
-          Team owners and admins can change a project’s name and slug under <strong>Settings → General → Project details</strong>,
+          Team admins can change a project’s name and slug under <strong>Settings → General → Project details</strong>,
           then select <strong>Save</strong>. The slug is the part of the project’s address after the team,
           so changing it changes the project’s URLs.
         </p>
@@ -96,7 +96,7 @@ export const sections: GuideSection[] = [
     content: (
       <p>
         Under <strong>Settings → General → Task editing</strong>, turn on <strong>Restrict task editing</strong> to limit edits to the
-        creator, reporter, current assignee, project admins, and team owners and admins.
+        creator, reporter, current assignee, project admins, and team admins.
         Other team members can still view tasks, create new ones, and comment.
         Anyone who can edit a task can change its reporter, which also gives the new reporter edit access.
         The rule applies in TasksHQ and through <DocLink topic="mcp">MCP</DocLink>.
@@ -123,7 +123,7 @@ export const sections: GuideSection[] = [
     content: (
       <>
         <p>
-          Team owners and admins can choose an existing team member under <strong>Settings → Admins</strong>,
+          Team admins can choose an existing team member under <strong>Settings → Admins</strong>,
           then select <strong>Grant admin access</strong>. Use <strong>Revoke admin access</strong> on the person’s row to
           return them to ordinary member permissions for this project.
         </p>
@@ -139,7 +139,7 @@ export const sections: GuideSection[] = [
     title: "Delete a project",
     content: (
       <p>
-        On <strong>Settings → General</strong>, a team owner can select <strong>Delete project</strong> and type the project slug shown in
+        On <strong>Settings → General</strong>, a team admin can select <strong>Delete project</strong> and type the project slug shown in
         the confirmation. This permanently deletes its tasks, comments, and project history.
       </p>
     ),

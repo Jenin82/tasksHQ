@@ -25,7 +25,7 @@ function render(
     <ProjectViewHref.Provider value={projectHref}>
       <TopBar
         team={{ slug: "acme", name: "Acme Corp" }}
-        role="owner"
+        role="Super admin"
         projects={[{ slug: "web", name: "Website", key: "WEB" }]}
         user={{ name: "Ada Lovelace", email: "ada@example.test" }}
         runningTimer={runningTimer}
@@ -38,7 +38,7 @@ it("renders the team and project crumbs on a project route", () => {
   const html = render({ team: "acme", project: "web" });
 
   expect(html).toContain("Acme Corp");
-  expect(html).toContain(">owner<");
+  expect(html).toContain(">Super admin<");
   expect(html).toContain("Website");
   expect(html).toContain(">WEB<");
   expect(html).toContain(">AL<");
@@ -58,7 +58,7 @@ it("links the team crumb to /[team] without a switcher", () => {
   );
 
   expect(link?.[2]).toContain(">Acme Corp<");
-  expect(link?.[2]).toContain(">owner<");
+  expect(link?.[2]).toContain(">Super admin<");
   expect(html).not.toMatch(/<button\b[^>]*aria-label="[^"]*Switch team/);
 });
 

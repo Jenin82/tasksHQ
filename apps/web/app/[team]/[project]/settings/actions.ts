@@ -284,7 +284,6 @@ export async function setProjectTaskEditRestrictionAction(
 
   revalidatePath(`/${team.slug}/${project.slug}`, "layout");
   revalidatePath(`/${team.slug}/settings/your-tasks`);
-  revalidatePath(`/${team.slug}/settings/your-reports`);
   revalidatePath("/[team]/settings/all-tasks", "page");
   return NO_ERROR;
 }

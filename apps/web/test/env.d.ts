@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 /// <reference types="@cloudflare/vitest-plugin/types" />
 
 import type { D1Migration } from "@cloudflare/vitest-plugin";

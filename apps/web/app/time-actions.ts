@@ -15,7 +15,7 @@ import { db } from "@/lib/db";
 import { getProjectContext } from "@/lib/project-context";
 import { requireUser } from "@/lib/session";
 
-/** A task as the URL names it, so the task panel and the Your time picker address it the same way. */
+/** A task as the URL names it, so the task panel and the Time page picker address it the same way. */
 export type TimeTaskTarget = { teamSlug: string; projectSlug: string; taskKey: string };
 
 export type TaskTimeEntry = {
@@ -41,11 +41,12 @@ async function userContext() {
 }
 
 /**
- * The running-timer chip sits in every team's layout, and the timer
- * can belong to any of them, so every team subtree is refreshed.
+ * The running-timer chip sits in every team's layout and the org's `/settings`
+ * layout, and the timer can belong to any team, so both subtrees are refreshed.
  */
 function revalidateTime() {
   revalidatePath("/[team]", "layout");
+  revalidatePath("/settings", "layout");
 }
 
 /**
@@ -118,6 +119,7 @@ export async function setTimezoneAction(timezone: string): Promise<ActionState> 
   } catch (error) {
     return toActionState(error);
   }
-  revalidatePath("/[team]/settings/your-time", "page");
+  // The zone sets "today" for the Time page and the timer chip.
+  revalidateTime();
   return NO_ERROR;
 }

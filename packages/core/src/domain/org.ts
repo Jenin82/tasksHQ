@@ -1,4 +1,4 @@
-import { and, eq, exists, inArray, isNotNull, isNull, ne, not, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import { AccessError, requireOrgCapability, requireOrgMember } from "../access";
 import { type DomainContext, writeActivitySelect } from "../activity";
@@ -16,10 +16,9 @@ import { stopTimeEntryValues } from "./time";
 // is NOT NULL. removeOrgMember logs its task-level side effect.
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const ADMIN_REMOVES_OWNER = "An admin cannot remove an owner.";
-const ADMIN_REMOVES_TEAM_OWNER = "An admin cannot remove a team owner.";
-const ADMIN_CHANGES_OWNER = "An admin cannot change an owner's role.";
-const LAST_OWNER = "An organization must have at least one owner, so the last owner cannot be";
+const ADMIN_REMOVES_OWNER = "An admin cannot remove a Super admin.";
+const ADMIN_CHANGES_OWNER = "An admin cannot change a Super admin's role.";
+const LAST_OWNER = "An organization must have at least one Super admin, so the last Super admin cannot be";
 const ROLE_LOST = "Your organization role has changed. Reload and try again.";
 
 function assertValidRole(role: string): asserts role is OrgRole {
@@ -63,25 +62,12 @@ async function explainRefusal(
   targetUserId: string,
   ownerMessage: string,
   lastOwner: string,
-  guardTeamOwners = false,
 ) {
   const current = await requireTarget(ctx.db, targetUserId);
   const now = await requireOrgMember(ctx.db, actor.userId);
   if (now.role !== actor.role) throw new AccessError("forbidden", ROLE_LOST);
   if (current.role === "owner" && actor.role !== "owner") throw new AccessError("forbidden", ownerMessage);
-  if (guardTeamOwners && actor.role !== "owner" && await ownsATeam(ctx.db, targetUserId)) {
-    throw new AccessError("forbidden", ADMIN_REMOVES_TEAM_OWNER);
-  }
   throw new DomainError(lastOwner);
-}
-
-function teamOwnerRow(db: DrizzleD1Database, userId: string) {
-  return db.select({ userId: teamMember.userId }).from(teamMember)
-    .where(and(eq(teamMember.userId, userId), eq(teamMember.role, "owner")));
-}
-
-async function ownsATeam(db: DrizzleD1Database, userId: string) {
-  return (await teamOwnerRow(db, userId).limit(1)).length > 0;
 }
 
 export async function renameOrg(ctx: DomainContext, input: { name: string }) {
@@ -102,7 +88,7 @@ export async function inviteToOrg(ctx: DomainContext, input: { email: string; ro
   assertValidRole(input.role);
   // A DomainError for inviteToTeam's reason: a stale form deserves a sentence.
   if (input.role === "owner" && actor.role !== "owner") {
-    throw new DomainError("Only an owner can invite someone as an owner.");
+    throw new DomainError("Only a Super admin can invite someone as a Super admin.");
   }
 
   const email = input.email.trim().toLowerCase();
@@ -142,7 +128,7 @@ export async function inviteToOrg(ctx: DomainContext, input: { email: string; ro
     eq(orgInvite.email, email), eq(orgInvite.role, "owner"), isNull(orgInvite.acceptedAt),
   ));
   if (protectedInvite) {
-    throw new DomainError(`${email} has a pending owner invite, which only an owner can change.`);
+    throw new DomainError(`${email} has a pending Super admin invite, which only a Super admin can change.`);
   }
 }
 
@@ -167,7 +153,7 @@ export async function changeOrgMemberRole(ctx: DomainContext, input: { userId: s
     throw new AccessError("forbidden", ADMIN_CHANGES_OWNER);
   }
   if (actor.role !== "owner" && input.role === "owner") {
-    throw new DomainError("Only an owner can make someone an owner.");
+    throw new DomainError("Only a Super admin can make someone a Super admin.");
   }
 
   const changed = await ctx.db.update(orgMember).set({ role: input.role }).where(and(
@@ -193,10 +179,6 @@ export async function removeOrgMember(ctx: DomainContext, input: { userId: strin
   const target = await requireTarget(ctx.db, input.userId);
   if (target.role === "owner" && actor.role !== "owner") {
     throw new AccessError("forbidden", ADMIN_REMOVES_OWNER);
-  }
-  // Only an org owner can remove someone who owns a team.
-  if (actor.role !== "owner" && await ownsATeam(ctx.db, input.userId)) {
-    throw new AccessError("forbidden", ADMIN_REMOVES_TEAM_OWNER);
   }
 
   const inTheirTeams = inArray(
@@ -234,12 +216,12 @@ export async function removeOrgMember(ctx: DomainContext, input: { userId: strin
       ctx.db.delete(teamInvite).where(and(inArray(teamInvite.email, theirEmail), isNull(teamInvite.acceptedAt))),
       ctx.db.delete(orgInvite).where(and(inArray(orgInvite.email, theirEmail), isNull(orgInvite.acceptedAt))),
       // The org_member_leave_teams trigger deletes their team_member rows,
-      // which cascade to project_member and team_reporting_line.
+      // which cascade to project_member; reporting_line rows on both sides
+      // cascade from org_member.
       ctx.db.delete(orgMember).where(and(
         memberRow,
         notLastOwner(),
         untouchableBy(actor),
-        actor.role === "owner" ? undefined : not(exists(teamOwnerRow(ctx.db, input.userId))),
         actorStill(actor),
       )),
       // removeTeamMember's abort: a surviving row makes NOT NULL fail the batch.
@@ -247,7 +229,7 @@ export async function removeOrgMember(ctx: DomainContext, input: { userId: strin
     ]);
   } catch (error) {
     if (isConstraintError(error, "NOT NULL")) {
-      await explainRefusal(ctx, actor, input.userId, ADMIN_REMOVES_OWNER, `${LAST_OWNER} removed.`, true);
+      await explainRefusal(ctx, actor, input.userId, ADMIN_REMOVES_OWNER, `${LAST_OWNER} removed.`);
     }
     throw error;
   }

@@ -72,7 +72,7 @@ it("accepts a team and a member, and rejects a duplicate (teamId, userId)", asyn
   await seedTeam("o-member");
   await db
     .insert(teamMember)
-    .values({ teamId: "o-member", userId: "u1", role: "owner", createdAt: now });
+    .values({ teamId: "o-member", userId: "u1", role: "admin", createdAt: now });
 
   expect(
     await db.select().from(teamMember).where(eq(teamMember.teamId, "o-member")),
@@ -93,7 +93,6 @@ it("accepts a team and a member, and rejects a duplicate (teamId, userId)", asyn
 it("accepts every team_member role and the four default status colors", async () => {
   await seedTeam("o-enums");
   await db.insert(teamMember).values([
-    { teamId: "o-enums", userId: "u1", role: "owner", createdAt: now },
     { teamId: "o-enums", userId: "u2", role: "admin", createdAt: now },
     { teamId: "o-enums", userId: "u3", role: "member", createdAt: now },
   ]);
@@ -112,7 +111,6 @@ it("accepts every team_member role and the four default status colors", async ()
   expect(members.map((m) => m.role).sort()).toEqual([
     "admin",
     "member",
-    "owner",
   ]);
 
   const statuses = await db
@@ -137,7 +135,7 @@ it("rejects a project_member whose (teamId, userId) is not a team_member", async
   await seedProject("p-fk", "o-fk");
   await db
     .insert(teamMember)
-    .values({ teamId: "o-fk", userId: "u1", role: "owner", createdAt: now });
+    .values({ teamId: "o-fk", userId: "u1", role: "admin", createdAt: now });
 
   await db
     .insert(projectMember)

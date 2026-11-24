@@ -25,7 +25,7 @@ async function seedTeam(id: string) {
   await db.insert(teamMember).values({
     teamId: id,
     userId: "inv-inviter",
-    role: "owner",
+    role: "admin",
     createdAt: now,
   });
 }
@@ -33,7 +33,7 @@ async function seedTeam(id: string) {
 async function seedInvite(
   teamId: string,
   email: string,
-  role: "owner" | "admin" | "member" = "member",
+  role: "admin" | "member" = "member",
 ) {
   await db.insert(teamInvite).values({
     teamId,
@@ -179,7 +179,7 @@ it("claims every pending invite for one email across teams", async () => {
   await seedTeam("inv-multi-a");
   await seedTeam("inv-multi-b");
   await seedUser("inv-u-multi", "multi@invites.test");
-  await seedInvite("inv-multi-a", "multi@invites.test", "owner");
+  await seedInvite("inv-multi-a", "multi@invites.test", "admin");
   await seedInvite("inv-multi-b", "multi@invites.test", "member");
 
   await claimInvites(db, "inv-u-multi", "multi@invites.test");
@@ -188,7 +188,7 @@ it("claims every pending invite for one email across teams", async () => {
   expect(
     members.map((m) => [m.teamId, m.role]).sort((a, b) => (a[0] < b[0] ? -1 : 1)),
   ).toEqual([
-    ["inv-multi-a", "owner"],
+    ["inv-multi-a", "admin"],
     ["inv-multi-b", "member"],
   ]);
 });

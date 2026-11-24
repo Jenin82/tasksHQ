@@ -8,7 +8,12 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { NO_ERROR, type ActionState } from "@/lib/action-result";
 import { setReportingLeadAction } from "./actions";
 
-export type Person = { userId: string; name: string; email: string; leadUserId: string | null };
+export type Person = {
+  userId: string;
+  name: string;
+  email: string;
+  leadUserId: string | null;
+};
 
 function PersonPicker({ label, people, value, onChange, disabled }: {
   label: string;
@@ -68,8 +73,7 @@ function PersonPicker({ label, people, value, onChange, disabled }: {
   );
 }
 
-export function ReportingLineForm({ teamSlug, people, person, onPendingChange, onClose }: {
-  teamSlug: string;
+export function ReportingLineForm({ people, person, onPendingChange, onClose }: {
   people: Person[];
   person?: Person;
   onPendingChange: (pending: boolean) => void;
@@ -83,7 +87,7 @@ export function ReportingLineForm({ teamSlug, people, person, onPendingChange, o
     try {
       formData.set("userId", userId);
       formData.set("leadUserId", removing ? "" : leadUserId);
-      const result = await setReportingLeadAction(teamSlug, person?.leadUserId ?? null, previous, formData);
+      const result = await setReportingLeadAction(person?.leadUserId ?? null, previous, formData);
       if (!result.error) onClose();
       return result;
     } finally {

@@ -37,7 +37,7 @@ export const sections: GuideSection[] = [
           <li><strong>Mentions:</strong> Mention someone else with <strong>@</strong> in a comment to email them the comment and a link to the work item.</li>
           <li>
             <strong>Work item updates:</strong> Title, description, or status changes can notify the reporter
-            when they are different from the assignee, and the assignee’s direct lead.
+            when they are different from the assignee, and the assignee’s direct lead when the lead can open the project.
             TasksHQ skips the person who made the change and groups edits for each work item and recipient into five-minute batches.
           </li>
         </ul>

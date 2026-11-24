@@ -1,7 +1,8 @@
 import { sql, type SQL } from "drizzle-orm";
 import type { DomainContext } from "../activity";
 import { mailOutbox, type MailJob } from "../schema/mail";
-import { teamMember, teamReportingLine } from "../schema/team";
+import { reportingLine } from "../schema/org";
+import { teamMember } from "../schema/team";
 import { comment, task } from "../schema/task";
 
 const EDIT_WINDOW = 5 * 60_000;
@@ -61,7 +62,6 @@ export function queueCommentMentionMail(ctx: DomainContext, teamId: string, comm
 export function queueTaskEditMail(
   ctx: DomainContext,
   taskId: string,
-  teamId: string,
   assignee: SQL | string | null,
   reporter: SQL | string,
   changed: SQL,
@@ -76,10 +76,9 @@ export function queueTaskEditMail(
       from ${task}
       where ${task.id} = ${taskId} and ${changed} and ${reporter} is not ${assignee}
       union
-      select ${teamReportingLine.leadUserId} as recipient
+      select ${reportingLine.leadUserId} as recipient
       from ${task}
-      inner join ${teamReportingLine}
-        on ${teamReportingLine.teamId} = ${teamId} and ${teamReportingLine.userId} = ${assignee}
+      inner join ${reportingLine} on ${reportingLine.userId} = ${assignee}
       where ${task.id} = ${taskId} and ${changed}
     )
     where recipient != ${ctx.actorUserId}

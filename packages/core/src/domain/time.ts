@@ -1,6 +1,6 @@
 import { and, desc, eq, exists, gt, gte, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
-import { AccessError, hasTeamMembership, requireTeamMember, requireProjectMember } from "../access";
+import { AccessError, hasTeamMembership, requireOrgMember, requireTeamMember, requireProjectMember, teamAccess } from "../access";
 import type { DomainContext } from "../activity";
 import { DomainError, assertMaxLength } from "../errors";
 import { user } from "../schema/auth";
@@ -238,14 +238,24 @@ export type MyTimeEntry = Pick<TimeEntry, "id" | "startedAt" | "endedAt" | "note
   projectId: string;
   projectSlug: string;
   projectName: string;
+  teamId: string;
+  teamSlug: string;
+  teamName: string;
+  /** A real member of the entry's team, so `ownEntry` lets the actor edit it. */
+  editable: boolean;
 };
 
-/** The actor's entries in one team that overlap `[from, to)`, newest first. */
+/**
+ * The actor's entries that overlap `[from, to)`, newest first, in teams they
+ * can open now (or only `teamId`).
+ */
 export async function listMyTimeEntries(
   ctx: DomainContext,
-  input: { teamId: string; from: Date; to: Date },
+  input: { teamId?: string; from: Date; to: Date },
 ): Promise<MyTimeEntry[]> {
-  await requireTeamMember(ctx.db, input.teamId, ctx.actorUserId);
+  await requireOrgMember(ctx.db, ctx.actorUserId);
+  if (input.teamId) await requireTeamMember(ctx.db, input.teamId, ctx.actorUserId);
+  const access = teamAccess(timeEntry.teamId, ctx.actorUserId);
   const rows = await ctx.db.select({
     id: timeEntry.id,
     startedAt: timeEntry.startedAt,
@@ -262,19 +272,25 @@ export async function listMyTimeEntries(
     projectSlug: project.slug,
     projectName: project.name,
     projectKey: project.key,
+    teamId: team.id,
+    teamSlug: team.slug,
+    teamName: team.name,
+    implicit: access.implicit,
   }).from(timeEntry)
     .innerJoin(task, eq(task.id, timeEntry.taskId))
     .innerJoin(project, eq(project.id, task.projectId))
+    .innerJoin(team, eq(team.id, timeEntry.teamId))
     .where(and(
       eq(timeEntry.userId, ctx.actorUserId),
-      eq(timeEntry.teamId, input.teamId),
+      input.teamId ? eq(timeEntry.teamId, input.teamId) : undefined,
+      isNotNull(access.role),
       // No entry is longer than MAX_ENTRY_MS, so this bounds the index scan.
       gte(timeEntry.startedAt, new Date(input.from.getTime() - MAX_ENTRY_MS)),
       lt(timeEntry.startedAt, input.to),
       or(isNull(timeEntry.endedAt), gt(timeEntry.endedAt, input.from)),
     ))
     .orderBy(desc(timeEntry.startedAt), desc(timeEntry.id));
-  return rows.map(({ number, projectKey, ...row }) => ({ ...row, key: taskKey(projectKey, number) }));
+  return rows.map(({ number, projectKey, implicit, ...row }) => ({ ...row, key: taskKey(projectKey, number), editable: !implicit }));
 }
 
 /** Totals for a task; running entries count up to now. */

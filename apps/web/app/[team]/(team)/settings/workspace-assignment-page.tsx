@@ -13,7 +13,7 @@ import { WorkspaceAssignmentTable } from "./workspace-assignment-table";
 
 export async function WorkspaceAssignmentPage({ teamSlug, view, allTeams = false }: {
   teamSlug: string;
-  view: "mine" | "assigned" | "reports";
+  view: "mine" | "assigned";
   allTeams?: boolean;
 }) {
   const { team, user, member } = await getTeamContext(teamSlug);
@@ -23,7 +23,6 @@ export async function WorkspaceAssignmentPage({ teamSlug, view, allTeams = false
   if (allTeams && teams.length < 2) redirect(`/${team.slug}/settings/your-tasks`);
 
   const ctx = { db, actorUserId: user.id, source: "web" as const };
-  const reports = view === "reports";
   const [assignments, createTeams] = await Promise.all([
     Promise.all(teams.map(async (workspace) => {
       const tasks = await listWorkspaceAssignments(ctx, { teamId: workspace.id, view });
@@ -38,16 +37,14 @@ export async function WorkspaceAssignmentPage({ teamSlug, view, allTeams = false
         editors,
       };
     })),
-    reports ? [] : listAssignmentCreateProjects(teams, user.id),
+    listAssignmentCreateProjects(teams, user.id),
   ]);
   const tasks = assignments.flatMap((assignment) => assignment.tasks);
   const editors = Object.assign({}, ...assignments.map((assignment) => assignment.editors));
-  const title = allTeams ? "All My Tasks" : reports ? "Your Reports" : "Your Tasks";
+  const title = allTeams ? "All My Tasks" : "Your Tasks";
   const scope = allTeams ? "across your teams" : "in this workspace";
-  const description = view === "assigned" ? `Active tasks you assigned to others ${scope}.`
-    : reports ? "Active tasks assigned to your direct reports." : `Active tasks assigned to you ${scope}.`;
-  const empty = view === "assigned" ? "You haven’t assigned any active tasks to others."
-    : reports ? "No active tasks are assigned to your direct reports." : "No active tasks are assigned to you.";
+  const description = view === "assigned" ? `Active tasks you assigned to others ${scope}.` : `Active tasks assigned to you ${scope}.`;
+  const empty = view === "assigned" ? "You haven’t assigned any active tasks to others." : "No active tasks are assigned to you.";
   const yourTasksPath = `/${team.slug}/settings/${allTeams ? "all-tasks" : "your-tasks"}`;
 
   return (
@@ -55,44 +52,40 @@ export async function WorkspaceAssignmentPage({ teamSlug, view, allTeams = false
       <main data-task-list tabIndex={-1} className="min-w-0 px-4 py-8 sm:px-10 sm:py-12">
         <h1 className="text-2xl">{title}</h1>
         <p className="mt-1 text-sm text-muted-foreground">{description}</p>
-        {!reports && (
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-            <nav aria-label={`${title} views`} className="inline-flex gap-1 rounded-md border border-border bg-muted p-1">
-              {([
-                ["mine", "Assigned to you", yourTasksPath],
-                ["assigned", "Assigned by you", `${yourTasksPath}?view=assigned`],
-              ] as const).map(([mode, label, href]) => (
-                <Link
-                  key={mode}
-                  href={href}
-                  aria-current={view === mode ? "page" : undefined}
-                  className={cn(
-                    "rounded px-3 py-1.5 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    view === mode ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {label}
-                </Link>
-              ))}
-            </nav>
-            <AssignmentCreateTask
-              teams={createTeams}
-              currentTeamSlug={team.slug}
-              showTeam={allTeams}
-              // All My Tasks lists real teams only.
-              canAssignSelf={allTeams || !member.implicit}
-            />
-          </div>
-        )}
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+          <nav aria-label={`${title} views`} className="inline-flex gap-1 rounded-md border border-border bg-muted p-1">
+            {([
+              ["mine", "Assigned to you", yourTasksPath],
+              ["assigned", "Assigned by you", `${yourTasksPath}?view=assigned`],
+            ] as const).map(([mode, label, href]) => (
+              <Link
+                key={mode}
+                href={href}
+                aria-current={view === mode ? "page" : undefined}
+                className={cn(
+                  "rounded px-3 py-1.5 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  view === mode ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {label}
+              </Link>
+            ))}
+          </nav>
+          <AssignmentCreateTask
+            teams={createTeams}
+            currentTeamSlug={team.slug}
+            showTeam={allTeams}
+            // All My Tasks lists real teams only.
+            canAssignSelf={allTeams || !member.implicit}
+          />
+        </div>
         <WorkspaceAssignmentTable
           title={title}
           tasks={tasks}
           editors={editors}
           emptyMessage={empty}
           teams={allTeams ? teams.map(({ slug, name }) => ({ slug, name })) : undefined}
-          showProjectFilter={!reports}
-          // "team" is the pre-rename view name, kept so saved Your Reports filters survive.
-          filterScope={JSON.stringify([user.id, allTeams ? null : team.id, "assignments", reports ? "team" : view])}
+          filterScope={JSON.stringify([user.id, allTeams ? null : team.id, "assignments", view])}
         />
       </main>
     </TaskDialogProvider>

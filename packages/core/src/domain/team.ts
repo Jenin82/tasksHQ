@@ -1,6 +1,8 @@
 import { and, eq, inArray, isNotNull, isNull, ne, or, type SQL, sql } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
-import { AccessError, requireCapability, requireOrgCapability, requireOrgMember, requireTeamMember, type TeamAccess } from "../access";
+import {
+  AccessError, requireCapability, requireOrgCapability, requireOrgMember, requireTeamMember, teamAccess,
+} from "../access";
 import { type BatchWrites, type DomainContext, writeActivitySelect } from "../activity";
 import {
   DomainError,
@@ -83,20 +85,17 @@ export async function claimInvites(
 // activity type. (removeTeamMember does log the task-level side effect.)
 
 /**
- * §3's "admins can't touch owners" as a SQL condition on the row being
- * written, so the check and the write are one statement: the pre-check reads
- * the target's role before the write, so an owner promoting the target in
- * between would otherwise let an admin remove or change a fresh owner.
+ * The actor is still an effective team admin (real, or an org owner/admin), as
+ * a SQL condition on the row being written, so a demotion or removal that
+ * lands after the pre-check cannot slip through.
  *
- * There is no last-owner rule (P5): org owners always cover a team, so a team
- * may be left without a real owner.
+ * There is no last-admin rule: org owners and admins always cover a team.
  */
-function untouchableBy(actor: Pick<TeamAccess, "role">) {
-  return actor.role === "owner" ? undefined : ne(teamMember.role, "owner");
+function actorStillAdmin(ctx: DomainContext, teamId: string) {
+  return eq(teamAccess(teamId, ctx.actorUserId).role, "admin");
 }
 
-const ADMIN_REMOVES_OWNER = "An admin cannot remove an owner.";
-const ADMIN_CHANGES_OWNER = "An admin cannot change an owner's role.";
+const NO_LONGER_ADMIN = "You no longer manage this team's members.";
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -164,7 +163,7 @@ export async function createTeam(
       ctx.db.insert(teamMember).values({
         teamId: row.id,
         userId: ctx.actorUserId,
-        role: "owner",
+        role: "admin",
         createdAt: now,
       }),
     ]);
@@ -196,14 +195,6 @@ export async function inviteToTeam(
   const actor = await requireTeamMember(ctx.db, input.teamId, ctx.actorUserId);
   requireCapability(actor.role, "team:manage_members");
   assertValidRole(input.role);
-
-  // §3's matrix: an admin's authority over members stops short of owners, so
-  // it cannot hand out the role it cannot revoke. A DomainError, not an
-  // AccessError: the admin may invite, and a stale form offering "owner"
-  // deserves an inline sentence rather than a full-page 403.
-  if (input.role === "owner" && actor.role !== "owner") {
-    throw new DomainError("Only an owner can invite someone as an owner.");
-  }
 
   const email = input.email.trim().toLowerCase();
   if (!EMAIL.test(email)) {
@@ -249,41 +240,28 @@ export async function inviteToTeam(
         createdAt: now,
         acceptedAt: null,
       },
-      // The upsert would otherwise let an admin downgrade an owner's pending
-      // owner invite — changing an owner-level grant it could not have made.
-      // Part of the write rather than a read before it, so an owner invite
-      // landing in between cannot slip past. An accepted owner invite is fair
-      // game: re-inviting a removed former owner is §3's ordinary re-invite.
-      setWhere: and(
-        actor.role === "owner" ? undefined : or(ne(teamInvite.role, "owner"), isNotNull(teamInvite.acceptedAt)),
-        or(isNotNull(teamInvite.acceptedAt), ne(teamInvite.role, input.role), ne(teamInvite.invitedByUserId, ctx.actorUserId)),
-      ),
-    })
-    .returning({ email: teamInvite.email });
+      setWhere: or(isNotNull(teamInvite.acceptedAt), ne(teamInvite.role, input.role), ne(teamInvite.invitedByUserId, ctx.actorUserId)),
+    });
 
-  const written = ctx.emailNotifications
-    ? (await ctx.db.batch([write, queueTeamInviteMail(ctx, input.teamId, email, now)]))[0]
-    : await write;
-  if (written.length > 0 || actor.role === "owner") return;
-
-  const [protectedInvite] = await ctx.db.select({ role: teamInvite.role }).from(teamInvite).where(and(
-    eq(teamInvite.teamId, input.teamId), eq(teamInvite.email, email),
-    eq(teamInvite.role, "owner"), isNull(teamInvite.acceptedAt),
-  ));
-  if (protectedInvite) {
-    throw new DomainError(
-      `${email} has a pending owner invite, which only an owner can change.`,
-    );
+  if (ctx.emailNotifications) {
+    await ctx.db.batch([write, queueTeamInviteMail(ctx, input.teamId, email, now)]);
+  } else {
+    await write;
   }
 }
 
 export async function revokeTeamInvite(ctx: DomainContext, input: { teamId: string; email: string }) {
   const actor = await requireTeamMember(ctx.db, input.teamId, ctx.actorUserId);
   requireCapability(actor.role, "team:manage_members");
-  await ctx.db.delete(teamInvite).where(and(
+  const revoked = await ctx.db.delete(teamInvite).where(and(
     eq(teamInvite.teamId, input.teamId), eq(teamInvite.email, input.email.trim().toLowerCase()),
-    isNull(teamInvite.acceptedAt), actor.role === "owner" ? undefined : ne(teamInvite.role, "owner"),
-  ));
+    isNull(teamInvite.acceptedAt), actorStillAdmin(ctx, input.teamId),
+  )).returning({ email: teamInvite.email });
+  // Nothing to revoke is fine; being demoted since the pre-check is not.
+  if (revoked.length === 0) {
+    const still = await requireTeamMember(ctx.db, input.teamId, ctx.actorUserId);
+    if (still.role !== "admin") throw new AccessError("forbidden", NO_LONGER_ADMIN);
+  }
 }
 
 export async function removeTeamMember(
@@ -293,11 +271,7 @@ export async function removeTeamMember(
   const actor = await requireTeamMember(ctx.db, input.teamId, ctx.actorUserId);
   requireCapability(actor.role, "team:manage_members");
 
-  const target = await requireTarget(ctx.db, input.teamId, input.userId);
-
-  if (target.role === "owner" && actor.role !== "owner") {
-    throw new AccessError("forbidden", ADMIN_REMOVES_OWNER);
-  }
+  await requireTarget(ctx.db, input.teamId, input.userId);
 
   // §3's cascade, the half no constraint expresses: `task.assigneeUserId` has
   // a FK to `user`, not to membership, so nothing nulls it on its own. Each
@@ -345,9 +319,9 @@ export async function removeTeamMember(
         .where(and(eq(timeEntry.userId, input.userId), eq(timeEntry.teamId, input.teamId), isNull(timeEntry.endedAt))),
       ctx.db
         .delete(teamMember)
-        .where(and(memberRow, untouchableBy(actor))),
-      // The guarded delete above can match nothing — the target became an
-      // owner after the check above — and a zero-row
+        .where(and(memberRow, actorStillAdmin(ctx, input.teamId))),
+      // The guarded delete above can match nothing — the actor stopped being
+      // a team admin after the check above — and a zero-row
       // delete does not fail a batch, so the unassignments and activity rows
       // before it would commit. This statement only matches if the row
       // survived, and setting NOT NULL `role` to NULL then aborts the whole
@@ -359,7 +333,7 @@ export async function removeTeamMember(
     if (isConstraintError(error, "NOT NULL")) {
       // Re-read: the row may have been removed since the pre-check.
       await requireTarget(ctx.db, input.teamId, input.userId);
-      throw new AccessError("forbidden", ADMIN_REMOVES_OWNER);
+      throw new AccessError("forbidden", NO_LONGER_ADMIN);
     }
     throw error;
   }
@@ -373,17 +347,7 @@ export async function changeTeamMemberRole(
   requireCapability(actor.role, "team:change_role");
   assertValidRole(input.role);
 
-  const target = await requireTarget(ctx.db, input.teamId, input.userId);
-
-  // §3's matrix: an admin can neither grant nor target owner. Targeting an
-  // owner is a 403; granting owner is a DomainError for inviteToTeam's reason —
-  // a stale role picker should get an inline sentence.
-  if (actor.role !== "owner" && target.role === "owner") {
-    throw new AccessError("forbidden", ADMIN_CHANGES_OWNER);
-  }
-  if (actor.role !== "owner" && input.role === "owner") {
-    throw new DomainError("Only an owner can make someone an owner.");
-  }
+  await requireTarget(ctx.db, input.teamId, input.userId);
 
   const changed = await ctx.db
     .update(teamMember)
@@ -392,15 +356,15 @@ export async function changeTeamMemberRole(
       and(
         eq(teamMember.teamId, input.teamId),
         eq(teamMember.userId, input.userId),
-        untouchableBy(actor),
+        actorStillAdmin(ctx, input.teamId),
       ),
     )
     .returning({ userId: teamMember.userId });
 
   if (changed.length === 0) {
-    // Re-read rather than trust `target`: the row may have been removed (and
-    // `requireTarget` says so) or promoted since the pre-check.
+    // The row may have been removed (and `requireTarget` says so) or the actor
+    // demoted since the pre-check.
     await requireTarget(ctx.db, input.teamId, input.userId);
-    throw new AccessError("forbidden", ADMIN_CHANGES_OWNER);
+    throw new AccessError("forbidden", NO_LONGER_ADMIN);
   }
 }

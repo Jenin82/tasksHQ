@@ -19,7 +19,7 @@ export const sections: GuideSection[] = [
     title: "Create a team",
     searchTerms: ["new team", "create workspace"],
     content: <>
-      <p>A team is the workspace that holds your people and projects. Members of a team can open its projects. Only <DocLink topic="organization" section="roles">organization owners and admins</DocLink> can create teams.</p>
+      <p>A team is the workspace that holds your people and projects. Members of a team can open its projects. Only <DocLink topic="organization" section="roles">organization Super admins and admins</DocLink> can create teams.</p>
       <Steps>
         <li>From the Teams page, choose <strong>New team</strong>. You can also choose <strong>+</strong> next to Teams in the sidebar.</li>
         <li>Enter the name your team will recognize and check the suggested slug. The slug is the part of the URL that identifies your workspace.</li>
@@ -32,7 +32,7 @@ export const sections: GuideSection[] = [
     id: "create-a-project",
     title: "Create your first project",
     content: <>
-      <p>Team owners and admins can create projects. Each project has its own work items, statuses, and task types.</p>
+      <p>Team admins can create projects. Each project has its own work items, statuses, and task types.</p>
       <Steps>
         <li>Open the team and choose <strong>New project</strong> on its Projects page.</li>
         <li>Enter the project name. Check the suggested slug and key. For example, a key of <code>WEB</code> gives tasks identifiers such as <code>WEB-42</code>.</li>
@@ -47,7 +47,7 @@ export const sections: GuideSection[] = [
     title: "Invite teammates",
     content: <>
       <Steps>
-        <li>As a team owner or admin, open <strong>Settings</strong> under Workspace in the sidebar.</li>
+        <li>As a team admin, open <strong>Team settings</strong> under Workspace in the sidebar.</li>
         <li>On <strong>Members</strong>, choose <strong>Invite</strong>. Enter a teammate’s email address and choose their team role.</li>
         <li>Ask them to open TasksHQ and sign in using the invited address. If email delivery is configured, TasksHQ sends them an invitation email.</li>
       </Steps>

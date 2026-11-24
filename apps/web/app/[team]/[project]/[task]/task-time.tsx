@@ -15,10 +15,13 @@ import {
   stopTimerAction,
   type TaskTimeEntry,
   type TimeTaskTarget,
-} from "../../time-actions";
+} from "@/app/time-actions";
 import type { TaskTimePayload } from "./time/route";
 
+const ENTRIES_KEY = "tasks:task-time-entries-open";
+
 type TaskTimeData = {
+  viewerId: string;
   totalMs: number;
   mineMs: number;
   runningSince: Date | null;
@@ -83,6 +86,23 @@ export function TaskTime({ teamSlug, projectSlug, taskKey }: TimeTaskTarget) {
 
   const target = { teamSlug, projectSlug, taskKey };
   const [showEntries, setShowEntries] = useState(false);
+  // Remembered in this browser, like the sidebar's collapses.
+  useEffect(() => {
+    try {
+      setShowEntries(localStorage.getItem(ENTRIES_KEY) === "true");
+    } catch {
+      // Starts closed when browser storage is unavailable.
+    }
+  }, []);
+  function toggleEntries() {
+    const next = !showEntries;
+    setShowEntries(next);
+    try {
+      localStorage.setItem(ENTRIES_KEY, String(next));
+    } catch {
+      // The toggle still works for this page.
+    }
+  }
   const entriesId = useId();
 
   return (
@@ -127,7 +147,7 @@ export function TaskTime({ teamSlug, projectSlug, taskKey }: TimeTaskTarget) {
             className="-mr-3"
             aria-expanded={showEntries}
             aria-controls={entriesId}
-            onClick={() => setShowEntries((shown) => !shown)}
+            onClick={toggleEntries}
           >
             Your entries
             <ChevronDown aria-hidden className={cn("transition-transform", showEntries && "rotate-180")} />
@@ -142,8 +162,8 @@ export function TaskTime({ teamSlug, projectSlug, taskKey }: TimeTaskTarget) {
             {data.entries.map((entry) => <TimeEntryItem key={entry.id} entry={entry} timeZone={timeZone} />)}
           </ul>
           {data.more && (
-            <Link href={`/${teamSlug}/settings/your-time`} prefetch={false} className="self-start rounded-sm text-sm text-muted-foreground outline-none hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring">
-              See all in Your Time
+            <Link href={`/settings/time?${new URLSearchParams({ people: data.viewerId })}`} prefetch={false} className="self-start rounded-sm text-sm text-muted-foreground outline-none hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring">
+              See all in Time
             </Link>
           )}
         </div>

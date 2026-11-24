@@ -1,86 +1,87 @@
-import { and, eq, exists, inArray, notExists, sql } from "drizzle-orm";
-import { AccessError, can, requireCapability, requireTeamMember, teamAccess } from "../access";
+import { eq, sql } from "drizzle-orm";
+import { AccessError, canOrg, requireOrgMember } from "../access";
 import type { DomainContext } from "../activity";
 import { DomainError, isConstraintError } from "../errors";
-import { teamMember, teamReportingLine } from "../schema/team";
+import { orgMember, reportingLine } from "../schema/org";
 
+const orgManagerRoles = sql.join(
+  orgMember.role.enumValues.filter((role) => canOrg(role, "org:manage_members")).map((role) => sql`${role}`),
+  sql`, `,
+);
+
+/**
+ * Set or clear a person's one org-wide lead. Only org owners/admins manage
+ * lines; the role is rechecked inside the write, so a demotion or concurrent
+ * edit refuses it.
+ */
 export async function setReportingLead(
   { db, actorUserId }: DomainContext,
-  { teamId, userId, leadUserId, expectedLeadUserId }: {
-    teamId: string;
+  { userId, leadUserId, expectedLeadUserId }: {
     userId: string;
     leadUserId: string | null;
     expectedLeadUserId?: string | null;
   },
 ) {
-  const actor = await requireTeamMember(db, teamId, actorUserId);
-  requireCapability(actor.role, "team:manage_members");
-
-  const stillPermitted = inArray(
-    teamAccess(teamId, actorUserId).role,
-    teamMember.role.enumValues.filter((role) => can(role, "team:manage_members")),
-  );
-
-  if (leadUserId === null) {
-    if (expectedLeadUserId === null) return;
-    const result = await db.delete(teamReportingLine).where(and(
-      eq(teamReportingLine.teamId, teamId),
-      eq(teamReportingLine.userId, userId),
-      typeof expectedLeadUserId === "string" ? eq(teamReportingLine.leadUserId, expectedLeadUserId) : undefined,
-      stillPermitted,
-    ));
-    if (typeof expectedLeadUserId === "string" && result.meta.changes === 0) {
-      const current = await requireTeamMember(db, teamId, actorUserId);
-      requireCapability(current.role, "team:manage_members");
-      throw new DomainError("This reporting line changed. Refresh the page and try again.");
-    }
-    return;
-  }
+  await requireOrgMember(db, actorUserId);
   if (leadUserId === userId) throw new DomainError("A person cannot be their own lead.");
 
-  const currentLine = db.select({ leadUserId: teamReportingLine.leadUserId }).from(teamReportingLine)
-    .where(and(eq(teamReportingLine.teamId, teamId), eq(teamReportingLine.userId, userId)));
+  const currentLead = sql<string | null>`(select lead_user_id from ${reportingLine} where user_id = ${userId})`;
+  const isOrgManager = sql`exists (
+    select 1 from ${orgMember} where user_id = ${actorUserId} and role in (${orgManagerRoles})
+  )`;
   const matchesExpectedLead = expectedLeadUserId === undefined
     ? sql`1`
     : expectedLeadUserId === null
-      ? notExists(currentLine)
-      : sql`${currentLine} = ${expectedLeadUserId}`;
+      ? sql`${currentLead} is null`
+      : sql`${currentLead} = ${expectedLeadUserId}`;
+
+  const changed = () => new DomainError("This reporting line changed. Refresh the page and try again.");
+  // Explains a refused write, in the order the guard's reasons matter.
+  const diagnose = async () => {
+    const [row] = await db.select({ role: orgMember.role, currentLead })
+      .from(orgMember).where(eq(orgMember.userId, actorUserId));
+    if (!row) throw new AccessError("not_a_member", "No such organization.");
+    if (!canOrg(row.role, "org:manage_members")) {
+      throw new AccessError("forbidden", "You cannot manage reporting lines.");
+    }
+    // Clearing a line that is already gone is done.
+    if (leadUserId === null && row.currentLead === null) return;
+    if (expectedLeadUserId !== undefined && row.currentLead !== expectedLeadUserId) throw changed();
+    if (leadUserId === null) throw changed();
+    throw new DomainError("This reporting line would create a cycle.");
+  };
+
+  if (leadUserId === null) {
+    const result = await db.run(sql`
+      delete from ${reportingLine}
+      where user_id = ${userId} and ${matchesExpectedLead} and ${isOrgManager}
+    `);
+    if (result.meta.changes === 0) await diagnose();
+    return;
+  }
 
   try {
     // Check and write in one statement so concurrent edits cannot form a
-    // cycle. UNION also bounds traversal if legacy data ever contains one.
+    // cycle. UNION also bounds traversal if stored data ever contains one.
     const result = await db.run(sql`
       with recursive reporting_chain(id) as (
         select ${leadUserId}
         union
         select line.lead_user_id
-        from ${teamReportingLine} as line
+        from ${reportingLine} as line
         join reporting_chain on reporting_chain.id = line.user_id
-        where line.team_id = ${teamId}
       )
-      insert into ${teamReportingLine} (team_id, user_id, lead_user_id)
-      select ${teamId}, ${userId}, ${leadUserId}
-      where ${stillPermitted}
+      insert into ${reportingLine} (user_id, lead_user_id, created_at)
+      select ${userId}, ${leadUserId}, ${Date.now()}
+      where ${isOrgManager}
         and ${matchesExpectedLead}
         and not exists (select 1 from reporting_chain where id = ${userId})
-      on conflict (team_id, user_id) do update set lead_user_id = excluded.lead_user_id
+      on conflict (user_id) do update set lead_user_id = excluded.lead_user_id
     `);
-    if (result.meta.changes === 0) {
-      const current = await requireTeamMember(db, teamId, actorUserId);
-      if (!can(current.role, "team:manage_members")) {
-        throw new AccessError("forbidden", "You cannot manage reporting lines.");
-      }
-      if (expectedLeadUserId !== undefined) {
-        const [line] = await currentLine;
-        if ((line?.leadUserId ?? null) !== expectedLeadUserId) {
-          throw new DomainError("This reporting line changed. Refresh the page and try again.");
-        }
-      }
-      throw new DomainError("This reporting line would create a cycle.");
-    }
+    if (result.meta.changes === 0) await diagnose();
   } catch (error) {
     if (isConstraintError(error, "FOREIGN KEY")) {
-      throw new DomainError("Both people must be members of this team.");
+      throw new DomainError("Both people must be members of this organization.");
     }
     throw error;
   }

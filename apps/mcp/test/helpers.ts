@@ -67,7 +67,7 @@ export async function callResult(
   return msg.result;
 }
 
-/** A team owned by `actorUserId`, without the domain's org owner/admin check. */
+/** A team with `actorUserId` as its admin, without the domain's org owner/admin check. */
 export async function createTeam(
   ctx: { db: DrizzleD1Database; actorUserId: string; source?: "web" | "mcp" },
   input: { slug: string; name: string },
@@ -75,7 +75,7 @@ export async function createTeam(
   const row: Team = { id: crypto.randomUUID(), slug: input.slug, name: input.name.trim(), createdAt: new Date() };
   await ctx.db.batch([
     ctx.db.insert(team).values(row),
-    ctx.db.insert(teamMember).values({ teamId: row.id, userId: ctx.actorUserId, role: "owner", createdAt: row.createdAt }),
+    ctx.db.insert(teamMember).values({ teamId: row.id, userId: ctx.actorUserId, role: "admin", createdAt: row.createdAt }),
   ]);
   return row;
 }

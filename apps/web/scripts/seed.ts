@@ -3,11 +3,11 @@
  * steps 8-10 have something to look at.
  *
  *   pnpm --filter web seed              # synthetic members only
- *   pnpm --filter web seed you@you.com  # plus you, as a second owner
+ *   pnpm --filter web seed you@you.com  # plus you, as a team admin and Super admin
  *
  * If that address already has a `user` row it is added to the team directly;
- * otherwise a pending owner invite is left for it, which `claimInvites` picks
- * up on your first sign-in (§4.4).
+ * otherwise pending team and org owner invites are left for it, which
+ * `claimInvites` picks up on your first sign-in (§4.4).
  *
  * Re-runnable: it deletes everything under the `acme` slug first.
  *
@@ -32,6 +32,7 @@ import {
 import {
   activity,
   comment,
+  orgInvite,
   orgMember,
   team,
   teamInvite,
@@ -174,9 +175,18 @@ const [existingUser] = you
   ? await db.select().from(user).where(sql`lower(${user.email}) = ${you}`)
   : [];
 if (you) {
-  await inviteToTeam(ctx, { teamId: acme.id, email: you, role: "owner" });
+  await inviteToTeam(ctx, { teamId: acme.id, email: you, role: "admin" });
   if (existingUser) {
     await claimInvites(db, existingUser.id, you);
+    // Teams have no owner role; the dev user owns the org instead (Ana, an
+    // org admin, cannot grant that through an invite).
+    await db.update(orgMember).set({ role: "owner" }).where(eq(orgMember.userId, existingUser.id));
+  } else {
+    // An owner invite, claimed on first sign-in. Claiming rechecks that the
+    // inviter is an org owner, so name one when the org has one.
+    const [owner] = await db.select({ userId: orgMember.userId }).from(orgMember).where(eq(orgMember.role, "owner")).limit(1);
+    await db.insert(orgInvite).values({ email: you, role: "owner", invitedByUserId: owner?.userId ?? ana, createdAt: now })
+      .onConflictDoUpdate({ target: orgInvite.email, set: { role: "owner", invitedByUserId: owner?.userId ?? ana, createdAt: now, acceptedAt: null } });
   }
 }
 
@@ -230,5 +240,7 @@ console.log(
   `Seeded team "${TEAM_SLUG}", project "${PROJECT_SLUG}" (WEB), ${statuses.length} statuses, ${TASKS.length} tasks.`,
 );
 if (you) {
-  console.log(`Invited ${you} as an owner.`);
+  console.log(existingUser
+    ? `Invited ${you} as a team admin and made them a Super admin.`
+    : `Invited ${you} as a team admin and a Super admin; both are claimed on first sign-in.`);
 }

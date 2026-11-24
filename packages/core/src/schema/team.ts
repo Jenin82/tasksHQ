@@ -24,7 +24,7 @@ export const teamMember = sqliteTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id),
-    role: text("role", { enum: ["owner", "admin", "member"] }).notNull(),
+    role: text("role", { enum: ["admin", "member"] }).notNull(),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (t) => [
@@ -41,7 +41,7 @@ export const teamInvite = sqliteTable(
       .references(() => team.id),
     // Stored lowercased; lowercased on lookup too.
     email: text("email").notNull(),
-    role: text("role", { enum: ["owner", "admin", "member"] }).notNull(),
+    role: text("role", { enum: ["admin", "member"] }).notNull(),
     invitedByUserId: text("invited_by_user_id")
       .notNull()
       .references(() => user.id),
@@ -56,6 +56,10 @@ export const teamInvite = sqliteTable(
   ],
 );
 
+/**
+ * @deprecated Unused since 0022 moved reporting lines to the org-wide
+ * `reporting_line`. Kept so drizzle-kit emits no DROP; 0024 drops it.
+ */
 export const teamReportingLine = sqliteTable(
   "team_reporting_line",
   {

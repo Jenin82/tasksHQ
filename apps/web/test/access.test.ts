@@ -1,10 +1,12 @@
 import { env } from "cloudflare:test";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { expect, it } from "vitest";
 import {
   AccessError,
+  CAPABILITIES,
   can,
+  canOrg,
   canProject,
   requireCapability,
   requireTeamMember,
@@ -12,9 +14,10 @@ import {
 } from "@tasks/core/access";
 import { createStatus, removeTeamMember, removeProjectMember, setProjectMemberRole, setReportingLead } from "@tasks/core/domain";
 import {
+  orgMember,
   team,
   teamMember,
-  teamReportingLine,
+  reportingLine,
   project,
   projectMember,
   user,
@@ -49,7 +52,7 @@ await db.insert(team).values({
   createdAt: now,
 });
 await db.insert(teamMember).values([
-  { teamId: "ac-team", userId: USERS.owner, role: "owner", createdAt: now },
+  { teamId: "ac-team", userId: USERS.owner, role: "admin", createdAt: now },
   { teamId: "ac-team", userId: USERS.admin, role: "admin", createdAt: now },
   { teamId: "ac-team", userId: USERS.member, role: "member", createdAt: now },
   {
@@ -84,9 +87,9 @@ it("requireTeamMember returns the member row, and hides the team from a stranger
   ).rejects.toMatchObject({ name: "AccessError", reason: "not_a_member" });
 });
 
-it("requireProjectMember admits a team owner and admin with no project_member row", async () => {
+it("requireProjectMember admits team admins with no project_member row", async () => {
   // §3's rule most likely to be implemented twice and diverge: implicit access
-  // for owner/admin is what makes "manage project statuses/members" coherent.
+  // for admins is what makes "manage project statuses/members" coherent.
   const rows = await db
     .select()
     .from(projectMember)
@@ -95,7 +98,7 @@ it("requireProjectMember admits a team owner and admin with no project_member ro
 
   expect(
     await requireProjectMember(db, "ac-project", USERS.owner),
-  ).toMatchObject({ member: { role: "owner" } });
+  ).toMatchObject({ member: { role: "admin" } });
   expect(
     await requireProjectMember(db, "ac-project", USERS.admin),
   ).toMatchObject({ member: { role: "admin" } });
@@ -168,59 +171,64 @@ it("grants project administration without team or other project privileges", asy
     .rejects.toMatchObject({ reason: "forbidden" });
 });
 
+// Only org owners and admins manage reporting lines.
+const orgAdmin = { db, actorUserId: "ac-org-admin", source: "web" as const };
+await db.insert(user).values({ id: orgAdmin.actorUserId, name: "ac-org-admin", email: "ac-org-admin@access.test", createdAt: now, updatedAt: now });
+await db.insert(orgMember).values({ userId: orgAdmin.actorUserId, role: "admin", createdAt: now });
+
 it("prevents concurrent reporting changes from creating a cycle", async () => {
-  const owner = { db, actorUserId: USERS.owner, source: "web" as const };
-  const teamId = "ac-team";
+  const owner = orgAdmin;
   const outcomes = await Promise.allSettled([
-    setReportingLead(owner, { teamId, userId: USERS.member, leadUserId: USERS.projectMember }),
-    setReportingLead(owner, { teamId, userId: USERS.projectMember, leadUserId: USERS.member }),
+    setReportingLead(owner, { userId: USERS.member, leadUserId: USERS.projectMember }),
+    setReportingLead(owner, { userId: USERS.projectMember, leadUserId: USERS.member }),
   ]);
   expect(outcomes.filter(({ status }) => status === "fulfilled")).toHaveLength(1);
   expect(outcomes.find(({ status }) => status === "rejected")).toMatchObject({
     reason: { message: "This reporting line would create a cycle." },
   });
-  expect(await db.select().from(teamReportingLine).where(eq(teamReportingLine.teamId, teamId))).toHaveLength(1);
+  const lines = await db.select().from(reportingLine)
+    .where(inArray(reportingLine.userId, [USERS.member, USERS.projectMember]));
+  expect(lines).toHaveLength(1);
+  await db.delete(reportingLine).where(inArray(reportingLine.userId, [USERS.member, USERS.projectMember]));
 });
 
 it("keeps a reporting line intact when a form submits an outdated lead", async () => {
-  const owner = { db, actorUserId: USERS.owner, source: "web" as const };
-  const report = { teamId: "ac-team", userId: USERS.admin };
-  const readLine = () => db.select().from(teamReportingLine).where(and(
-    eq(teamReportingLine.teamId, report.teamId),
-    eq(teamReportingLine.userId, report.userId),
-  ));
+  const owner = orgAdmin;
+  const report = { userId: USERS.admin };
+  const readLine = () => db.select({ userId: reportingLine.userId, leadUserId: reportingLine.leadUserId })
+    .from(reportingLine).where(eq(reportingLine.userId, report.userId));
   const stale = { message: "This reporting line changed. Refresh the page and try again." };
 
   await setReportingLead(owner, { ...report, leadUserId: USERS.member, expectedLeadUserId: null });
-  await expect(setReportingLead(owner, { ...report, leadUserId: USERS.owner, expectedLeadUserId: null }))
+  await expect(setReportingLead(owner, { ...report, leadUserId: USERS.projectMember, expectedLeadUserId: null }))
     .rejects.toMatchObject(stale);
 
-  await setReportingLead(owner, { ...report, leadUserId: USERS.owner, expectedLeadUserId: USERS.member });
-  await expect(setReportingLead(owner, { ...report, leadUserId: USERS.projectMember, expectedLeadUserId: USERS.member }))
+  await setReportingLead(owner, { ...report, leadUserId: USERS.projectMember, expectedLeadUserId: USERS.member });
+  await expect(setReportingLead(owner, { ...report, leadUserId: USERS.member, expectedLeadUserId: USERS.member }))
     .rejects.toMatchObject(stale);
   await expect(setReportingLead(owner, { ...report, leadUserId: null, expectedLeadUserId: USERS.member }))
     .rejects.toMatchObject(stale);
-  expect(await readLine()).toEqual([{ ...report, leadUserId: USERS.owner }]);
+  expect(await readLine()).toEqual([{ ...report, leadUserId: USERS.projectMember }]);
 
-  await setReportingLead(owner, { ...report, leadUserId: null, expectedLeadUserId: USERS.owner });
+  await setReportingLead(owner, { ...report, leadUserId: null, expectedLeadUserId: USERS.projectMember });
   expect(await readLine()).toEqual([]);
 });
 
 it("the role matrix matches PLAN §3", async () => {
-  for (const capability of ["team:delete", "project:delete"] as const) {
-    expect(can("owner", capability)).toBe(true);
-    expect(can("admin", capability)).toBe(false);
-    expect(can("member", capability)).toBe(false);
-  }
+  // Teams have admins and members only; deleting a team is org-level.
+  expect(CAPABILITIES).not.toContain("team:delete");
+  expect(canOrg("owner", "org:delete_team")).toBe(true);
+  expect(canOrg("admin", "org:delete_team")).toBe(false);
+  expect(canOrg("member", "org:delete_team")).toBe(false);
 
   for (const capability of [
+    "project:delete",
     "team:manage_members",
     "team:change_role",
     "project:create",
     "project:manage_statuses",
     "project:manage_members",
   ] as const) {
-    expect([capability, can("owner", capability)]).toEqual([capability, true]);
     expect([capability, can("admin", capability)]).toEqual([capability, true]);
     expect([capability, can("member", capability)]).toEqual([capability, false]);
   }
@@ -228,7 +236,7 @@ it("the role matrix matches PLAN §3", async () => {
   expect(() => requireCapability("member", "project:create")).toThrow(
     AccessError,
   );
-  expect(() => requireCapability("admin", "team:delete")).toThrowError(
-    /cannot perform "team:delete"/,
+  expect(() => requireCapability("member", "project:delete")).toThrowError(
+    /cannot perform "project:delete"/,
   );
 });

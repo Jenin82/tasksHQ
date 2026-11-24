@@ -1,4 +1,5 @@
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
+import { check, index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { user } from "./auth";
 
 // One deployment is one organization, so `org` holds a single row and the
@@ -27,6 +28,25 @@ export const orgInvite = sqliteTable("org_invite", {
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   acceptedAt: integer("accepted_at", { mode: "timestamp_ms" }),
 });
+
+// One lead per person across the whole org. Leaving the org drops lines on
+// both sides through the cascades.
+export const reportingLine = sqliteTable(
+  "reporting_line",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => orgMember.userId, { onDelete: "cascade" }),
+    leadUserId: text("lead_user_id")
+      .notNull()
+      .references(() => orgMember.userId, { onDelete: "cascade" }),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [
+    index("reporting_line_lead_user_id_idx").on(t.leadUserId),
+    check("reporting_line_not_self", sql`${t.userId} <> ${t.leadUserId}`),
+  ],
+);
 
 export type Org = typeof org.$inferSelect;
 export type OrgMember = typeof orgMember.$inferSelect;

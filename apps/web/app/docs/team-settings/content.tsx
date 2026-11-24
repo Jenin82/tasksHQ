@@ -8,7 +8,7 @@ export const sections: GuideSection[] = [
     content: (
       <>
         <p>
-          Team owners and admins manage membership from <strong>Workspace → Settings → Members</strong>
+          Team admins manage membership from <strong>Workspace → Team settings → Members</strong>
           {" "}in the sidebar. People join with the email address you invite.
         </p>
         <Steps>
@@ -31,17 +31,19 @@ export const sections: GuideSection[] = [
   {
     id: "roles",
     title: "Choose a role",
-    searchTerms: ["permissions", "team permissions", "team roles", "member roles"],
+    searchTerms: ["permissions", "team permissions", "team roles", "member roles", "team admin", "team owner", "owner"],
     content: (
       <>
         <ul className="list-disc space-y-2 pl-5">
           <li><strong>Member:</strong> Access the team’s projects and work on tasks. The project’s editing policy determines which existing tasks the member can edit.</li>
-          <li><strong>Admin:</strong> Manage people other than owners, create projects, and manage project settings across the team.</li>
-          <li><strong>Owner:</strong> Manage all roles and permanently delete projects or the team.</li>
+          <li><strong>Admin:</strong> Manage members and invitations, create projects, manage project settings across the team, rename the team, and permanently delete projects and archived tasks.</li>
         </ul>
         <p>
-          <DocLink topic="organization" section="roles">Organization owners and admins</DocLink> can open and manage every team as its owners and admins can,
-          without joining it, so a team doesn’t need an owner of its own. They aren’t listed as members, and can’t be assigned, mentioned, or track time in the team until they join it.
+          Teams no longer have an owner role; former team owners are now admins. Only an organization Super admin can delete a team.
+        </p>
+        <p>
+          <DocLink topic="organization" section="roles">Organization Super admins and admins</DocLink> can open and manage every team as its admins can,
+          without joining it, so a team doesn’t need an admin of its own. They aren’t listed as members, and can’t be assigned, mentioned, or track time in the team until they join it.
         </p>
         <p>
           To change a role, use the role menu on the person’s row under <strong>Members</strong>.
@@ -55,35 +57,26 @@ export const sections: GuideSection[] = [
   },
   {
     id: "reporting-lines",
-    title: "Set up reporting lines",
-    searchTerms: ["direct reports", "leads", "managers"],
+    title: "Reporting lines",
     content: (
-      <>
-        <Steps>
-          <li>Open <strong>Workspace → Settings → Reporting lines</strong>, then select <strong>Add reporting line</strong>.</li>
-          <li>Choose a <strong>Direct lead</strong> and a <strong>Direct report</strong>, then select <strong>Save reporting line</strong>.</li>
-          <li>Use the edit button on an existing line to change the lead. To clear it, choose <strong>Remove line</strong>, then <strong>Remove reporting line</strong>.</li>
-        </Steps>
-        <p>
-          Each person can have one direct lead. Leads can track active assignments for their direct reports in
-          {" "}<DocLink topic="views" section="assignment-views">Your Reports</DocLink>. Reporting lines also determine who receives
-          {" "}<DocLink topic="integrations" section="email-notifications">email updates</DocLink> about those assignments.
-        </p>
-      </>
+      <p>
+        Reporting lines now belong to the organization, so each person has one lead across every team, and only organization Super admins and admins manage them. See
+        {" "}<DocLink topic="organization" section="reporting-lines">Set up reporting lines</DocLink>.
+      </p>
     ),
   },
   {
     id: "general",
     title: "Rename or delete a team",
-    searchTerms: ["rename team", "delete team", "rename workspace", "delete workspace"],
+    searchTerms: ["rename team", "delete team", "rename workspace", "delete workspace", "super admin"],
     content: (
       <>
         <p>
-          In <strong>Workspace → Settings → General</strong>, edit <strong>Team name</strong> and select
+          Team admins can open <strong>Workspace → Team settings → General</strong>, edit <strong>Team name</strong> and select
           {" "}<strong>Save name</strong>. The name updates while the team’s address stays the same.
         </p>
         <p>
-          A team owner or an organization owner can also select <strong>Delete team</strong> and type the slug shown in the confirmation.
+          An organization Super admin can also select <strong>Delete team</strong> there and type the slug shown in the confirmation.
           This permanently deletes the team’s projects, tasks, comments, and history.
         </p>
       </>
@@ -91,20 +84,12 @@ export const sections: GuideSection[] = [
   },
   {
     id: "team-time",
-    title: "See your team's time",
-    searchTerms: ["timesheet", "payroll", "hours report", "team time", "reports time", "time report", "export csv"],
+    title: "Team Time",
     content: (
-      <>
-        <p>
-          Open <strong>Team Time</strong> in the sidebar to see hours logged by person and day for a week, or each person&rsquo;s total for a month.
-          Select a person to break their time down by project and task. Each person&rsquo;s days follow their own time zone.
-        </p>
-        <p>
-          The link shows for owners, admins and leads. Running timers count up to now, capped at 12 hours, and people without time in the period aren&rsquo;t listed.
-          Owners and admins see everyone in the team, including former members. Leads see themselves and their direct reports.
-          Choose <strong>Download CSV</strong> to export every entry in the period, one row for each day it covers, for example for payroll.
-        </p>
-      </>
+      <p>
+        Team Time is now part of the organization&rsquo;s <strong>Time</strong> page, which covers every team you can see, with a filter for one team. See
+        {" "}<DocLink topic="organization" section="time">See your time and your team’s time</DocLink>.
+      </p>
     ),
   },
 ];

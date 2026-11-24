@@ -6,14 +6,10 @@ import { user } from "../schema/auth";
 import { orgInvite, orgMember } from "../schema/org";
 import { teamInvite, teamMember } from "../schema/team";
 
-/** The inviter still manages the team (really or as org owner/admin), and only an owner grants owner. */
+/** The inviter still manages the team (really or as org owner/admin). */
 export function inviterStillManagesTeam() {
   const roles = teamMember.role.enumValues.filter((role) => can(role, "team:manage_members"));
-  const { role } = teamAccess(teamInvite.teamId, teamInvite.invitedByUserId);
-  return and(
-    inArray(role, roles),
-    or(eq(role, "owner"), sql`${teamInvite.role} <> 'owner'`),
-  )!;
+  return inArray(teamAccess(teamInvite.teamId, teamInvite.invitedByUserId).role, roles);
 }
 
 const inviterOrgMember = alias(orgMember, "inviter_org_member");

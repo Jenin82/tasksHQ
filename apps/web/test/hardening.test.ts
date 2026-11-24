@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { expect, it, vi } from "vitest";
 import {
@@ -21,6 +21,7 @@ import {
   removeProjectMember,
   renameStatus,
   reorderStatus,
+  revokeTeamInvite,
   updateTask,
 } from "@tasks/core/domain";
 import { createTeam } from "./helpers";
@@ -69,11 +70,11 @@ function ctxFor(userId: string) {
   return { db, actorUserId: userId, source: "web" as const };
 }
 
-/** A team owned by `hd-owner` and `hd-owner2`, `hd-admin` an admin, `hd-member` a member. */
+/** A team with `hd-owner`, `hd-owner2` and `hd-admin` as admins, `hd-member` a member. */
 async function freshTeam(slug: string) {
   const o = await createTeam(ctxFor("hd-owner"), { slug, name: slug });
   await db.insert(teamMember).values([
-    { teamId: o.id, userId: "hd-owner2", role: "owner", createdAt: now },
+    { teamId: o.id, userId: "hd-owner2", role: "admin", createdAt: now },
     { teamId: o.id, userId: "hd-admin", role: "admin", createdAt: now },
     { teamId: o.id, userId: "hd-member", role: "member", createdAt: now },
   ]);
@@ -150,11 +151,11 @@ it("M3: a move after the 2nd of four concurrently-created tasks lands right afte
   expect(new Set(after.map((t) => t.position)).size).toBe(5);
 });
 
-it("P5: the last team owner can leave, and their assignments go with them", async () => {
-  // Org owners always cover a team, so the team last-owner rule is gone.
+it("P5: the last team admin can leave, and their assignments go with them", async () => {
+  // Org owners and admins always cover a team, so there is no last-admin rule.
   const { team: o, project: p } = await freshProject("hd-last", "LST");
   await db.delete(teamMember).where(
-    and(eq(teamMember.teamId, o.id), eq(teamMember.userId, "hd-owner2")),
+    and(eq(teamMember.teamId, o.id), inArray(teamMember.userId, ["hd-owner2", "hd-admin"])),
   );
   const t = await createTask(ctxFor("hd-owner"), {
     projectId: p.id,
@@ -166,9 +167,9 @@ it("P5: the last team owner can leave, and their assignments go with them", asyn
 
   const [row] = await db.select().from(task).where(eq(task.id, t.id));
   expect(row.assigneeUserId).toBeNull();
-  const owners = await db.select().from(teamMember)
-    .where(and(eq(teamMember.teamId, o.id), eq(teamMember.role, "owner")));
-  expect(owners).toEqual([]);
+  const admins = await db.select().from(teamMember)
+    .where(and(eq(teamMember.teamId, o.id), eq(teamMember.role, "admin")));
+  expect(admins).toEqual([]);
 });
 
 it("Minor 1: removeTeamMember logs each unassignment and bumps updatedAt", async () => {
@@ -222,27 +223,21 @@ it("Minor 1: deleteStatus logs task.moved for each moved task", async () => {
   });
 });
 
-it("M1 + Minor 8: an admin cannot grant owner or overwrite a pending owner invite", async () => {
+it("M1 + Minor 8: teams have no owner role to grant, and admins change each other's invites", async () => {
   const o = await freshTeam("hd-invite");
-  await inviteToTeam(ctxFor("hd-owner"), {
-    teamId: o.id,
-    email: "boss@hd.test",
-    role: "owner",
-  });
+  const owner = "owner" as "admin";
   await expect(
-    inviteToTeam(ctxFor("hd-admin"), {
-      teamId: o.id,
-      email: "boss@hd.test",
-      role: "member",
-    }),
-  ).rejects.toThrow(/pending owner invite/);
+    inviteToTeam(ctxFor("hd-owner"), { teamId: o.id, email: "boss@hd.test", role: owner }),
+  ).rejects.toThrow(/not a valid role/);
   await expect(
-    changeTeamMemberRole(ctxFor("hd-admin"), {
-      teamId: o.id,
-      userId: "hd-member",
-      role: "owner",
-    }),
-  ).rejects.toMatchObject({ name: "DomainError" });
+    changeTeamMemberRole(ctxFor("hd-owner"), { teamId: o.id, userId: "hd-member", role: owner }),
+  ).rejects.toThrow(/not a valid role/);
+
+  await inviteToTeam(ctxFor("hd-owner"), { teamId: o.id, email: "boss@hd.test", role: "admin" });
+  await inviteToTeam(ctxFor("hd-admin"), { teamId: o.id, email: "boss@hd.test", role: "member" });
+  const [row] = await db.select().from(teamInvite)
+    .where(and(eq(teamInvite.teamId, o.id), eq(teamInvite.email, "boss@hd.test")));
+  expect(row).toMatchObject({ role: "member", invitedByUserId: "hd-admin" });
 });
 
 it("Minor 4: the domain refuses roles and status colors outside the schema's enums", async () => {
@@ -397,16 +392,16 @@ it("MIN-1: reordering a status between two concurrently-created ones re-keys ins
   expect(new Set(after.map((s) => s.position)).size).toBe(before.length);
 });
 
-it("MIN-2: an admin cannot remove someone an owner promoted after the admin's check", async () => {
+it("MIN-2: an admin demoted after their check cannot remove a member", async () => {
   const o = await freshTeam("hd-promo-rm");
-  const promote = () =>
+  const demote = () =>
     db
       .update(teamMember)
-      .set({ role: "owner" })
-      .where(and(eq(teamMember.teamId, o.id), eq(teamMember.userId, "hd-member")));
+      .set({ role: "member" })
+      .where(and(eq(teamMember.teamId, o.id), eq(teamMember.userId, "hd-admin")));
 
   await expect(
-    removeTeamMember(racedCtx("hd-admin", promote), {
+    removeTeamMember(racedCtx("hd-admin", demote), {
       teamId: o.id,
       userId: "hd-member",
     }),
@@ -416,17 +411,48 @@ it("MIN-2: an admin cannot remove someone an owner promoted after the admin's ch
     .select()
     .from(teamMember)
     .where(and(eq(teamMember.teamId, o.id), eq(teamMember.userId, "hd-member")));
-  expect(row.role).toBe("owner");
+  expect(row.role).toBe("member");
 });
 
-it("MIN-2: an admin cannot change the role of someone an owner is promoting at the same moment", async () => {
+it("MIN-2: an admin demoted after their check cannot revoke an invite", async () => {
+  const o = await freshTeam("hd-promo-rv");
+  await inviteToTeam(ctxFor("hd-owner"), { teamId: o.id, email: "keep@hd.test", role: "member" });
+  const demote = () => db.update(teamMember).set({ role: "member" })
+    .where(and(eq(teamMember.teamId, o.id), eq(teamMember.userId, "hd-admin")));
+  // `revokeTeamInvite` writes with one delete, not a batch, so land the demotion before it.
+  let fired = false;
+  const racedDb = new Proxy(db, {
+    get(target, key, receiver) {
+      if (key === "delete" && !fired) {
+        fired = true;
+        return (table: Parameters<typeof db.delete>[0]) => {
+          const query = target.delete(table);
+          return new Proxy(query, {
+            get(q, k, r) {
+              if (k !== "then") return Reflect.get(q, k, r);
+              return (resolve: (v: unknown) => void, reject: (e: unknown) => void) => demote().then(() => q).then(resolve, reject);
+            },
+          });
+        };
+      }
+      return Reflect.get(target, key, receiver);
+    },
+  });
+
+  await expect(revokeTeamInvite({ ...ctxFor("hd-admin"), db: racedDb }, { teamId: o.id, email: "keep@hd.test" }))
+    .rejects.toMatchObject({ name: "AccessError", reason: "forbidden" });
+  const rows = await db.select().from(teamInvite).where(and(eq(teamInvite.teamId, o.id), eq(teamInvite.email, "keep@hd.test")));
+  expect(rows).toHaveLength(1);
+});
+
+it("MIN-2: an admin demoted at the same moment cannot change a member's role", async () => {
   const o = await freshTeam("hd-promo-ch");
-  // Promotion first, so its write lands between the admin's check and write.
-  const [promoted, changed] = await Promise.allSettled([
+  // Demotion first, so its write lands between the admin's check and write.
+  const [demoted, changed] = await Promise.allSettled([
     changeTeamMemberRole(ctxFor("hd-owner"), {
       teamId: o.id,
-      userId: "hd-member",
-      role: "owner",
+      userId: "hd-admin",
+      role: "member",
     }),
     changeTeamMemberRole(ctxFor("hd-admin"), {
       teamId: o.id,
@@ -434,7 +460,7 @@ it("MIN-2: an admin cannot change the role of someone an owner is promoting at t
       role: "admin",
     }),
   ]);
-  expect(promoted.status).toBe("fulfilled");
+  expect(demoted.status).toBe("fulfilled");
   expect(changed).toMatchObject({
     status: "rejected",
     reason: { name: "AccessError", reason: "forbidden" },
@@ -443,7 +469,7 @@ it("MIN-2: an admin cannot change the role of someone an owner is promoting at t
     .select()
     .from(teamMember)
     .where(and(eq(teamMember.teamId, o.id), eq(teamMember.userId, "hd-member")));
-  expect(row.role).toBe("owner");
+  expect(row.role).toBe("member");
 });
 
 it("MIN-3: two parallel archives write one task.archived", async () => {
@@ -587,44 +613,15 @@ it("NIT-3: the move action 404s a task from another project than the URL's", asy
   ).rejects.toMatchObject({ digest: "NEXT_HTTP_ERROR_FALLBACK;404" });
 });
 
-it("NIT-4: an admin re-invite racing an owner's owner invite cannot downgrade it", async () => {
-  const o = await freshTeam("hd-inv-race");
-  // The owner's invite first, so it lands between the admin's checks and upsert.
-  const [, admin] = await Promise.allSettled([
-    inviteToTeam(ctxFor("hd-owner"), { teamId: o.id, email: "race@hd.test", role: "owner" }),
-    inviteToTeam(ctxFor("hd-admin"), { teamId: o.id, email: "race@hd.test", role: "member" }),
-  ]);
-  expect(admin).toMatchObject({ status: "rejected", reason: { name: "DomainError" } });
-  const [row] = await db
-    .select()
-    .from(teamInvite)
-    .where(and(eq(teamInvite.teamId, o.id), eq(teamInvite.email, "race@hd.test")));
-  expect(row.role).toBe("owner");
-
-  // An accepted owner invite is not protected: re-inviting a removed former
-  // owner is the ordinary re-invite.
-  await db
-    .update(teamInvite)
-    .set({ acceptedAt: now })
-    .where(and(eq(teamInvite.teamId, o.id), eq(teamInvite.email, "race@hd.test")));
-  await inviteToTeam(ctxFor("hd-admin"), {
-    teamId: o.id,
-    email: "race@hd.test",
-    role: "member",
-  });
-});
-
 it("NIT-5: changing the role of someone removed at the same moment says they are not a member", async () => {
   const o = await freshTeam("hd-gone-ch");
   // Removal first, so the row is gone by the time the role update runs.
-  // An owner target: the old fallback read the stale role and blamed the
-  // last-owner rule.
   const [, changed] = await Promise.allSettled([
     removeTeamMember(ctxFor("hd-owner"), { teamId: o.id, userId: "hd-owner2" }),
     changeTeamMemberRole(ctxFor("hd-owner"), {
       teamId: o.id,
       userId: "hd-owner2",
-      role: "admin",
+      role: "member",
     }),
   ]);
   expect(changed).toMatchObject({

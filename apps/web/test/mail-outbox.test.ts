@@ -15,7 +15,7 @@ import {
   updateTask,
 } from "@tasks/core/domain";
 import { createTeam } from "./helpers";
-import { mailOutbox, teamMember, projectInvite, projectMember, status, user } from "@tasks/core/schema";
+import { mailOutbox, orgMember, teamMember, projectInvite, projectMember, status, user } from "@tasks/core/schema";
 import { drainMailOutbox } from "@/lib/mail-outbox";
 
 const db = drizzle(env.DB);
@@ -78,7 +78,10 @@ it("queues assignments from web creation and MCP reassignment, skipping duplicat
 
 it("groups edits for creator and direct lead and skips card ordering and non-content edits", async () => {
   const { team, project, todo, doing } = await freshProject("outbox-task-edits");
-  await setReportingLead(context(), { teamId: team.id, userId: reportId, leadUserId: leadId });
+  // Only org owners and admins manage reporting lines.
+  await db.update(orgMember).set({ role: "owner" }).where(eq(orgMember.userId, ownerId));
+  await setReportingLead(context(), { userId: reportId, leadUserId: leadId });
+  await db.update(orgMember).set({ role: "member" }).where(eq(orgMember.userId, ownerId));
   const created = await createTask(context(ownerId, false), { projectId: project.id, title: "Title", assigneeUserId: reportId });
   const editor = context(editorId);
 
@@ -139,8 +142,11 @@ it("retries failed SMTP submissions and gives overlapping dispatches a single le
 
 it("deduplicates overlapping creator and lead roles and skips the actor and self-assigned creator", async () => {
   const { team, project } = await freshProject("outbox-role-overlap");
-  await setReportingLead(context(), { teamId: team.id, userId: reportId, leadUserId: ownerId });
-  await setReportingLead(context(), { teamId: team.id, userId: ownerId, leadUserId: leadId });
+  // Only org owners and admins manage reporting lines.
+  await db.update(orgMember).set({ role: "owner" }).where(eq(orgMember.userId, ownerId));
+  await setReportingLead(context(), { userId: reportId, leadUserId: ownerId });
+  await setReportingLead(context(), { userId: ownerId, leadUserId: leadId });
+  await db.update(orgMember).set({ role: "member" }).where(eq(orgMember.userId, ownerId));
   const created = await createTask(context(ownerId, false), { projectId: project.id, title: "Both roles", assigneeUserId: reportId });
   await updateTask(context(), { taskId: created.id, title: "Lead's own edit" });
   expect(await jobsFor(created.id)).toEqual([]);

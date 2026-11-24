@@ -11,7 +11,7 @@ export function NoStatuses({ canManage }: { canManage: boolean }) {
       <p className="mt-2 text-base text-muted-foreground">
         {canManage
           ? "Add the first one under Settings → Workflow. Every task lands in a status, so none can be created until one exists."
-          : "An owner or an admin adds them under Settings → Workflow. Every task lands in a status, so none can be created until one exists."}
+          : "An admin adds them under Settings → Workflow. Every task lands in a status, so none can be created until one exists."}
       </p>
     </div>
   );

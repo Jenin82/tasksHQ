@@ -43,6 +43,7 @@ export function TopBar({
   runningTimer,
 }: {
   team: Crumb;
+  /** The display label, from `teamRoleLabel`. */
   role: string;
   projects: (Crumb & { key: string })[];
   user: AccountUser;

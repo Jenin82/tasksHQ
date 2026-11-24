@@ -4,11 +4,13 @@ import { forbidden } from "next/navigation";
 import { can } from "@tasks/core/access";
 import { teamInvite, teamMember, user as userTable } from "@tasks/core/schema";
 import { db } from "@/lib/db";
+import { roleLabel } from "@/lib/role-label";
 import { getTeamContext } from "@/lib/team-context";
 import { emailEnabled } from "@/lib/smtp";
 import { MemberInviteDialog } from "../../../member-invite-dialog";
 import { inviteMemberAction } from "./actions";
 import { MemberControls, RevokeMemberInvite } from "./member-controls";
+import { TEAM_ROLE_OPTIONS } from "./role-select";
 
 const date = (value: Date) =>
   value.toLocaleDateString("en-GB", {
@@ -67,7 +69,7 @@ export default async function MembersPage({
         </div>
         <MemberInviteDialog
           teamSlug={team.slug}
-          actorRole={member.role}
+          roleOptions={TEAM_ROLE_OPTIONS}
           inviteAction={inviteMemberAction}
         />
       </div>
@@ -85,18 +87,12 @@ export default async function MembersPage({
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-6">
-              {/* §3: an admin's authority stops short of an owner. */}
-              {member.role === "owner" || m.role !== "owner" ? (
-                <MemberControls
-                  teamSlug={team.slug}
-                  userId={m.userId}
-                  role={m.role}
-                  name={m.name}
-                  actorRole={member.role}
-                />
-              ) : (
-                <span className="stutter">{m.role}</span>
-              )}
+              <MemberControls
+                teamSlug={team.slug}
+                userId={m.userId}
+                role={m.role}
+                name={m.name}
+              />
               <span className="stutter hidden sm:block">
                 {date(m.joinedAt)}
               </span>
@@ -137,13 +133,11 @@ export default async function MembersPage({
               >
                 <span className="truncate">{i.email}</span>
                 <span className="flex shrink-0 items-baseline gap-6">
-                  <span className="stutter">{i.role}</span>
+                  <span className="stutter">{roleLabel(i.role)}</span>
                   <span className="stutter hidden sm:block">
                     {date(i.invitedAt)}
                   </span>
-                  {(member.role === "owner" || i.role !== "owner") && (
-                    <RevokeMemberInvite teamSlug={team.slug} email={i.email} />
-                  )}
+                  <RevokeMemberInvite teamSlug={team.slug} email={i.email} />
                 </span>
               </li>
             ))}

@@ -22,7 +22,7 @@ import { createTeam } from "./helpers";
 import { orgMember, project, team, teamInvite, teamMember, user } from "@tasks/core/schema";
 import { WorkspaceAssignmentPage } from "@/app/[team]/(team)/settings/workspace-assignment-page";
 import { listUserTeams } from "@/lib/team-context";
-import { GET as exportTeamTime } from "@/app/[team]/(team)/settings/time/export/route";
+import { GET as exportTeamTime } from "@/app/settings/time/export/route";
 
 const actor = vi.hoisted(() => ({ id: "" }));
 vi.mock("@/lib/session", () => ({
@@ -59,10 +59,11 @@ it("gives org owners and admins implicit team access, and org members none", asy
   expect(await requireTeamMember(db, away.id, ORG_ADMIN)).toEqual({
     teamId: away.id, userId: ORG_ADMIN, role: "admin", implicit: true,
   });
-  expect(await requireTeamMember(db, away.id, ORG_OWNER)).toMatchObject({ role: "owner", implicit: true });
+  // Org owners and admins alike are implicit team admins.
+  expect(await requireTeamMember(db, away.id, ORG_OWNER)).toMatchObject({ role: "admin", implicit: true });
   // A real membership keeps implicit false and takes the higher org role.
   expect(await requireTeamMember(db, home.id, ORG_ADMIN)).toMatchObject({ role: "admin", implicit: false });
-  expect(await requireTeamMember(db, away.id, OWNER)).toMatchObject({ role: "owner", implicit: false });
+  expect(await requireTeamMember(db, away.id, OWNER)).toMatchObject({ role: "admin", implicit: false });
 
   const opened = await requireProjectMember(db, awayProject.id, ORG_ADMIN);
   expect(opened.project.id).toBe(awayProject.id);
@@ -90,11 +91,10 @@ it("lets an implicit admin edit restricted tasks, comment, and change project se
     .rejects.toBeInstanceOf(AccessError);
 });
 
-it("gives an implicit admin no time reports, but a work summary of their tasks", async () => {
+it("gives an implicit admin the team's time report and a work summary of their tasks", async () => {
   actor.id = ORG_ADMIN;
-  await expect(exportTeamTime(new Request("http://local/oa-away/settings/time/export?week=2026-03-02"), {
-    params: Promise.resolve({ team: "oa-away" }),
-  })).rejects.toMatchObject({ digest: "NEXT_HTTP_ERROR_FALLBACK;404" });
+  const response = await exportTeamTime(new Request("http://local/settings/time/export?team=oa-away&week=2026-03-02"));
+  expect(response.status).toBe(200);
 
   // They commented on awayTask above.
   const summary = await getWorkSummaryData(ctx(ORG_ADMIN), {
@@ -135,15 +135,13 @@ it("lists every team for an org admin, but All My Tasks counts only real teams",
     .rejects.toMatchObject({ digest: expect.stringContaining("%2Foa-home%2Fsettings%2Fyour-tasks") });
 });
 
-it("makes an org admin's team invite claimable, but never an owner grant", async () => {
+it("makes an org admin's team invites claimable, admin grants included", async () => {
   await inviteToTeam(ctx(ORG_ADMIN), { teamId: away.id, email: "oa-invitee@org-access.test", role: "member" });
-  await expect(inviteToTeam(ctx(ORG_ADMIN), { teamId: away.id, email: "oa-owner-invitee@org-access.test", role: "owner" }))
-    .rejects.toThrow("Only an owner can invite someone as an owner.");
-  // A stale owner invite from an org admin is not claimable; one from an org owner is.
-  await db.insert(teamInvite).values([
-    { teamId: away.id, email: "oa-stale@org-access.test", role: "owner", invitedByUserId: ORG_ADMIN, createdAt: now, acceptedAt: null },
-    { teamId: home.id, email: "oa-granted@org-access.test", role: "owner", invitedByUserId: ORG_OWNER, createdAt: now, acceptedAt: null },
-  ]);
+  await inviteToTeam(ctx(ORG_ADMIN), { teamId: away.id, email: "oa-granted@org-access.test", role: "admin" });
+  // An invite from someone who no longer manages the team is not claimable.
+  await db.insert(teamInvite).values(
+    { teamId: away.id, email: "oa-stale@org-access.test", role: "admin", invitedByUserId: ORG_MEMBER, createdAt: now, acceptedAt: null },
+  );
   const invitees = ["oa-invitee", "oa-stale", "oa-granted"];
   await db.insert(user).values(invitees.map((id) => ({
     id, name: id, email: `${id}@org-access.test`, emailVerified: true, createdAt: now, updatedAt: now,
@@ -154,20 +152,17 @@ it("makes an org admin's team invite claimable, but never an owner grant", async
     .where(and(eq(teamMember.teamId, teamId), eq(teamMember.userId, userId))))[0]?.role ?? null;
   expect(await roleOf(away.id, "oa-invitee")).toBe("member");
   expect(await roleOf(away.id, "oa-stale")).toBeNull();
-  expect(await roleOf(home.id, "oa-granted")).toBe("owner");
+  expect(await roleOf(away.id, "oa-granted")).toBe("admin");
 });
 
-it("lets an org owner delete a project and a team, but not an org admin", async () => {
+it("lets org owners and admins delete projects, but only org owners delete teams", async () => {
   const doomed = await createTeam(ctx(OWNER), { slug: "oa-doomed", name: "OA Doomed" });
   const doomedProject = await createProject(ctx(OWNER), { teamId: doomed.id, slug: "gone", name: "Gone", key: "GON" });
   await createProject(ctx(OWNER), { teamId: doomed.id, slug: "also", name: "Also", key: "ALS" });
 
   await expect(deleteTeam(ctx(ORG_ADMIN), { teamId: doomed.id, confirmation: doomed.slug }))
     .rejects.toMatchObject({ reason: "forbidden" });
-  await expect(deleteProject(ctx(ORG_ADMIN), { projectId: doomedProject.id, confirmation: "gone" }))
-    .rejects.toMatchObject({ reason: "forbidden" });
-
-  await deleteProject(ctx(ORG_OWNER), { projectId: doomedProject.id, confirmation: "gone" });
+  await deleteProject(ctx(ORG_ADMIN), { projectId: doomedProject.id, confirmation: "gone" });
   expect(await db.select().from(project).where(eq(project.id, doomedProject.id))).toEqual([]);
 
   await deleteTeam(ctx(ORG_OWNER), { teamId: doomed.id, confirmation: doomed.slug });

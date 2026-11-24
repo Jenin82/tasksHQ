@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, exists, inArray, isNotNull, isNull, ne, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, exists, isNotNull, isNull, ne, or, sql, type SQL } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import { alias } from "drizzle-orm/sqlite-core";
@@ -23,7 +23,7 @@ import {
   isTaskParentError,
 } from "../errors";
 import { user } from "../schema/auth";
-import { teamMember, teamReportingLine } from "../schema/team";
+import { teamMember } from "../schema/team";
 import { type Project, type ProjectTaskType, type Status, project, projectTaskType, status } from "../schema/project";
 import { TASK_PRIORITIES, type Comment, type CommentMention, type Task, type TaskPriority, comment, task, taskProjectAlias } from "../schema/task";
 import { resolveCommentMentions } from "./comment-mentions";
@@ -285,7 +285,7 @@ async function readDetail(
 /** Active assignments in the viewer's team. */
 export async function listWorkspaceAssignments(
   ctx: DomainContext,
-  input: { teamId: string; view: "mine" | "assigned" | "reports" },
+  input: { teamId: string; view: "mine" | "assigned" },
 ) {
   const { db, actorUserId } = ctx;
   await requireTeamMember(db, input.teamId, actorUserId);
@@ -318,15 +318,8 @@ export async function listWorkspaceAssignments(
         and(eq(rankedAssignments.actorId, actorUserId), eq(rankedAssignments.assigneeId, task.assigneeUserId)),
       ),
     );
-  } else if (input.view === "mine") {
-    assigned = eq(task.assigneeUserId, actorUserId);
   } else {
-    assigned = inArray(
-      task.assigneeUserId,
-      db.select({ userId: teamReportingLine.userId })
-        .from(teamReportingLine)
-        .where(and(eq(teamReportingLine.teamId, input.teamId), eq(teamReportingLine.leadUserId, actorUserId))),
-    );
+    assigned = eq(task.assigneeUserId, actorUserId);
   }
 
   const query = db
@@ -1250,7 +1243,7 @@ export async function updateTask(
       plan ? sql`${task.statusId} is not ${plan.to.id}` : undefined,
     );
     if (changed) {
-      writes.unshift(queueTaskEditMail(ctx, row.id, p.teamId,
+      writes.unshift(queueTaskEditMail(ctx, row.id,
         columns.assigneeUserId === undefined ? sql`${task.assigneeUserId}` : columns.assigneeUserId,
         columns.reporterUserId ?? sql`${task.reporterUserId}`,
         and(scope, changed)!, now));
@@ -1297,7 +1290,7 @@ export async function moveTask(
   if (plan.to.id !== plan.from.id) {
     writes.push(logMove(ctx, row, plan, now, scope));
     if (ctx.emailNotifications) {
-      writes.unshift(queueTaskEditMail(ctx, row.id, p.teamId, sql`${task.assigneeUserId}`, sql`${task.reporterUserId}`,
+      writes.unshift(queueTaskEditMail(ctx, row.id, sql`${task.assigneeUserId}`, sql`${task.reporterUserId}`,
         and(scope, sql`${task.statusId} is not ${plan.to.id}`)!, now));
     }
   }
@@ -1407,7 +1400,7 @@ export async function transferTask(
       scope: targetScope,
     }));
     if (ctx.emailNotifications) {
-      notifications.push(queueTaskEditMail(ctx, row.id, target.teamId, sql`${task.assigneeUserId}`, sql`${task.reporterUserId}`, targetScope, new Date()));
+      notifications.push(queueTaskEditMail(ctx, row.id, sql`${task.assigneeUserId}`, sql`${task.reporterUserId}`, targetScope, new Date()));
     }
   }
   let updated;

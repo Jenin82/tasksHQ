@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server.browser";
 import { expect, it, vi } from "vitest";
-import { WorkspaceShell } from "@/components/workspace-shell";
+import { WorkspaceShell, parseClosedSections } from "@/components/workspace-shell";
 
 const route = vi.hoisted(() => ({ pathname: "" }));
 vi.mock("next/navigation", () => ({ usePathname: () => route.pathname }));
@@ -14,24 +14,27 @@ const org = { canManage: false };
 function renderSidebar(pathname: string, canManageWorkspace: boolean, teams = oneTeam, canManageProject = false, orgAdmin = false) {
   route.pathname = pathname;
   return renderToStaticMarkup(
-    <WorkspaceShell team="acme" org={{ ...org, canManage: orgAdmin }} projects={[{ slug: "web", key: "WEB", name: "Website", canManageSettings: canManageProject }]} canManageWorkspace={canManageWorkspace} hasReports canViewTimeReports={false} teams={teams} header={null}>
+    <WorkspaceShell team="acme" org={{ ...org, canManage: orgAdmin }} projects={[{ slug: "web", key: "WEB", name: "Website", canManageSettings: canManageProject }]} canManageWorkspace={canManageWorkspace} teams={teams} header={null}>
       Content
     </WorkspaceShell>,
   );
 }
 
-it("shows the active team section inside Settings for administrators", () => {
-  const html = renderSidebar("/acme/settings/reporting-lines", true);
+it("shows the active team section inside Team settings for administrators", () => {
+  const html = renderSidebar("/acme/settings/general", true);
   expect(html).toContain("aria-label=\"Team settings\"");
+  expect(html).toMatch(/<a\b[^>]*href="\/acme\/settings\/members"[^>]*>.*?Team settings<\/a>/);
+  expect(html).not.toMatch(/>\s*Settings<\/a>/);
   expect(html).toContain('href="/acme/settings/members"');
-  expect(html).toContain('href="/acme/settings/general"');
-  expect(html).toMatch(/<a\b[^>]*href="\/acme\/settings\/reporting-lines"[^>]*aria-current="page"[^>]*>Reporting lines<\/a>/);
+  expect(html).toMatch(/<a\b[^>]*href="\/acme\/settings\/general"[^>]*aria-current="page"[^>]*>General<\/a>/);
+  expect(html).not.toContain('href="/acme/settings/reporting-lines"');
 });
 
 it("keeps task pages outside the Settings submenu", () => {
   const html = renderSidebar("/acme/settings/your-tasks", true);
   expect(html).not.toContain("aria-label=\"Team settings\"");
   expect(html).toMatch(/href="\/acme\/settings\/your-tasks"[^>]*aria-current="page"/);
+  expect(html).not.toContain("Your Reports");
 });
 
 it("shows All My Tasks above Workspace only for users in multiple teams", () => {
@@ -82,17 +85,33 @@ it("shows the project settings pages only on settings paths, marking just the op
   }
 });
 
-it("shows Team Time to time-report viewers and leads only", () => {
+it("shows one Time link above the sections to everyone, and the Settings section to org admins", () => {
   route.pathname = "/acme/settings/your-tasks";
-  const render = (canViewTimeReports: boolean, hasReports: boolean) => renderToStaticMarkup(
-    <WorkspaceShell team="acme" org={org} projects={[]} canManageWorkspace={false} hasReports={hasReports} canViewTimeReports={canViewTimeReports} teams={oneTeam} header={null}>
+  const render = (orgNav: typeof org) => renderToStaticMarkup(
+    <WorkspaceShell team="acme" org={orgNav} projects={[]} canManageWorkspace={false} teams={oneTeam} header={null}>
       Content
     </WorkspaceShell>,
   );
-  const link = /<a\b[^>]*href="\/acme\/settings\/time"[^>]*>.*?Team Time<\/a>/;
-  expect(render(true, false)).toMatch(link);
-  expect(render(false, true)).toMatch(link);
-  expect(render(false, false)).not.toContain('href="/acme/settings/time"');
+  const links = (html: string) => [...html.matchAll(/<a\b[^>]*href="(\/settings\/[^"]+)"/g)].map(([, href]) => href);
+  // Every org member gets one Time link; nothing time-related stays in the team's Workspace.
+  const member = render(org);
+  expect(links(member)).toEqual(["/settings/time"]);
+  expect(member).toMatch(/<a\b[^>]*href="\/settings\/time"[^>]*>.*?Time<\/a>/);
+  expect(member).not.toContain("Your Time");
+  expect(member).not.toContain("Team Time");
+  expect(member).not.toContain('href="/acme/settings/your-time"');
+  expect(member).not.toContain('href="/acme/settings/time"');
+  expect(member).not.toContain(">Settings</p>");
+  expect(member).not.toContain('aria-label="Settings"');
+  expect(member.indexOf('href="/settings/time"')).toBeLessThan(member.indexOf(">Workspace</p>"));
+  // An org admin: the Time link, then the Settings section in its own order.
+  const orgAdmin = render({ canManage: true });
+  expect(links(orgAdmin)).toEqual([
+    "/settings/time", "/settings/teams", "/settings/members", "/settings/reporting-lines", "/settings/general",
+  ]);
+  const group = orgAdmin.split('aria-label="Settings"')[1]?.split("</div>")[0] ?? "";
+  for (const page of ["teams", "members", "reporting-lines", "general"]) expect(group).toContain(`href="/settings/${page}"`);
+  expect(orgAdmin.indexOf(">Settings</p>")).toBeLessThan(orgAdmin.indexOf(">Workspace</p>"));
 });
 
 it("lists teams only for users in more than one", () => {
@@ -147,21 +166,20 @@ it("marks only the Workspace Projects link current on the team page, never the t
   expect(html).toMatch(/<a\b[^>]*href="\/acme"[^>]*aria-current="page"[^>]*>.*?Projects<\/a>/);
 });
 
-it("gives the Teams and Workspace headings an open collapse toggle", () => {
-  const html = renderSidebar("/acme", false, twoTeams);
-  for (const label of ["Teams", "Workspace"]) {
+it("gives the Settings, Teams and Workspace headings an open collapse toggle", () => {
+  const html = renderSidebar("/acme", false, twoTeams, false, true);
+  for (const label of ["Settings", "Teams", "Workspace"]) {
     expect(html).toMatch(new RegExp(`<button\\b[^>]*aria-label="Collapse ${label}"[^>]*aria-expanded="true"`));
   }
   expect(renderSidebar("/acme", false)).toContain('aria-label="Collapse Workspace"');
 });
 
-it("keeps Workspace from collapsing over the page you're on", () => {
+it("lets Workspace collapse even on the page you're on", () => {
   const toggle = (html: string) => html.match(/<button\b[^>]*aria-label="Collapse Workspace"[^>]*>/)?.[0] ?? "";
-  for (const path of ["/acme", "/acme/settings/members", "/acme/settings/your-time"]) {
-    expect(toggle(renderSidebar(path, true))).toMatch(/\sdisabled=""/);
-  }
-  for (const path of ["/acme/web", "/acme/settings/all-tasks"]) {
-    expect(toggle(renderSidebar(path, true, twoTeams))).not.toMatch(/\sdisabled=""/);
+  for (const path of ["/acme", "/acme/settings/members", "/acme/web"]) {
+    const button = toggle(renderSidebar(path, true));
+    expect(button).not.toBe("");
+    expect(button).not.toMatch(/\sdisabled=""/);
   }
 });
 
@@ -172,23 +190,49 @@ it("lists teams an org admin opens without joining, but keeps All My Tasks to re
   expect(html).not.toContain('href="/acme/settings/all-tasks"');
 });
 
-it("shows the Organization links and New team only to org admins", () => {
+it("shows the Settings section and New team only to org admins", () => {
   const member = renderSidebar("/acme", false, twoTeams);
-  expect(member).not.toContain('aria-label="Organization"');
-  expect(member).not.toContain('href="/settings/members"');
+  expect(member).not.toContain('aria-label="Settings"');
+  expect(member).not.toContain('aria-label="Collapse Settings"');
+  for (const page of ["members", "teams", "reporting-lines", "general"]) expect(member).not.toContain(`href="/settings/${page}"`);
   expect(member).not.toContain('aria-label="New team"');
 
   const admin = renderSidebar("/acme", false, twoTeams, false, true);
-  const group = admin.split('aria-label="Organization"')[1]?.split("</div>")[0] ?? "";
-  for (const page of ["members", "teams", "general"]) expect(group).toContain(`href="/settings/${page}"`);
-  expect(admin.indexOf('aria-label="Organization"')).toBeLessThan(admin.indexOf(">Teams</p>"));
+  const group = admin.split('aria-label="Settings"')[1]?.split("</div>")[0] ?? "";
+  const hrefs = [...group.matchAll(/href="([^"]+)"/g)].map(([, href]) => href);
+  expect(hrefs).toEqual(["/settings/teams", "/settings/members", "/settings/reporting-lines", "/settings/general"]);
+  expect(admin.indexOf('aria-label="Settings"')).toBeLessThan(admin.indexOf(">Teams</p>"));
   expect(admin).toContain('aria-label="New team"');
+});
+
+it("lets Settings collapse even on the org page you're on", () => {
+  const toggle = (html: string) => html.match(/<button\b[^>]*aria-label="Collapse Settings"[^>]*>/)?.[0] ?? "";
+  for (const path of ["/settings/teams", "/settings/members", "/settings/reporting-lines", "/settings/general", "/acme"]) {
+    route.pathname = path;
+    const html = renderToStaticMarkup(
+      <WorkspaceShell org={{ ...org, canManage: true }} projects={[]} canManageWorkspace={false} teams={oneTeam} header={null}>
+        Content
+      </WorkspaceShell>,
+    );
+    expect(toggle(html)).not.toBe("");
+    expect(toggle(html)).not.toMatch(/\sdisabled=""/);
+  }
+});
+
+it("remembers each collapse under its own key", () => {
+  expect(parseClosedSections(JSON.stringify({ settings: true, allTeams: true })))
+    .toEqual({ teams: false, workspace: false, settings: true, allTeams: true });
+  // The old Organizations key still maps to Teams; unknown keys and non-true values are dropped.
+  expect(parseClosedSections(JSON.stringify({ organizations: true, workspace: true, settings: "yes", other: true })))
+    .toEqual({ teams: true, workspace: true, settings: false, allTeams: false });
+  expect(parseClosedSections(null)).toEqual({ teams: false, workspace: false, settings: false, allTeams: false });
+  expect(parseClosedSections("[]")).toBeNull();
 });
 
 it("on the org's pages, lists every team and marks the open org page, with no Workspace or Projects", () => {
   route.pathname = "/settings/teams";
   const html = renderToStaticMarkup(
-    <WorkspaceShell org={{ ...org, canManage: true }} projects={[]} canManageWorkspace={false} hasReports={false} canViewTimeReports={false} teams={oneTeam} header={null}>
+    <WorkspaceShell org={{ ...org, canManage: true }} projects={[]} canManageWorkspace={false} teams={oneTeam} header={null}>
       Content
     </WorkspaceShell>,
   );

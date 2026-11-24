@@ -12,15 +12,16 @@ const isDate = (value: unknown): value is string =>
 
 type Period = readonly ["week" | "month", string];
 
-/** The query string for a period, plus `person` when given. */
-const query = ([name, value]: Period, person?: string) =>
-  new URLSearchParams(person ? { [name]: value, person } : { [name]: value }).toString();
+/** The query string for a period, plus `team` and `people` when given. */
+const query = ([name, value]: Period, team?: string, people?: string) =>
+  new URLSearchParams({ [name]: value, ...(team ? { team } : {}), ...(people ? { people } : {}) }).toString();
 
 export type ReportRange = ReturnType<typeof parseReportRange>;
 
 /**
- * `?week=YYYY-MM-DD` or `?month=YYYY-MM`, plus `?person=`, for the Team Time
- * page and its CSV. Anything else is the current week in `viewerZone`.
+ * `?week=YYYY-MM-DD` or `?month=YYYY-MM`, plus `?team=` (a slug) and
+ * `?people=` (already resolved, see `resolveTimeFilter`), for the Time page and its CSV. Anything else is the current
+ * week in `viewerZone`.
  */
 export function parseReportRange(
   input: Record<string, string | string[] | undefined>,
@@ -28,7 +29,8 @@ export function parseReportRange(
   now = Date.now(),
 ) {
   const today = zonedDate(now, viewerZone);
-  const person = typeof input.person === "string" && input.person ? input.person : undefined;
+  const people = typeof input.people === "string" && input.people ? input.people : undefined;
+  const team = typeof input.team === "string" && input.team ? input.team : undefined;
   const month = typeof input.month === "string" && MONTH.test(input.month) ? input.month : undefined;
 
   let dates: string[];
@@ -61,18 +63,20 @@ export function parseReportRange(
     last,
     end,
     today,
-    person,
+    team,
     viewerZone,
     isCurrent: self[1] === current[1],
-    /** Query strings for this, the previous, next and current period, keeping `person`. */
-    query: query(self, person),
-    prev: query(prev, person),
-    next: query(next, person),
-    current: query(current, person),
-    /** The same period without `person`, or with a different one. */
-    periodQuery: (personId?: string) => query(self, personId),
+    /** Query strings for this, the previous, next and current period, keeping `team` and `people`. */
+    query: query(self, team, people),
+    prev: query(prev, team, people),
+    next: query(next, team, people),
+    current: query(current, team, people),
+    /** The same period and team without `people`, or with different ones. */
+    periodQuery: (otherPeople?: string) => query(self, team, otherPeople),
+    /** The same period and people in another team, or across all teams. */
+    teamQuery: (slug?: string) => query(self, slug, people),
     /** This period in the other view: its month, or for a month its first week (this week for the current month). */
-    otherView: query(month ? ["week", weekStart(self[1] === current[1] ? today : first)] : ["month", first.slice(0, 7)], person),
+    otherView: query(month ? ["week", weekStart(self[1] === current[1] ? today : first)] : ["month", first.slice(0, 7)], team, people),
     // Wide enough for every zone's local days: UTC−12 to UTC+14.
     from: new Date(Date.parse(first) - 14 * HOUR_MS),
     to: new Date(Date.parse(end) + 12 * HOUR_MS),

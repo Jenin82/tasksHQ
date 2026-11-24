@@ -22,7 +22,6 @@ import { transferTaskImages } from "@/lib/transfer-task-images";
 
 function revalidateTaskLists(teamSlug: string) {
   revalidatePath(`/${teamSlug}/settings/your-tasks`);
-  revalidatePath(`/${teamSlug}/settings/your-reports`);
   revalidatePath("/[team]/settings/all-tasks", "page");
 }
 

@@ -14,11 +14,12 @@ import { call, callResult, db, createTeam } from "./helpers";
 
 // Storage is shared across the run, so every id and slug here is `mc-`-prefixed.
 const now = new Date();
-const OWNER = "mc-owner"; // owner of mc-acme
+const OWNER = "mc-owner"; // admin of mc-acme
 const MEMBER = "mc-member"; // plain member of mc-acme, with no project role
 const BYSTANDER = "mc-bystander"; // another plain member of mc-acme
-const OUTSIDER = "mc-outsider"; // owner of mc-other, nothing in mc-acme
+const OUTSIDER = "mc-outsider"; // admin of mc-other, nothing in mc-acme
 const ADMIN = "mc-admin"; // admin of mc-acme, on no project directly
+const LINES = "mc-lines"; // org admin in no team: only org owners/admins manage reporting lines
 
 const ctx = (userId: string) => ({ db, actorUserId: userId, source: "web" as const });
 
@@ -35,6 +36,9 @@ beforeAll(async () => {
       updatedAt: now,
     })),
   );
+
+  await db.insert(user).values({ id: LINES, name: "MC-LINES", email: "mc-lines@example.test", createdAt: now, updatedAt: now });
+  await db.insert(orgMember).values({ userId: LINES, role: "admin", createdAt: now });
 
   const acme = await createTeam(ctx(OWNER), { slug: "mc-acme", name: "Acme" });
   await db.insert(teamMember).values([
@@ -128,9 +132,7 @@ describe("list_projects", () => {
   });
 
   it("keeps project access independent of reporting lines", async () => {
-    const [acme] = await db.select({ id: team.id }).from(team).where(eq(team.slug, "mc-acme"));
-    const reportingLine = { teamId: acme.id, userId: MEMBER };
-    await setReportingLead(ctx(OWNER), { ...reportingLine, leadUserId: BYSTANDER });
+    await setReportingLead(ctx(LINES), { userId: MEMBER, leadUserId: BYSTANDER });
     try {
       const result = await call(BYSTANDER, "list_projects");
       expect(result.isError).toBe(false);
@@ -138,7 +140,7 @@ describe("list_projects", () => {
       const detail = await call(BYSTANDER, "get_task", { task: "ENG-1" });
       expect(detail.isError).toBe(false);
     } finally {
-      await setReportingLead(ctx(OWNER), { ...reportingLine, leadUserId: null });
+      await setReportingLead(ctx(LINES), { userId: MEMBER, leadUserId: null });
     }
     expect((await call(BYSTANDER, "list_projects")).data).toMatchObject([{ key: "ENG" }, { key: "OPS" }]);
   });
@@ -599,7 +601,7 @@ describe("time tracking", () => {
     const listed = await call(BYSTANDER, "list_my_time_entries", { team: "mc-acme", from, to });
     expect(listed.data.totalMinutes).toBe(90);
     expect(listed.data.entries).toMatchObject([
-      { id: started.data.entryId, task: "ENG-1", project: "engineering", kind: "timer", source: "mcp", note: "Pairing", edited: false },
+      { id: started.data.entryId, task: "ENG-1", project: "engineering", team: "mc-acme", kind: "timer", source: "mcp", note: "Pairing", edited: false },
       { id: logged.data.entryId, task: "ENG-2", kind: "manual", durationMinutes: 90 },
     ]);
 
@@ -609,7 +611,7 @@ describe("time tracking", () => {
 
     expect((await call(BYSTANDER, "delete_time_entry", { id: logged.data.entryId })).isError).toBe(false);
     expect((await call(BYSTANDER, "list_my_time_entries", { team: "mc-acme", from, to })).data.entries).toHaveLength(1);
-    expect((await call(BYSTANDER, "list_my_time_entries", { from, to })).isError).toBe(true);
+    expect((await call(BYSTANDER, "list_my_time_entries", { from, to })).data.entries).toHaveLength(1);
   });
 
   it("reports time by scope: self, lead plus direct reports, or everyone", async () => {
@@ -627,17 +629,17 @@ describe("time tracking", () => {
       name: "MC-MEMBER",
       email: "mc-member@Example.test",
       totalMinutes: 60,
-      projects: [{ project: "engineering", name: "Engineering", totalMinutes: 60, tasks: [{ task: key, title: "Reported time", minutes: 60 }] }],
+      projects: [{ project: "engineering", name: "Engineering", team: "mc-acme", totalMinutes: 60, tasks: [{ task: key, title: "Reported time", minutes: 60 }] }],
     };
 
     expect(await report(MEMBER)).toEqual({ people: [memberRow], totalMinutes: 60 });
     expect((await report(ADMIN)).people.map((p: any) => p.name)).toEqual(["MC-ADMIN", "MC-MEMBER"]);
     expect((await report(BYSTANDER)).people).toEqual([]);
-    await setReportingLead(ctx(OWNER), { teamId: acme.id, userId: MEMBER, leadUserId: BYSTANDER });
+    await setReportingLead(ctx(LINES), { userId: MEMBER, leadUserId: BYSTANDER });
     try {
       expect(await report(BYSTANDER)).toEqual({ people: [memberRow], totalMinutes: 60 });
     } finally {
-      await setReportingLead(ctx(OWNER), { teamId: acme.id, userId: MEMBER, leadUserId: null });
+      await setReportingLead(ctx(LINES), { userId: MEMBER, leadUserId: null });
     }
 
     expect((await report(ADMIN, { user: "MC-MEMBER@EXAMPLE.TEST" })).people).toEqual([memberRow]);
@@ -663,13 +665,61 @@ describe("time tracking", () => {
     expect(await summary()).toEqual({
       totalMinutes: 90,
       tasks: [{
-        key, title: "Summarized work", project: "engineering", projectName: "Engineering", status: "Todo", archived: false, minutes: 90,
+        key, title: "Summarized work", project: "engineering", projectName: "Engineering", team: "mc-acme", teamName: "Acme", status: "Todo", archived: false, minutes: 90,
         notes: ["Wrote the spec"], created: null, statusChanges: [], comments: [],
       }],
     });
     expect(await summary({ team: "mc-other" })).toBe("No such team.");
     expect(await summary({ from: "2026-01-01T00:00:00Z", to: "2026-06-01T00:00:00Z" })).toBe("The range can be at most 92 days.");
     expect(await summary({ to: range.from })).toBe("to must be after from.");
+  });
+
+  it("spans every team the caller can open unless a team is named, keeping same-slug projects apart", async () => {
+    const second = await createTeam(ctx(OWNER), { slug: "mc-second", name: "Second" });
+    await db.insert(teamMember).values({ teamId: second.id, userId: MEMBER, role: "member", createdAt: now });
+    // Same slug and name as mc-acme's project; a different key keeps "ENG" unambiguous.
+    const twin = await createProject(ctx(OWNER), { teamId: second.id, slug: "engineering", name: "Engineering", key: "ENX" });
+    const there = await createTask(ctx(OWNER), { projectId: twin.id, title: "Twin work" });
+    const here = await call(MEMBER, "create_task", { project: "ENG", title: "Acme work" });
+    // A fixed past day that no other test logs time in.
+    const log = async (task: string, start: string, end: string) =>
+      expect((await call(MEMBER, "log_time", { task, start, end })).isError).toBe(false);
+    await log(here.data.key, "2026-01-19T09:00:00Z", "2026-01-19T10:00:00Z");
+    await log(`mc-second/${there.key}`, "2026-01-19T11:00:00Z", "2026-01-19T11:30:00Z");
+    const range = { from: "2026-01-19T00:00:00Z", to: "2026-01-20T00:00:00Z" };
+    const tool = async (name: string, extra = {}) => (await call(MEMBER, name, { ...range, ...extra })).data;
+
+    const mine = await tool("list_my_time_entries");
+    expect(mine.totalMinutes).toBe(90);
+    expect(mine.entries.map((e: any) => [e.task, e.project, e.team])).toEqual([
+      [there.key, "engineering", "mc-second"],
+      [here.data.key, "engineering", "mc-acme"],
+    ]);
+    expect((await tool("list_my_time_entries", { team: "MC-SECOND" })).entries.map((e: any) => e.team)).toEqual(["mc-second"]);
+
+    const report = await tool("get_time_report");
+    expect(report.totalMinutes).toBe(90);
+    expect(report.people[0].projects).toEqual([
+      { project: "engineering", name: "Engineering", team: "mc-acme", totalMinutes: 60, tasks: [{ task: here.data.key, title: "Acme work", minutes: 60 }] },
+      { project: "engineering", name: "Engineering", team: "mc-second", totalMinutes: 30, tasks: [{ task: there.key, title: "Twin work", minutes: 30 }] },
+    ]);
+    expect((await tool("get_time_report", { team: "mc-second" })).people[0].projects.map((p: any) => p.team)).toEqual(["mc-second"]);
+    expect((await tool("get_time_report", { team: "mc-second", user: "mc-member@example.test" })).totalMinutes).toBe(30);
+
+    const summary = await tool("get_work_summary_data");
+    expect(summary.totalMinutes).toBe(90);
+    expect(summary.tasks.map((t: any) => [t.key, t.team, t.teamName])).toEqual([
+      [here.data.key, "mc-acme", "Acme"],
+      [there.key, "mc-second", "Second"],
+    ]);
+    expect((await tool("get_work_summary_data", { team: "mc-acme" })).tasks.map((t: any) => t.team)).toEqual(["mc-acme"]);
+
+    for (const name of ["list_my_time_entries", "get_time_report", "get_work_summary_data"]) {
+      expect(await tool(name, { team: "mc-nope" }), name).toBe("No such team.");
+      expect(await tool(name, { team: "mc-other" }), name).toBe("No such team.");
+    }
+    // A team member of mc-acme only: mc-second is not theirs to open.
+    expect(await call(BYSTANDER, "get_time_report", { ...range, team: "mc-second" })).toEqual({ isError: true, data: "No such team." });
   });
 });
 

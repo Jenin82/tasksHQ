@@ -12,10 +12,10 @@ import type { ActionState } from "@/lib/action-result";
 import { formatClock, formatDuration } from "@/lib/format";
 import { addDays, browserTimeZone, zonedTime, zonedWallTime } from "@/lib/time-zone";
 import { cn } from "@/lib/utils";
-import { deleteTimeEntryAction, stopTimerAction, updateTimeEntryAction, type TaskTimeEntry } from "@/app/[team]/time-actions";
+import { deleteTimeEntryAction, stopTimerAction, updateTimeEntryAction, type TaskTimeEntry } from "@/app/time-actions";
 
 /**
- * Timer controls live in the top bar, the task panel and Your time. Each
+ * Timer controls live in the top bar, the task panel and Time. Each
  * mutation revalidates the server trees; this event also tells task panels,
  * whose time data is client state, to read it again.
  */
@@ -209,9 +209,11 @@ export function TimeEntryPopover({ trigger, label, className, align = "end", ...
  * One of the viewer's own entries. `timeZone` is the zone it is shown and
  * edited in.
  */
-export function TimeEntryItem({ entry, timeZone, children }: {
+export function TimeEntryItem({ entry, timeZone, readOnly = false, children }: {
   entry: TaskTimeEntry;
   timeZone: string;
+  /** No edit or delete controls, for entries in a team the user no longer belongs to. */
+  readOnly?: boolean;
   children?: ReactNode;
 }) {
   const [error, setError] = useState<string>();
@@ -242,6 +244,7 @@ export function TimeEntryItem({ entry, timeZone, children }: {
           )}
           {entry.note && <p className="mt-1 text-sm text-muted-foreground wrap-anywhere">{entry.note}</p>}
         </div>
+        {!readOnly && <>
         <TimeEntryPopover
           label="Edit time entry"
           trigger={
@@ -265,6 +268,7 @@ export function TimeEntryItem({ entry, timeZone, children }: {
         >
           <Trash2 aria-hidden />
         </Button>
+        </>}
       </div>
       {confirming && (
         <div className="mt-2 flex flex-wrap items-center justify-end gap-1">

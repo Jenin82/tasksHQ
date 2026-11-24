@@ -2,9 +2,11 @@ import { asc, desc, eq, isNull } from "drizzle-orm";
 import { forbidden } from "next/navigation";
 import { canOrg } from "@tasks/core/access";
 import { orgInvite, orgMember, user as userTable } from "@tasks/core/schema";
+import { orgRoleOptions } from "@/app/[team]/(team)/settings/members/role-select";
 import { MemberInviteDialog } from "@/app/[team]/member-invite-dialog";
 import { db } from "@/lib/db";
 import { getOrgContext } from "@/lib/org-context";
+import { roleLabel } from "@/lib/role-label";
 import { emailEnabled } from "@/lib/smtp";
 import { inviteOrgMemberAction } from "./actions";
 import { OrgMemberControls, RevokeOrgInvite } from "./member-controls";
@@ -40,7 +42,7 @@ export default async function OrgMembersPage() {
           <span className="stutter numeral">{members.length}</span>
         </div>
         <MemberInviteDialog
-          actorRole={role}
+          roleOptions={orgRoleOptions(role)}
           inviteAction={inviteOrgMemberAction}
           title="Invite to organization"
           description="The recipient joins the organization after signing in with the invited address. Add them to teams from each team's Members page."
@@ -55,11 +57,11 @@ export default async function OrgMembersPage() {
               <p className="truncate text-sm text-muted-foreground">{m.email}</p>
             </div>
             <div className="flex shrink-0 items-center gap-6">
-              {/* An admin's authority stops short of an owner. */}
+              {/* An admin's authority stops short of a Super admin. */}
               {role === "owner" || m.role !== "owner" ? (
                 <OrgMemberControls userId={m.userId} role={m.role} name={m.name} actorRole={role} />
               ) : (
-                <span className="stutter">{m.role}</span>
+                <span className="stutter">{roleLabel(m.role)}</span>
               )}
               <span className="stutter hidden sm:block">{date(m.joinedAt)}</span>
             </div>
@@ -85,7 +87,7 @@ export default async function OrgMembersPage() {
               <li key={i.email} className="flex items-baseline justify-between gap-6 py-3">
                 <span className="truncate">{i.email}</span>
                 <span className="flex shrink-0 items-baseline gap-6">
-                  <span className="stutter">{i.role}</span>
+                  <span className="stutter">{roleLabel(i.role)}</span>
                   <span className="stutter hidden sm:block">{date(i.invitedAt)}</span>
                   {(role === "owner" || i.role !== "owner") && <RevokeOrgInvite email={i.email} />}
                 </span>

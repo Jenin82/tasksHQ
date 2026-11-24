@@ -1,4 +1,4 @@
-import { DocLink, Note, Screenshot, Steps, type GuideSection } from "../guide";
+import { Note, Screenshot, Steps, type GuideSection } from "../guide";
 
 export const sections: GuideSection[] = [
   {
@@ -16,13 +16,12 @@ export const sections: GuideSection[] = [
   },
   {
     id: "assignment-views",
-    title: "Find work assigned to you or your reports",
+    title: "Find work assigned to you",
     searchTerms: ["switch team", "change team", "teams", "your team", "collapse sidebar", "show more teams"],
     content: <>
       <ul className="list-disc space-y-2 pl-6 marker:text-muted-foreground">
         <li><strong>Your Tasks</strong> shows active work in the current team. Switch between <strong>Assigned to you</strong> and <strong>Assigned by you</strong>.</li>
         <li><strong>All My Tasks</strong> combines those views across your teams. The sidebar shows this option when you belong to more than one team, with your teams listed below it. Choose one to switch to it. Use the arrow beside a sidebar heading to collapse that section.</li>
-        <li><strong>Your Reports</strong> shows active tasks assigned to your direct reports. See <DocLink topic="team-settings" section="reporting-lines">Team settings</DocLink> for reporting lines.</li>
       </ul>
     </>,
   },

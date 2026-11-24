@@ -1,13 +1,22 @@
-import { and, eq, inArray, isNotNull, ne, or, sql, type SQL } from "drizzle-orm";
-import { AccessError, can, requireCapability, requireTeamMember, requireProjectMember, teamAccess } from "../access";
+import { and, eq, exists, inArray, isNotNull, type SQL } from "drizzle-orm";
+import {
+  AccessError, can, requireCapability, requireOrgCapability, requireOrgMember, requireTeamMember,
+  requireProjectMember, teamAccess,
+} from "../access";
 import type { DomainContext } from "../activity";
 import { DomainError } from "../errors";
-import { activity, comment, team, teamInvite, teamMember, project, projectMember, status, task } from "../schema";
+import { activity, comment, orgMember, team, teamInvite, teamMember, project, projectMember, status, task } from "../schema";
 import { taskKey } from "./task";
 
-/** A real team owner or an org owner. */
-function stillOwner({ actorUserId }: DomainContext, teamId: string) {
-  return eq(teamAccess(teamId, actorUserId).role, "owner");
+/** A real team admin, or an org owner/admin (implicit team admin). */
+function stillTeamAdmin({ actorUserId }: DomainContext, teamId: string) {
+  return eq(teamAccess(teamId, actorUserId).role, "admin");
+}
+
+/** Only org owners delete teams (`org:delete_team`). */
+function stillOrgOwner({ db, actorUserId }: DomainContext) {
+  return exists(db.select({ userId: orgMember.userId }).from(orgMember)
+    .where(and(eq(orgMember.userId, actorUserId), eq(orgMember.role, "owner"))));
 }
 
 function projectDeletes({ db }: DomainContext, scope: SQL) {
@@ -40,7 +49,7 @@ export async function deleteProject(
   requireCapability(member.role, "project:delete");
   requireConfirmation(row.slug, confirmation);
 
-  const scope = and(eq(project.id, projectId), stillOwner(ctx, row.teamId))!;
+  const scope = and(eq(project.id, projectId), stillTeamAdmin(ctx, row.teamId))!;
   const [, , , , , deleted] = await db.batch([
     ...projectDeletes(ctx, scope),
     db.delete(project).where(scope).returning({ id: project.id }),
@@ -53,33 +62,22 @@ export async function deleteTeam(
   { teamId, confirmation }: { teamId: string; confirmation: string },
 ) {
   const { db, actorUserId } = ctx;
-  const member = await requireTeamMember(db, teamId, actorUserId);
-  requireCapability(member.role, "team:delete");
+  // Team access first, so a team the caller cannot open stays not_a_member.
+  await requireTeamMember(db, teamId, actorUserId);
+  requireOrgCapability((await requireOrgMember(db, actorUserId)).role, "org:delete_team");
   const [row] = await db.select({ slug: team.slug }).from(team).where(eq(team.id, teamId));
   if (!row) throw new AccessError("not_a_member", "No such team.");
   requireConfirmation(row.slug, confirmation);
 
-  // Re-check ownership inside the batch. The final delete uses changes()
-  // because the preceding statement has already removed a real team owner; an
-  // org owner who is not a team member removes no row there and still passes
-  // `owner`, which the team row deletion re-evaluates after the removal.
-  const owner = stillOwner(ctx, teamId);
+  // Re-check the org owner role inside the batch on every statement.
+  const owner = stillOrgOwner(ctx);
   const scope = and(eq(project.teamId, teamId), owner)!;
-  const [, , , , , , , , , deleted] = await db.batch([
+  const [, , , , , , , , deleted] = await db.batch([
     ...projectDeletes(ctx, scope),
     db.delete(project).where(scope),
     db.delete(teamInvite).where(and(eq(teamInvite.teamId, teamId), owner)),
-    db.delete(teamMember).where(and(
-      eq(teamMember.teamId, teamId),
-      ne(teamMember.userId, actorUserId),
-      owner,
-    )),
-    db.delete(teamMember).where(and(
-      eq(teamMember.teamId, teamId),
-      eq(teamMember.userId, actorUserId),
-      owner,
-    )),
-    db.delete(team).where(and(eq(team.id, teamId), or(sql`changes() > 0`, owner))).returning({ id: team.id }),
+    db.delete(teamMember).where(and(eq(teamMember.teamId, teamId), owner)),
+    db.delete(team).where(and(eq(team.id, teamId), owner)).returning({ id: team.id }),
   ]);
   if (!deleted.length) throw new AccessError("forbidden", "The team could not be deleted.");
 }

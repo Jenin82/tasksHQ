@@ -163,22 +163,21 @@ it("does not use an accepted team invite to bypass the signup policy", async () 
   expect(await db.select().from(user).where(eq(user.email, email))).toEqual([]);
 });
 
-it("lets a workspace owner revoke an owner invite and removes its signup bypass", async () => {
-  const workspace = await createTeam(owner, { slug: "email-auth-team-revoke", name: "Revoked owner invite" });
+it("lets another team admin revoke an admin invite and removes its signup bypass", async () => {
+  const workspace = await createTeam(owner, { slug: "email-auth-team-revoke", name: "Revoked admin invite" });
   const admin = { ...owner, actorUserId: "email-auth-revoke-admin" };
   await db.insert(user).values({ id: admin.actorUserId, name: "Admin", email: "revoke-admin@email-auth.test" });
   await db.insert(teamMember).values({ teamId: workspace.id, userId: admin.actorUserId, role: "admin", createdAt: new Date() });
 
   const email = "invited-owner@email-auth.test";
   const invite = { teamId: workspace.id, email };
-  await inviteToTeam(owner, { ...invite, role: "owner" });
-  await revokeTeamInvite(admin, invite);
+  await inviteToTeam(owner, { ...invite, role: "admin" });
   const inviteRows = () => db.select().from(teamInvite).where(and(eq(teamInvite.teamId, workspace.id), eq(teamInvite.email, email)));
-  expect(await inviteRows()).toEqual([expect.objectContaining({ role: "owner", acceptedAt: null })]);
+  expect(await inviteRows()).toEqual([expect.objectContaining({ role: "admin", acceptedAt: null })]);
 
   const flow = fixture(10, "*@allowed.example");
   const code = await flow.issueCode(email);
-  await revokeTeamInvite(owner, { ...invite, email: ` ${email.toUpperCase()} ` });
+  await revokeTeamInvite(admin, { ...invite, email: ` ${email.toUpperCase()} ` });
   expect(await inviteRows()).toEqual([]);
   expect((await flow.verify(email, code, "Former invitee")).ok).toBe(false);
   expect(await db.select().from(user).where(eq(user.email, email))).toEqual([]);

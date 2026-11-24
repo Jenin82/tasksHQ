@@ -4,7 +4,7 @@ import { useActionState, useRef, useState } from "react";
 import type { OrgRole } from "@tasks/core/schema";
 import { Button } from "@/components/ui/button";
 import { NO_ERROR } from "@/lib/action-result";
-import { RoleSelect } from "@/app/[team]/(team)/settings/members/role-select";
+import { RoleSelect, orgRoleOptions } from "@/app/[team]/(team)/settings/members/role-select";
 import { changeOrgMemberRoleAction, removeOrgMemberAction, revokeOrgInviteAction } from "./actions";
 
 export function RevokeOrgInvite({ email }: { email: string }) {
@@ -41,7 +41,7 @@ export function OrgMemberControls({ userId, role, name, actorRole }: {
           {/* Keyed on the role so a saved change does not snap back on form reset. */}
           <RoleSelect
             key={role}
-            actorRole={actorRole}
+            options={orgRoleOptions(actorRole)}
             name="role"
             defaultValue={role}
             disabled={changing}

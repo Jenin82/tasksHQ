@@ -10,15 +10,31 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: "2026-11-19-org-time-and-reporting",
+    date: "2026-11-19",
+    title: "One Time page, Super admins and team admins",
+    items: [
+      "Your Time and Team Time are now one Time page at the top of the sidebar. It shows your own time first; use Add people to see others, or remove the last person to see everyone you can. This browser remembers your last filter, and old links still take you there.",
+      "When you're one of the people shown, the week view lists your entries so you can add, edit or delete time in teams you belong to. Entries from teams you only manage are read-only.",
+      "The Time page covers every team you can see, or just one. Leads see their reports' time only in teams they share. The CSV follows the filter and has a new Team column at the end.",
+      "Organization owners are now called Super admins. Organization roles are Super admin, Admin and Member.",
+      "Teams have Admin and Member roles only. Every team owner is now a team admin, and team admins can delete projects. Only a Super admin can delete a team, from its General settings.",
+      "Super admins and admins get a Settings section in the sidebar with Teams, Members, Reporting lines and General. Your team's own link is now Team settings.",
+      "Only Super admins and admins manage reporting lines. Each person has one lead across the organization, and the line applies in every team the two people share. Where someone had different leads in different teams, the line from their oldest team was kept, and lines that formed a loop were removed.",
+      "The Your Team page has been removed. Use the Time page to see your reports' time.",
+      "MCP time tools cover every team you can open when you leave out team, and their results name each entry's team.",
+    ],
+  },
+  {
     id: "2026-11-19-organization-layer",
     date: "2026-11-19",
     title: "One organization above your teams",
     items: [
-      "Your teams now sit in one organization. Owners and admins manage its members, teams and name from the links at the top of the sidebar.",
+      "Your teams now sit in one organization. Super admins and admins manage its members, teams and name from Settings in the sidebar.",
       "Removing someone from the organization removes them from every team, unassigns their tasks and stops their timer.",
-      "Organization owners and admins can open and manage every team without joining it. Join a team to be assigned, mentioned or track time there.",
-      "Every existing team owner is now an organization owner and can open, manage and delete every team. Owners should check the list in Organization Members and change anyone who should not have that reach.",
-      "Only organization owners and admins create teams, and a team no longer needs its own owner.",
+      "Super admins and admins can open and manage every team without joining it. Join a team to be assigned, mentioned or track time there.",
+      "Every existing team owner is now an organization Super admin and can open, manage and delete every team. Super admins should check the list in Settings › Members and change anyone who should not have that reach.",
+      "Only Super admins and admins create teams, and a team no longer needs an admin of its own.",
       "New accounts need an invitation unless the deployment sets a signup allowlist.",
       "MCP tools no longer accept org; use team.",
     ],
@@ -28,10 +44,9 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: "2026-11-19",
     title: "Organizations are now teams",
     items: [
-      "Organizations are now called teams. Your members, projects, roles and links stay the same.",
-      "Your Team is now Your Reports.",
-      "Reporting lines moved to their own settings page. Old links still take you there.",
-      "MCP tools take and return team instead of org. The old org input still works for now.",
+      "Organizations are now called teams. Your members, projects and links stay the same.",
+      "The Your Team page has been removed. Use the Time page to see your reports' time.",
+      "MCP tools take and return team instead of org.",
     ],
   },
   {

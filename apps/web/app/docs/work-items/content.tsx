@@ -67,17 +67,17 @@ export const sections: GuideSection[] = [
       <p><strong>Move.</strong> Open the task, choose <strong>Move</strong> in the properties panel, select a destination project in the same team, and choose <strong>Move work item</strong>. The task gets a key in the destination project. TasksHQ matches the old status and type by name when possible. Otherwise, it uses the destination’s first status and default type.</p>
       <p>The <strong>Move</strong> button appears when you can edit the task and another project in the team has at least one status.</p>
       <p><strong>Archive.</strong> Choose <strong>Archive</strong> in the properties panel to take the task off the active Board and Table. To restore it, open <strong>Archive</strong> under the project in the sidebar and choose <strong>Unarchive</strong>.</p>
-      <p><strong>Delete permanently.</strong> Team owners and admins can permanently delete an archived task from the Archive view. This removes the task and its comments, activity history, and logged time.</p>
+      <p><strong>Delete permanently.</strong> Team admins can permanently delete an archived task from the Archive view. This removes the task and its comments, activity history, and logged time.</p>
     </>,
   },
   {
     id: "time-tracking",
     title: "Track time on a task",
-    searchTerms: ["timer", "time tracking", "timesheet", "hours", "log time", "your time"],
+    searchTerms: ["timer", "time tracking", "timesheet", "hours", "log time", "your time", "time"],
     content: <>
       <p>Open a task and choose <strong>Start timer</strong> under <strong>Time</strong>. The running timer shows in the top bar, where you can open its task or stop it. Starting another timer stops the one already running.</p>
       <p>Choose <strong>Add time</strong> to log time you forgot to track. An entry can be up to 24 hours and can’t end in the future. Every team member can track time on any active task, including tasks in projects that restrict editing.</p>
-      <p><strong>Your Time</strong> in the sidebar shows your week by task and day in your time zone, with every entry. You can edit or delete your own entries.</p>
+      <p><strong>Time</strong> at the top of the sidebar shows your own time by default, across all your teams, by day in your time zone, with every entry in the week view. You can add time and edit or delete your own entries in teams you belong to. See <DocLink topic="organization" section="time">See your time and your team’s time</DocLink>.</p>
       <Note>A timer left running for 12 hours stops at 12 hours and is marked <strong>Auto-stopped</strong>, so check those entries. Archiving a task stops its timers, and permanently deleting it removes its logged time.</Note>
     </>,
   },

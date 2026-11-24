@@ -36,6 +36,8 @@ export const timeEntry = sqliteTable(
     index("time_entry_team_id_started_at_idx").on(t.teamId, t.startedAt),
     index("time_entry_user_id_started_at_idx").on(t.userId, t.startedAt),
     index("time_entry_task_id_idx").on(t.taskId),
+    // Org-wide range scans; the indexes above lead with team or user.
+    index("time_entry_started_at_idx").on(t.startedAt),
     check("time_entry_ended_after_started", sql`${t.endedAt} is null or ${t.endedAt} >= ${t.startedAt}`),
   ],
 );

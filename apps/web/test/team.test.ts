@@ -47,7 +47,7 @@ async function membersOf(teamId: string) {
   return db.select().from(teamMember).where(eq(teamMember.teamId, teamId));
 }
 
-it("createTeam makes the creator an owner", async () => {
+it("createTeam makes the creator a team admin", async () => {
   const created = await createTeam(ctxFor("og-a"), {
     slug: "og-acme",
     name: "  Acme  ",
@@ -55,7 +55,7 @@ it("createTeam makes the creator an owner", async () => {
 
   expect(created.name).toBe("Acme");
   expect(await membersOf(created.id)).toMatchObject([
-    { userId: "og-a", role: "owner" },
+    { userId: "og-a", role: "admin" },
   ]);
 });
 
@@ -162,73 +162,51 @@ it("inviteToTeam upserts a removed-then-reinvited user, clearing acceptedAt", as
   });
 });
 
-it("lets the last owner be demoted or removed, since org owners cover the team (P5)", async () => {
+it("lets the last admin be demoted or removed, since org owners and admins cover the team (P5)", async () => {
   const o = await createTeam(ctxFor("og-a"), { slug: "og-last", name: "Last" });
 
-  await changeTeamMemberRole(ctxFor("og-a"), { teamId: o.id, userId: "og-a", role: "admin" });
-  expect(await membersOf(o.id)).toMatchObject([{ userId: "og-a", role: "admin" }]);
+  await changeTeamMemberRole(ctxFor("og-a"), { teamId: o.id, userId: "og-a", role: "member" });
+  expect(await membersOf(o.id)).toMatchObject([{ userId: "og-a", role: "member" }]);
 
   const p = await createTeam(ctxFor("og-a"), { slug: "og-last-rm", name: "Last rm" });
   await removeTeamMember(ctxFor("og-a"), { teamId: p.id, userId: "og-a" });
   expect(await membersOf(p.id)).toEqual([]);
 });
 
-it("an admin cannot grant or target owner, nor remove one", async () => {
+it("a team admin changes and removes other admins, and grants only admin or member", async () => {
   const o = await createTeam(ctxFor("og-a"), { slug: "og-admin", name: "Adm" });
   await db.insert(teamMember).values([
     { teamId: o.id, userId: "og-b", role: "admin", createdAt: now },
     { teamId: o.id, userId: "og-c", role: "member", createdAt: now },
+    { teamId: o.id, userId: "og-d", role: "admin", createdAt: now },
   ]);
+  const roleOf = async (userId: string) => (await db.select().from(teamMember)
+    .where(and(eq(teamMember.teamId, o.id), eq(teamMember.userId, userId))))[0]?.role;
 
+  // There is no owner role left to grant: a stale form gets an inline sentence.
+  const owner = "owner" as "admin";
   await expect(
-    changeTeamMemberRole(ctxFor("og-b"), {
-      teamId: o.id,
-      userId: "og-c",
-      role: "owner",
-    }),
-    // A DomainError, so a stale form gets an inline sentence, not a 403.
-  ).rejects.toMatchObject({ name: "DomainError" });
-
+    changeTeamMemberRole(ctxFor("og-b"), { teamId: o.id, userId: "og-c", role: owner }),
+  ).rejects.toMatchObject({ name: "DomainError", message: expect.stringMatching(/not a valid role/) });
   await expect(
-    changeTeamMemberRole(ctxFor("og-b"), {
-      teamId: o.id,
-      userId: "og-a",
-      role: "member",
-    }),
-  ).rejects.toMatchObject({ reason: "forbidden" });
-
-  await expect(
-    removeTeamMember(ctxFor("og-b"), { teamId: o.id, userId: "og-a" }),
-  ).rejects.toMatchObject({ reason: "forbidden" });
-
-  await expect(
-    inviteToTeam(ctxFor("og-b"), {
-      teamId: o.id,
-      email: "og-d@team.test",
-      role: "owner",
-    }),
+    inviteToTeam(ctxFor("og-b"), { teamId: o.id, email: "og-d@team.test", role: owner }),
   ).rejects.toMatchObject({ name: "DomainError" });
 
   // A plain member has none of this authority at all.
   await expect(
-    changeTeamMemberRole(ctxFor("og-c"), {
-      teamId: o.id,
-      userId: "og-b",
-      role: "member",
-    }),
+    changeTeamMemberRole(ctxFor("og-c"), { teamId: o.id, userId: "og-b", role: "member" }),
+  ).rejects.toMatchObject({ reason: "forbidden" });
+  await expect(
+    removeTeamMember(ctxFor("og-c"), { teamId: o.id, userId: "og-b" }),
   ).rejects.toMatchObject({ reason: "forbidden" });
 
-  // But an admin may still change a non-owner's role.
-  await changeTeamMemberRole(ctxFor("og-b"), {
-    teamId: o.id,
-    userId: "og-c",
-    role: "admin",
-  });
-  const [c] = await db
-    .select()
-    .from(teamMember)
-    .where(and(eq(teamMember.teamId, o.id), eq(teamMember.userId, "og-c")));
-  expect(c.role).toBe("admin");
+  // An admin acts on anyone in the team, the team's creator and other admins included.
+  await changeTeamMemberRole(ctxFor("og-b"), { teamId: o.id, userId: "og-c", role: "admin" });
+  expect(await roleOf("og-c")).toBe("admin");
+  await changeTeamMemberRole(ctxFor("og-b"), { teamId: o.id, userId: "og-a", role: "member" });
+  expect(await roleOf("og-a")).toBe("member");
+  await removeTeamMember(ctxFor("og-b"), { teamId: o.id, userId: "og-d" });
+  expect(await roleOf("og-d")).toBeUndefined();
 });
 
 it("removing a team member nulls their task assignments and drops their project_member rows", async () => {
@@ -330,6 +308,6 @@ it("removing a team member nulls their task assignments and drops their project_
   ).toEqual([]);
 
   expect(await membersOf(o.id)).toMatchObject([
-    { userId: "og-a", role: "owner" },
+    { userId: "og-a", role: "admin" },
   ]);
 });

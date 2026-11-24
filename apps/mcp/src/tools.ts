@@ -74,8 +74,9 @@ const DESCRIPTION = z.string().describe(
 const DATETIME = z.iso.datetime({ offset: true });
 const NOTE = z.string().max(500).describe("Optional note, up to 500 characters.");
 const MAX_LIST_DAYS = 92;
+/** The time tools span every team in the caller's scope unless one is named. */
 const TEAM_INPUT = {
-  team: z.string().min(1).describe("Team slug, as list_projects returns it."),
+  team: z.string().min(1).optional().describe("Only this team, by slug as list_projects returns it. Omit for every team you can open."),
 };
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_IMAGE_BASE64_LENGTH = 4 * Math.ceil(MAX_TASK_IMAGE_BYTES / 3);
@@ -623,7 +624,7 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
   server.registerTool(
     "list_my_time_entries",
     {
-      description: `Your time entries in a team that overlap [from, to), newest first, with totalMinutes. Entries are counted whole, and running ones count up to now. The range can be at most ${MAX_LIST_DAYS} days.`,
+      description: `Your time entries that overlap [from, to), across every team you can open or only the given team, newest first, with totalMinutes. Each entry gives its project and team slugs. Entries are counted whole, and running ones count up to now. The range can be at most ${MAX_LIST_DAYS} days.`,
       inputSchema: z.object({
         ...TEAM_INPUT,
         from: DATETIME.describe("ISO 8601 date-time with offset, inclusive."),
@@ -634,13 +635,14 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
     (args) =>
       run(async () => {
         const { from, to } = parseRange(args);
-        const o = await resolveTeam(db, props.userId, args.team);
+        const teamId = args.team ? (await resolveTeam(db, props.userId, args.team)).id : undefined;
         const now = Date.now();
-        const entries = (await listMyTimeEntries(ctx, { teamId: o.id, from, to })).map((e) => ({
+        const entries = (await listMyTimeEntries(ctx, { teamId, from, to })).map((e) => ({
           id: e.id,
           task: e.key,
           title: e.title,
           project: e.projectSlug,
+          team: e.teamSlug,
           startedAt: e.startedAt,
           endedAt: e.endedAt,
           durationMinutes: durationMinutes(e.startedAt, e.endedAt, now),
@@ -660,7 +662,7 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
   server.registerTool(
     "get_time_report",
     {
-      description: `Time logged in a team, per person, project and task, in minutes. Owners and admins see everyone in the team, including former members; leads see themselves and their direct reports; others see only themselves. from and to are instants, and entries are clipped to [from, to). Running time counts up to now, capped at 12 hours. Minutes are rounded down at each level, so parts may not add up to the total exactly. The range can be at most ${MAX_LIST_DAYS} days.`,
+      description: `Time logged per person, project and task, in minutes, across every team you can open or only the given team. Each project gives its team slug. Organization Super admins (owners) and admins see everyone, including former members; team admins see everyone in their teams, including former members; leads also see their direct reports' time, but only in teams the lead is a member of; everyone sees their own time. from and to are instants, and entries are clipped to [from, to). Running time counts up to now, capped at 12 hours. Minutes are rounded down at each level, so parts may not add up to the total exactly. The range can be at most ${MAX_LIST_DAYS} days.`,
       inputSchema: z.object({
         ...TEAM_INPUT,
         from: DATETIME.describe("ISO 8601 date-time with offset, inclusive."),
@@ -672,16 +674,16 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
     (args) =>
       run(async () => {
         const { from, to } = parseRange(args);
-        const o = await resolveTeam(db, props.userId, args.team);
+        const teamId = args.team ? (await resolveTeam(db, props.userId, args.team)).id : undefined;
         const entries = await listTimeReportEntries(ctx, {
-          teamId: o.id,
+          teamId,
           from,
           to,
           ...(args.user ? { userEmail: args.user } : {}),
         });
 
         type TaskTotal = { task: string; title: string; ms: number };
-        type ProjectTotal = { project: string; name: string; ms: number; tasks: Map<string, TaskTotal> };
+        type ProjectTotal = { project: string; name: string; team: string; ms: number; tasks: Map<string, TaskTotal> };
         type PersonTotal = { name: string; email: string; ms: number; projects: Map<string, ProjectTotal> };
         const people = new Map<string, PersonTotal>();
         let totalMs = 0;
@@ -690,8 +692,12 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
           if (ms === 0) continue;
           let person = people.get(e.userId);
           if (!person) people.set(e.userId, (person = { name: e.userName, email: e.userEmail, ms: 0, projects: new Map() }));
-          let proj = person.projects.get(e.projectSlug);
-          if (!proj) person.projects.set(e.projectSlug, (proj = { project: e.projectSlug, name: e.projectName, ms: 0, tasks: new Map() }));
+          // By ID: project slugs repeat across teams.
+          let proj = person.projects.get(e.projectId);
+          if (!proj) {
+            proj = { project: e.projectSlug, name: e.projectName, team: e.teamSlug, ms: 0, tasks: new Map() };
+            person.projects.set(e.projectId, proj);
+          }
           let t = proj.tasks.get(e.taskId);
           if (!t) proj.tasks.set(e.taskId, (t = { task: e.key, title: e.title, ms: 0 }));
           totalMs += ms;
@@ -710,14 +716,17 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
             name: p.name,
             email: p.email,
             totalMinutes: minutes(p.ms),
-            projects: [...p.projects.values()].sort(byName).map((pr) => ({
-              project: pr.project,
-              name: pr.name,
-              totalMinutes: minutes(pr.ms),
-              tasks: [...pr.tasks.values()]
-                .sort((a, b) => a.task.localeCompare(b.task, "en", { numeric: true }))
-                .map((t) => ({ task: t.task, title: t.title, minutes: minutes(t.ms) })),
-            })),
+            projects: [...p.projects.values()]
+              .sort((a, b) => byName(a, b) || a.team.localeCompare(b.team))
+              .map((pr) => ({
+                project: pr.project,
+                name: pr.name,
+                team: pr.team,
+                totalMinutes: minutes(pr.ms),
+                tasks: [...pr.tasks.values()]
+                  .sort((a, b) => a.task.localeCompare(b.task, "en", { numeric: true }))
+                  .map((t) => ({ task: t.task, title: t.title, minutes: minutes(t.ms) })),
+              })),
           })),
           totalMinutes: minutes(totalMs),
         };
@@ -727,7 +736,7 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
   server.registerTool(
     "get_work_summary_data",
     {
-      description: `Your own work in a team over [from, to), for writing a work summary, timesheet or standup: each task you logged time on, created, moved or commented on, with its current status, archived flag, your minutes clipped to the range, your time-entry notes, and your status changes and comments in the range. Each task gives its project slug and name. Statuses are project-defined names, so a status like "Done" means completed. Minutes are rounded down per task, so they may not add up to totalMinutes exactly. Running time counts up to now, capped at 12 hours. The range can be at most ${MAX_LIST_DAYS} days.`,
+      description: `Your own work over [from, to), across every team you can open or only the given team, for writing a work summary, timesheet or standup: each task you logged time on, created, moved or commented on, with its current status, archived flag, your minutes clipped to the range, your time-entry notes, and your status changes and comments in the range. Each task gives its project slug and name and its team slug and name, since task keys repeat across teams. Statuses are project-defined names, so a status like "Done" means completed. Minutes are rounded down per task, so they may not add up to totalMinutes exactly. Running time counts up to now, capped at 12 hours. The range can be at most ${MAX_LIST_DAYS} days.`,
       inputSchema: z.object({
         ...TEAM_INPUT,
         from: DATETIME.describe("ISO 8601 date-time with offset, inclusive."),
@@ -738,8 +747,8 @@ export function buildServer(db: DrizzleD1Database, props: Props, images: ImageBi
     (args) =>
       run(async () => {
         const { from, to } = parseRange(args);
-        const o = await resolveTeam(db, props.userId, args.team);
-        return getWorkSummaryData(ctx, { teamId: o.id, from, to });
+        const teamId = args.team ? (await resolveTeam(db, props.userId, args.team)).id : undefined;
+        return getWorkSummaryData(ctx, { teamId, from, to });
       }),
   );
 
